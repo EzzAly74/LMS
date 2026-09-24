@@ -3,6 +3,7 @@
 namespace App\Repositories\Eloquents;
 
 use App\Models\JobTitle;
+use App\Models\User;
 use App\Repositories\Contracts\JobTitleRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -13,6 +14,78 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
     public function __construct(JobTitle $model)
     {
         parent::__construct($model);
+    }
+
+
+    /**
+     * Learners holding this job title, with their progress toward its
+     * required qualifications.
+     *
+     * Powers the job-title detail table (Figma 2325:117118): learner + ID,
+     * assigned qualifications, completion % and "N of M courses".
+     *
+     * "Completed" reuses the project-wide heuristic already used by list()
+     * and the dashboard repo: a `users_courses` row whose `updated_at` is
+     * later than its `created_at`. Keeping the same definition matters - the
+     * per-learner numbers here must add up to the compliance bar shown on the
+     * card in list(), and a second definition would make them disagree.
+     *
+     * Only courses that grant one of THIS job title's required qualifications
+     * are counted, so an unrelated enrolment does not dilute the percentage.
+     *
+     * @param  string  $sort  one of name|completion|employee_id (allow-listed
+     *                        by JobTitleLearnersRequest, never raw input)
+     * @param  string  $dir   asc|desc
+     */
+    public function paginateLearners(
+        JobTitle $jobTitle,
+        int $perPage,
+        ?string $search = null,
+        string $sort = 'name',
+        string $dir = 'asc',
+    ): LengthAwarePaginator {
+        $relevantCourses = DB::table('course_qualification_skills')
+            ->select('course_qualification_skills.course_id')
+            ->join(
+                'job_title_qualification_skill',
+                'course_qualification_skills.qualification_skill_id',
+                '=',
+                'job_title_qualification_skill.qualification_skill_id',
+            )
+            ->where('job_title_qualification_skill.job_title_id', $jobTitle->id);
+
+        $totalCourses = DB::table('users_courses')
+            ->selectRaw('COUNT(DISTINCT users_courses.course_id)')
+            ->whereColumn('users_courses.user_id', 'users.id')
+            ->whereIn('users_courses.course_id', $relevantCourses);
+
+        $completedCourses = DB::table('users_courses')
+            ->selectRaw('COUNT(DISTINCT users_courses.course_id)')
+            ->whereColumn('users_courses.user_id', 'users.id')
+            ->whereIn('users_courses.course_id', $relevantCourses)
+            ->whereColumn('users_courses.updated_at', '>', 'users_courses.created_at');
+
+        $query = User::query()
+            ->where('users.job_title_id', $jobTitle->id)
+            ->when($search, fn ($q) => $q->where(function ($q2) use ($search) {
+                $q2->where('users.name', 'like', "%{$search}%")
+                    ->orWhere('users.machine_code', 'like', "%{$search}%");
+            }))
+            ->select('users.*')
+            ->selectSub($totalCourses, 'courses_total')
+            ->selectSub($completedCourses, 'courses_completed');
+
+        $direction = $dir === 'desc' ? 'desc' : 'asc';
+
+        match ($sort) {
+            'completion'  => $query->orderByRaw(
+                'CASE WHEN courses_total = 0 THEN 0 ELSE courses_completed / courses_total END '.$direction
+            ),
+            'employee_id' => $query->orderBy('users.machine_code', $direction),
+            default       => $query->orderBy('users.name', $direction),
+        };
+
+        return $query->paginate($perPage);
     }
 
     public function list(int $perPage, ?string $search): LengthAwarePaginator

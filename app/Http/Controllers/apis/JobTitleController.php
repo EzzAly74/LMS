@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\apis;
 
 use App\Http\Resources\JobTitleResource;
+use App\Http\Requests\Api\Admin\JobTitleLearnersRequest;
+use App\Http\Resources\Admin\JobTitleLearnerResource;
 use App\Models\JobTitle;
 use App\Services\JobTitleService;
 use Illuminate\Http\JsonResponse;
@@ -70,6 +72,29 @@ class JobTitleController extends ApiController
         return $this->success(
             __('messages.updated'),
             new JobTitleResource($jobTitle->loadCount('qualificationSkills')),
+        );
+    }
+
+    /**
+     * GET admin/job-titles/{job_title}/learners
+     *
+     * Learners holding this job title with their progress toward its required
+     * qualifications. Powers the job-title detail table (Figma 2325:117118),
+     * which had no endpoint at all.
+     */
+    public function learners(JobTitle $job_title, JobTitleLearnersRequest $request): JsonResponse
+    {
+        $learners = $this->service->learnersFor(
+            jobTitle: $job_title,
+            perPage:  $request->perPage(),
+            search:   $request->input('search'),
+            sort:     $request->sort(),
+            dir:      $request->direction(),
+        );
+
+        return $this->paginated(
+            __('messages.retrieved'),
+            JobTitleLearnerResource::collection($learners),
         );
     }
 }

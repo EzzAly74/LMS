@@ -45,8 +45,23 @@ class JobTitleResource extends JsonResource
      */
     private function resolveCompliancePercent(): int
     {
-        $learners  = (int) ($this->learners_count ?? 0);
-        $quals     = (int) ($this->qualifications_count ?? 0);
+        $learners = (int) ($this->learners_count ?? 0);
+
+        /**
+         * `withCount('qualificationSkills')` lands on the model as
+         * `qualification_skills_count`, not `qualifications_count`.
+         *
+         * This read used `$this->qualifications_count`, which is always NULL,
+         * so `$quals` was always 0 and the early return below fired every
+         * time: **compliance_percent was hard 0 on every card since the
+         * feature shipped**, and the Figma compliance bar never showed a real
+         * value. Found in Stage B while writing the test that was supposed to
+         * merely confirm these metrics already existed. Logged as B-103.
+         *
+         * The old key is kept as a fallback in case a caller projects that
+         * alias explicitly.
+         */
+        $quals     = (int) ($this->qualification_skills_count ?? $this->qualifications_count ?? 0);
         $completed = (int) ($this->completed_qualifications_count ?? 0);
 
         if ($learners <= 0 || $quals <= 0) {

@@ -19,6 +19,10 @@ Route::middleware('auth.user')->group(function () {
 });
 
 // Admin only
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-job-titles'])->group(function () {
     Route::put('job-titles/{job_title}/qualifications', [JobTitleController::class, 'syncQualifications']);
+
+    // Job-title detail learners table (Figma 2325:117118) - no endpoint existed.
+    Route::get('admin/job-titles/{job_title}/learners', [JobTitleController::class, 'learners'])
+        ->name('admin.job-titles.learners');
 });

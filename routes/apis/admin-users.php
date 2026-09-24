@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\apis\Admin\AdminLearnerProfileController;
 use App\Http\Controllers\apis\Admin\AdminUserController;
 use Illuminate\Support\Facades\Route;
 
@@ -21,6 +22,24 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware(['auth.user', 'role:Admin'])->prefix('admin')->group(function () {
+
+    /*
+     * Learner detail (Figma 2181:115043). New surface: the learner-side
+     * `learner/profile/*` and `my/*` endpoints are scoped to the logged-in
+     * user, so an admin cannot reuse them.
+     *
+     * Three endpoints rather than one payload because the design gives the two
+     * tables independent pagers.
+     */
+    Route::middleware('permission:view-users')->group(function () {
+        Route::get('learners/{learner}',             [AdminLearnerProfileController::class, 'show'])
+            ->name('admin.learners.show');
+        Route::get('learners/{learner}/courses',     [AdminLearnerProfileController::class, 'courses'])
+            ->name('admin.learners.courses');
+        Route::get('learners/{learner}/performance', [AdminLearnerProfileController::class, 'performance'])
+            ->name('admin.learners.performance');
+    });
+
 
     // Lookup endpoints (declared before the resource routes so the URI
     // segments don't get matched as integer ids).

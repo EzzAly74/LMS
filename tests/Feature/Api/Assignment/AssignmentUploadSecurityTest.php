@@ -51,6 +51,7 @@ class AssignmentUploadSecurityTest extends ApiTestCase
     #[DataProvider('dangerousFiles')]
     public function test_dangerous_uploads_are_rejected(string $name, string $contents): void
     {
+        Storage::fake('private');
         Storage::fake('public');
         [$course, $assignment] = $this->makeCourseWithAssignment();
         ['model' => $user, 'headers' => $headers] = $this->userToken();
@@ -63,6 +64,7 @@ class AssignmentUploadSecurityTest extends ApiTestCase
         );
 
         $response->assertStatus(422);
+        $this->assertCount(0, Storage::disk('private')->allFiles(), 'Nothing should have been written.');
         $this->assertCount(0, Storage::disk('public')->allFiles(), 'Nothing should have been written.');
     }
 
@@ -72,6 +74,8 @@ class AssignmentUploadSecurityTest extends ApiTestCase
 
     public function test_a_legitimate_pdf_is_accepted_and_stored_with_a_safe_name(): void
     {
+        // Submissions moved to the private disk in A12 (B-10).
+        Storage::fake('private');
         Storage::fake('public');
         [$course, $assignment] = $this->makeCourseWithAssignment();
         ['model' => $user, 'headers' => $headers] = $this->userToken();
@@ -90,7 +94,7 @@ class AssignmentUploadSecurityTest extends ApiTestCase
 
         $response->assertOk();
 
-        $stored = Storage::disk('public')->allFiles();
+        $stored = Storage::disk('private')->allFiles();
         $this->assertCount(1, $stored);
 
         // Server-generated basename: the client's name must not survive.
@@ -100,6 +104,7 @@ class AssignmentUploadSecurityTest extends ApiTestCase
 
     public function test_stored_extension_is_derived_from_content_not_from_the_client_name(): void
     {
+        Storage::fake('private');
         Storage::fake('public');
         [$course, $assignment] = $this->makeCourseWithAssignment();
         ['model' => $user, 'headers' => $headers] = $this->userToken();
@@ -113,7 +118,7 @@ class AssignmentUploadSecurityTest extends ApiTestCase
             $headers + ['Accept' => 'application/json'],
         )->assertOk();
 
-        $stored = Storage::disk('public')->allFiles();
+        $stored = Storage::disk('private')->allFiles();
         $this->assertCount(1, $stored);
         $this->assertMatchesRegularExpression('/\.(txt|csv)$/i', $stored[0]);
     }
@@ -134,6 +139,7 @@ class AssignmentUploadSecurityTest extends ApiTestCase
      */
     public function test_php_content_under_a_permitted_name_is_never_stored_executable(): void
     {
+        Storage::fake('private');
         Storage::fake('public');
         [$course, $assignment] = $this->makeCourseWithAssignment();
         ['model' => $user, 'headers' => $headers] = $this->userToken();
@@ -145,7 +151,16 @@ class AssignmentUploadSecurityTest extends ApiTestCase
             $headers + ['Accept' => 'application/json'],
         );
 
-        foreach (Storage::disk('public')->allFiles() as $path) {
+        $stored = array_merge(
+            Storage::disk('private')->allFiles(),
+            Storage::disk('public')->allFiles(),
+        );
+
+        // Either it was rejected outright (nothing stored) or it was stored
+        // inert. Both are acceptable; an executable extension is not.
+        $this->assertLessThanOrEqual(1, count($stored));
+
+        foreach ($stored as $path) {
             $this->assertDoesNotMatchRegularExpression(
                 '/\.(php\d?|phtml|phar|html?|svg|js)$/i',
                 $path,

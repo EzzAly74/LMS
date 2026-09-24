@@ -44,6 +44,27 @@ return [
             'throw' => false,
         ],
 
+        /*
+         * Private disk — never reachable over HTTP.
+         *
+         * B-10 (High): everything uploaded went to the `public` disk, which is
+         * served straight off the filesystem by Apache (and by the
+         * /storage/{path} fallback route, which performs no authorization).
+         * Learner assignment submissions were therefore world-readable to
+         * anyone holding or guessing the URL, with no check that the requester
+         * was the author, the instructor, or an admin.
+         *
+         * It lives outside `app/public`, so there is no symlink to it and no
+         * web server rule that can expose it. Files here are served only
+         * through an authorized controller route.
+         */
+        'private' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private'),
+            'visibility' => 'private',
+            'throw' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

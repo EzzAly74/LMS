@@ -66,7 +66,12 @@ class CourseAssignmentService
 
     public function submitFile(CourseAssignment $assignment, User $user, UploadedFile $file): UserCourseAssignment
     {
-        $path = $this->uploadRequestFile('UserAssignment', request(), null, $file);
+        // B-10: submissions are a learner's own work and go to the private
+        // disk, served only through the authorized download route. Rows
+        // created before this change still hold a public-disk path; the
+        // download route falls back to the public disk for them so existing
+        // submissions keep working (see CourseAssignmentController::downloadSubmission).
+        $path = $this->uploadPrivateFile('UserAssignment', $file);
         $submission = $this->repo->upsertSubmission($assignment, $user, ['user_file' => $path]);
         $submission = $this->repo->findSubmissionWithRelations($submission->id);
 

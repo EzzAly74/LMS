@@ -21,8 +21,21 @@ class UserCourseAssignmentResource extends JsonResource
                 'machine_code'    => $this->user->machine_code,
                 'department_name' => $this->user->department_name,
             ]),
+            // B-10: this used to be a public-disk URL served straight off the
+            // filesystem with no authorization, so any holder of the link could
+            // read another learner's work. It now points at the authorized
+            // download route, which checks author-or-staff.
             'user_file_url'    => $this->user_file
-                ? url(Storage::disk('public')->url($this->user_file))
+                ? route('assignment.submission.file', [
+                    // Prefer the eager-loaded relation; fall back to a single
+                    // column read so a caller that did not eager-load still
+                    // works, without pulling the whole assignment row.
+                    'course'     => $this->relationLoaded('assignment')
+                        ? $this->assignment?->course_id
+                        : $this->assignment()->value('course_id'),
+                    'assignment' => $this->course_assignment_id,
+                    'submission' => $this->id,
+                ])
                 : null,
             'feedback'         => $this->feedback,
             'score'            => $this->score,

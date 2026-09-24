@@ -27,3 +27,13 @@ Route::middleware(['auth.user', 'role:User'])->group(function () {
     Route::post('courses/{course}/assignments/{assignment}/submit',                                    [CourseAssignmentController::class, 'submit']);
     Route::get('courses/{course}/assignments/{assignment}/my-submission',                              [CourseAssignmentController::class, 'mySubmission']);
 });
+
+// Authorized download of a submission file (B-10). Submissions live on the
+// private disk and are not reachable over HTTP any other way. Open to both
+// roles because the controller decides: the learner who wrote it, or staff.
+Route::middleware(['auth.user', 'role:Admin,User,Instructor'])->group(function () {
+    Route::get(
+        'courses/{course}/assignments/{assignment}/submissions/{submission}/file',
+        [CourseAssignmentController::class, 'downloadSubmission'],
+    )->name('assignment.submission.file');
+});

@@ -7,12 +7,16 @@ use App\Http\Requests\Api\AssignmentSubmissionRequest;
 use App\Http\Requests\Api\CourseAssignmentRequest;
 use App\Http\Resources\CourseAssignmentResource;
 use App\Http\Resources\UserCourseAssignmentResource;
+use App\Models\Admin;
 use App\Models\Course;
 use App\Models\CourseAssignment;
+use App\Models\Instructor;
+use App\Models\User;
 use App\Models\UserCourseAssignment;
 use App\Services\CourseAssignmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use OpenApi\Annotations as OA;
 
 class CourseAssignmentController extends ApiController
@@ -416,5 +420,45 @@ class CourseAssignmentController extends ApiController
         return $this->success(__('messages.retrieved'),
             $submission ? new UserCourseAssignmentResource($submission) : null
         );
+    }
+
+    /**
+     * Download a submission's file - the only way to read it.
+     *
+     * B-10 (High): submissions used to live on the public disk and were served
+     * straight off the filesystem by Apache, and by the unauthenticated
+     * /storage/{path} fallback route. Anyone with (or guessing) the URL could
+     * read another learner's work; the submission response even handed out the
+     * exact path as `user_file_url`.
+     *
+     * Access is now: the learner who wrote it, or any Admin/Instructor.
+     */
+    public function downloadSubmission(
+        Course $course,
+        CourseAssignment $assignment,
+        UserCourseAssignment $submission,
+        Request $request,
+    ) {
+        abort_if($assignment->course_id !== $course->id, 404);
+        abort_if((int) $submission->course_assignment_id !== (int) $assignment->id, 404);
+        abort_if($submission->user_file === null, 404);
+
+        $principal = $request->user();
+        $isStaff   = $principal instanceof Admin || $principal instanceof Instructor;
+        $isOwner   = $principal instanceof User && (int) $submission->user_id === (int) $principal->getKey();
+
+        abort_unless($isStaff || $isOwner, 403);
+
+        $path = $submission->user_file;
+
+        // Submissions written before B-10 was fixed still sit on the public
+        // disk. Serve those through this authorized route too rather than
+        // breaking existing rows - and note that until they are migrated they
+        // also remain reachable directly, which is tracked in 03-findings.md.
+        $disk = Storage::disk('private')->exists($path) ? 'private' : 'public';
+
+        abort_unless(Storage::disk($disk)->exists($path), 404);
+
+        return Storage::disk($disk)->download($path, basename($path));
     }
 }

@@ -27,6 +27,27 @@ trait HasFile
     }
 
     /**
+     * Store a file on the private disk, which is not reachable over HTTP.
+     *
+     * B-10 (High): everything went to the `public` disk, served directly off
+     * the filesystem by Apache and by the unauthenticated /storage/{path}
+     * fallback. Learner assignment submissions were world-readable to anyone
+     * with the URL, with no check for author, instructor or admin.
+     *
+     * Use this for anything that belongs to a person rather than to the public
+     * site. The returned path is a disk-relative key, never a URL — callers
+     * must serve it through an authorized route.
+     */
+    public function uploadPrivateFile(string $directory, $file): string
+    {
+        $name = Str::random(20).md5(microtime()).'.'.$this->safeExtensionFor($file);
+
+        Storage::disk('private')->putFileAs($directory, $file, $name);
+
+        return "{$directory}/".$name;
+    }
+
+    /**
      * Derive a storage extension from the file's *contents*, not from what the
      * client called it.
      *

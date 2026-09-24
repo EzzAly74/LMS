@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\Admin;
+use App\Models\Instructor;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
@@ -29,6 +30,15 @@ class RoleMiddleware
             }
 
             if ($normalized === 'user' && $user instanceof User) {
+                return $next($request);
+            }
+
+            // Instructors are a first-class principal — AuthenticationMiddleware
+            // resolves User, Instructor or Admin — but this middleware only
+            // understood the first and last, so `role:...,Instructor` silently
+            // rejected them. Added for the B-10 submission download, which
+            // instructors legitimately need.
+            if ($normalized === 'instructor' && $user instanceof Instructor) {
                 return $next($request);
             }
         }

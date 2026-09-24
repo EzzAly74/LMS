@@ -35,9 +35,19 @@ class JobTitleLearnerResource extends JsonResource
             'courses' => [
                 'completed' => $completed,
                 'total'     => $total,
-                // "N of M courses" in the design.
                 'label'     => "{$completed} of {$total}",
             ],
+
+            /*
+             * The table labels each row "N of M qualifications" (not courses)
+             * and expands it into one sub-row per required qualification
+             * reading "N of M Courses" (Figma 2325:117118). Both need the
+             * per-qualification grid, which JobTitleService attaches in one
+             * grouped query for the whole page.
+             */
+            'qualifications_completed' => (int) ($this->qualifications_completed ?? 0),
+            'qualifications_total'     => (int) ($this->qualifications_total ?? 0),
+            'qualification_breakdown'  => $this->qualification_breakdown ?? [],
 
             // Whole percent, matching how JobTitleResource renders the card's
             // compliance bar. A learner with no relevant enrolments is 0, not
@@ -46,10 +56,8 @@ class JobTitleLearnerResource extends JsonResource
                 ? (int) min(100, max(0, round($completed * 100 / $total)))
                 : 0,
 
-            // The qualifications this job title requires. Assignment is via the
-            // job title rather than per learner, so every row in a given table
-            // carries the same list; it is included per row because the Figma
-            // table renders it as a column.
+            // Kept for callers that only need the flat list; the per-learner
+            // progress lives in `qualification_breakdown` above.
             'qualifications' => $this->whenLoaded(
                 'jobTitle',
                 fn () => $this->jobTitle?->qualificationSkills

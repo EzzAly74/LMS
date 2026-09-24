@@ -242,4 +242,113 @@ class JobTitleLearnersTest extends ApiTestCase
             "Query count grew from {$withOneRow} to {$withSevenRows} when six rows were added — that is an N+1.",
         );
     }
+
+    // ------------------------------------------- per-qualification breakdown
+
+    /**
+     * Figma 2325:117118 labels a row "N of M qualifications" and expands it
+     * into one sub-row per required qualification reading "N of M Courses".
+     * The row-level course counts alone cannot render either.
+     */
+    public function test_each_row_carries_a_per_qualification_breakdown(): void
+    {
+        $second = QualificationSkill::query()->create(['name' => 'Rigging']);
+        $this->jobTitle->qualificationSkills()->attach($second->id);
+
+        // Two courses granting the first skill, one complete.
+        $learner = $this->learnerWith(total: 2, completed: 1, name: 'Ava');
+
+        // One course granting the second skill, complete.
+        $course = Course::factory()->create();
+        DB::table('course_qualification_skills')->insert([
+            'course_id'              => $course->id,
+            'qualification_skill_id' => $second->id,
+        ]);
+        $created = now()->subDays(10);
+        DB::table('users_courses')->insert([
+            'user_id'    => $learner->id,
+            'course_id'  => $course->id,
+            'created_at' => $created,
+            'updated_at' => $created->copy()->addDay(),
+        ]);
+
+        ['headers' => $headers] = $this->adminToken();
+        $row = $this->getJson($this->url(), $headers)->assertOk()->json('result.0');
+
+        $this->assertSame(2, $row['qualifications_total']);
+        // Only the fully-completed one counts as earned.
+        $this->assertSame(1, $row['qualifications_completed']);
+
+        $byName = collect($row['qualification_breakdown'])->keyBy('name');
+
+        $this->assertSame(2, $byName['Welding']['courses_total']);
+        $this->assertSame(1, $byName['Welding']['courses_completed']);
+        $this->assertSame(50, $byName['Welding']['percent']);
+
+        $this->assertSame(1, $byName['Rigging']['courses_total']);
+        $this->assertSame(1, $byName['Rigging']['courses_completed']);
+        $this->assertSame(100, $byName['Rigging']['percent']);
+    }
+
+    public function test_a_qualification_with_no_courses_is_not_counted_as_earned(): void
+    {
+        // Attached to the job title but granted by no course at all.
+        $orphan = QualificationSkill::query()->create(['name' => 'Unbacked']);
+        $this->jobTitle->qualificationSkills()->attach($orphan->id);
+
+        $this->learnerWith(total: 1, completed: 1, name: 'Solo');
+
+        ['headers' => $headers] = $this->adminToken();
+        $row = $this->getJson($this->url(), $headers)->assertOk()->json('result.0');
+
+        $this->assertSame(2, $row['qualifications_total']);
+        // "0 of 0 courses" must not read as earned.
+        $this->assertSame(1, $row['qualifications_completed']);
+
+        $orphanRow = collect($row['qualification_breakdown'])->firstWhere('name', 'Unbacked');
+        $this->assertSame(0, $orphanRow['courses_total']);
+        $this->assertSame(0, $orphanRow['percent']);
+    }
+
+    public function test_a_learner_with_no_enrolments_still_lists_every_qualification(): void
+    {
+        User::factory()->create(['name' => 'Idle', 'job_title_id' => $this->jobTitle->id]);
+        ['headers' => $headers] = $this->adminToken();
+
+        $row = $this->getJson($this->url(), $headers)->assertOk()->json('result.0');
+
+        // The table renders a sub-row per required qualification whether or not
+        // the learner has started it, so the list must not be empty.
+        $this->assertCount(1, $row['qualification_breakdown']);
+        $this->assertSame(0, $row['qualifications_completed']);
+    }
+
+    public function test_the_breakdown_does_not_query_per_learner(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+
+        $measure = function () use ($headers): int {
+            DB::enableQueryLog();
+            DB::flushQueryLog();
+            $this->getJson($this->url().'?per_page=20', $headers)->assertOk();
+            $n = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $n;
+        };
+
+        $this->learnerWith(2, 1, 'First');
+        $withOne = $measure();
+
+        for ($i = 0; $i < 6; $i++) {
+            $this->learnerWith(2, 1, "More{$i}");
+        }
+        $withSeven = $measure();
+
+        $this->assertLessThanOrEqual(
+            2,
+            $withSeven - $withOne,
+            "Query count grew from {$withOne} to {$withSeven} with six more learners — the breakdown is an N+1.",
+        );
+    }
 }

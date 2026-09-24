@@ -26,18 +26,15 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         then: function () {
-            // Web routes (frontend public)
+            // Web routes — Swagger URL aliases and the public storage
+            // fallback only. This project is API-only (Q-005).
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
 
-            // User auth routes
-            Route::middleware('web')
-                ->group(base_path('routes/auth.php'));
-
-            // Admin panel routes
-            Route::middleware('web')
-                ->prefix('admin')
-                ->group(base_path('routes/admin.php'));
+            // The Blade user-auth and admin-panel route files were removed in
+            // Phase 4 / Stage A: the Blade surface is not live and carried
+            // B-04 (Critical), B-07, B-11, B-18 and B-29. See 05-plan.md §3
+            // and 04-decisions.md D-041.
 
             // API routes — versioned at /api/v1
             Route::middleware('api')
@@ -67,15 +64,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // Guests hitting protected routes are redirected to the appropriate
         // login page. There is no `login` named route in this project; admin
         // routes use `admin.login_page` and the user area uses `front.auth.login`.
-        $middleware->redirectGuestsTo(function (Request $request) {
-            if ($request->expectsJson() || $request->is('api/*')) {
-                return null;
-            }
-
-            return $request->is('admin/*')
-                ? route('admin.login_page')
-                : route('front.auth.login');
-        });
+        // API-only project (Q-005): there is no login page to redirect a guest
+        // to, so always return null and let the framework raise a 401. The
+        // previous closure pointed at `admin.login_page` / `front.auth.login`,
+        // which were removed with the Blade surface in Phase 4 / Stage A.
+        $middleware->redirectGuestsTo(fn (Request $request) => null);
 
         // Named middleware aliases
         $middleware->alias([

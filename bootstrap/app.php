@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -56,9 +57,23 @@ return Application::configure(basePath: dirname(__DIR__))
             SwitchLanguageMiddleware::class,
         ]);
 
-        // Append custom middleware to the api group
+        // Append custom middleware to the api group.
+        //
+        // B-06 (High): `RateLimiter::for('api', 60/min)` has been defined in
+        // AppServiceProvider all along, but Laravel 11 no longer adds
+        // `throttle:api` to the api group by default and nothing here applied
+        // it — so the limiter was dead code and all 334 api/* routes were
+        // unthrottled. Only the two logins and POST contact carried an
+        // explicit throttle.
+        //
+        // 60/min is the limiter's existing definition and is keyed per
+        // authenticated user (falling back to IP). Dashboard list screens fire
+        // several requests per navigation, so this is set deliberately at the
+        // group level rather than lower; expensive report and export routes
+        // should get their own tighter limiter as they are built (plan B4).
         $middleware->api(append: [
             SetLocale::class,
+            'throttle:api',
         ]);
 
         // Guests hitting protected routes are redirected to the appropriate
@@ -128,15 +143,36 @@ return Application::configure(basePath: dirname(__DIR__))
             }
         });
 
+        // Catch-all API error renderer.
+        //
+        // B-05 (High): this used to return `$e->getMessage()` verbatim for any
+        // throwable, at the exception's own status code, ignoring APP_DEBUG.
+        // For a 500 that publishes internal detail to unauthenticated callers —
+        // SQL fragments and bound values from a QueryException, absolute file
+        // paths, class and vendor names.
+        //
+        // The rule now: messages on 4xx HttpExceptions are developer-authored
+        // (`abort(403, '...')`) and safe to return. Anything 5xx, or any
+        // non-HTTP throwable, gets a generic message unless APP_DEBUG is on —
+        // in which case the real message is returned so local debugging is
+        // unaffected.
         $exceptions->render(function (\Throwable $e, Request $request) {
-            if ($request->is('api/*')) {
-                $status = method_exists($e, 'getStatusCode') ? $e->getStatusCode() : 500;
-                return response()->json([
-                    'status'  => 'error',
-                    'message' => $e->getMessage() ?: __('messages.server_error'),
-                    'errors'  => [],
-                ], $status);
+            if (! $request->is('api/*')) {
+                return null;
             }
+
+            $isHttp = $e instanceof HttpExceptionInterface;
+            $status = $isHttp ? $e->getStatusCode() : 500;
+
+            $safeToExpose = ($isHttp && $status < 500) || config('app.debug') === true;
+
+            return response()->json([
+                'status'  => 'error',
+                'message' => $safeToExpose && $e->getMessage() !== ''
+                    ? $e->getMessage()
+                    : __('messages.server_error'),
+                'errors'  => [],
+            ], $status);
         });
     })
     ->create();

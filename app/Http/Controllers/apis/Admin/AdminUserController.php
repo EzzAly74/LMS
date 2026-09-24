@@ -10,6 +10,7 @@ use App\Http\Resources\Admin\AdminUserListResource;
 use App\Services\Admin\AdminUserService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
+use App\Http\Requests\Api\Admin\AdminUserIndexRequest;
 use Illuminate\Http\Request;
 
 /**
@@ -47,7 +48,7 @@ class AdminUserController extends ApiController
      *   - search        (matches name / email)
      *   - instructor_ids[]  (filter the Instructors pill by specific ids)
      */
-    public function index(Request $request): JsonResponse
+    public function index(AdminUserIndexRequest $request): JsonResponse
     {
         $role          = $this->normaliseRole($request->input('role'));
         $status        = $this->normaliseStatus($request->input('status'));
@@ -58,7 +59,9 @@ class AdminUserController extends ApiController
             status:        $status,
             search:        $request->string('search')->toString() ?: null,
             instructorIds: $instructorIds,
-            perPage:       (int) $request->get('per_page', 15),
+            // B-21: per_page was read unvalidated, so a caller could request
+            // the whole people table. Bounded to 1..100 by the FormRequest.
+            perPage:       $request->perPage(),
         );
 
         return $this->paginated(

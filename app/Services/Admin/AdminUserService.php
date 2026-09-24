@@ -894,6 +894,9 @@ class AdminUserService
             return $rows->map(function ($r) {
                 $r->compliance_pct         = null;
                 $r->enrolled_courses_count = 0;
+                $r->courses_earned         = 0;
+                $r->last_certification_at  = null;
+                $r->job_title              = null;
                 return $r;
             });
         }
@@ -911,10 +914,42 @@ class AdminUserService
             ->groupBy('user_id')
             ->pluck('c', 'user_id');
 
-        return $rows->map(function ($r) use ($enrolledByUser, $passedByUser) {
+        /*
+         * Three more columns the 2026 Figma learners list needs
+         * (node 1986:74701: "Learner Name (photo, name, job title), Learner ID,
+         * Courses Earned, Qualification (%), Last Certification Date, Last
+         * Activity"). Batched by user id like the two above, so the list still
+         * costs a fixed number of queries regardless of page size.
+         */
+
+        // Last Certification Date — most recent active certificate.
+        $lastCertByUser = DB::table('user_certificates')
+            ->whereIn('user_id', $learnerIds)
+            ->whereRaw('LOWER(COALESCE(status, "active")) = ?', ['active'])
+            ->select('user_id', DB::raw('MAX(issued_at) AS d'))
+            ->groupBy('user_id')
+            ->pluck('d', 'user_id');
+
+        // Job title — re-established as a proper FK by the
+        // 2026_05_25_140000_add_job_title_id_to_users_table migration. The
+        // class docblock on AdminUserListResource still claims the field was
+        // "dropped from every person table"; that note is stale.
+        $jobTitleByUser = DB::table('users')
+            ->whereIn('users.id', $learnerIds)
+            ->leftJoin('job_titles', 'users.job_title_id', '=', 'job_titles.id')
+            ->select('users.id', 'job_titles.name', 'job_titles.name_en', 'job_titles.name_ar')
+            ->get()
+            ->keyBy('id');
+
+        $locale = app()->getLocale();
+
+        return $rows->map(function ($r) use ($enrolledByUser, $passedByUser, $lastCertByUser, $jobTitleByUser, $locale) {
             if (($r->source ?? null) !== 'user') {
                 $r->compliance_pct         = null;
                 $r->enrolled_courses_count = 0;
+                $r->courses_earned         = 0;
+                $r->last_certification_at  = null;
+                $r->job_title              = null;
                 return $r;
             }
 
@@ -925,6 +960,18 @@ class AdminUserService
             $r->compliance_pct = $enrolled > 0
                 ? (int) round(($passed / $enrolled) * 100)
                 : null;
+
+            // "Courses Earned" in the Figma table. This is the same $passed
+            // count the compliance percentage is built from, so the two
+            // columns can never disagree with each other on screen.
+            $r->courses_earned = $passed;
+
+            $r->last_certification_at = $lastCertByUser[$r->id] ?? null;
+
+            $jt = $jobTitleByUser[$r->id] ?? null;
+            $r->job_title = $jt === null ? null : ($locale === 'ar'
+                ? ($jt->name_ar ?: $jt->name)
+                : ($jt->name_en ?: $jt->name));
 
             return $r;
         });

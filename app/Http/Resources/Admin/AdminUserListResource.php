@@ -16,8 +16,13 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * row exposes a (`source`, `id`) pair so the frontend knows which sub-
  * endpoint to call for follow-up CRUD operations.
  *
- * The legacy "Job Role" field is gone in the 2026 redesign — `job_title`
- * has been dropped from every person table.
+ * NOTE: this class used to state that `job_title` "has been dropped from every
+ * person table". That is stale — the
+ * 2026_05_25_140000_add_job_title_id_to_users_table migration re-established it
+ * as a proper FK on `users.job_title_id`, and the 2026 Figma learners list
+ * (node 1986:74701) renders it under the learner's name. It is resolved for
+ * learner rows in AdminUserService::attachCompliance and is null for
+ * instructors and admins, which have no job title.
  */
 class AdminUserListResource extends JsonResource
 {
@@ -81,6 +86,13 @@ class AdminUserListResource extends JsonResource
             'compliance_pct'         => $compliance,
             'has_compliance'         => $compliance !== null,
             'enrolled_courses_count' => (int) ($row->enrolled_courses_count ?? 0),
+
+            // Figma learners list, node 1986:74701.
+            // `courses_earned` is the same passed-course count the compliance
+            // percentage is derived from, so the two columns always agree.
+            'courses_earned'         => (int) ($row->courses_earned ?? 0),
+            'last_certification_at'  => $row->last_certification_at ?? null,
+            'job_title'              => $row->job_title ?? null,
             'avatar_initial'         => $this->initial($display ?: 'U'),
             'created_at'             => $row->created_at ? (string) $row->created_at : null,
         ];

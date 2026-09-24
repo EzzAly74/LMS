@@ -141,7 +141,14 @@ class QualificationSkillController extends ApiController
      */
     public function store(QualificationSkillRequest $request): JsonResponse
     {
-        $skill = $this->service->create($request->validated());
+        $data  = $request->validated();
+        $skill = $this->service->create($data);
+
+        // One-step job-title assignment (Figma 2066:100876).
+        if (! empty($data['job_title_ids'])) {
+            $skill->jobTitles()->sync($data['job_title_ids']);
+            $skill->load('jobTitles');
+        }
 
         return $this->created(
             __('messages.created'),

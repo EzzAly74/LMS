@@ -35,6 +35,13 @@ return [
     'course_not_enrolled'     => 'أنت غير مسجل في هذه الدورة.',
     'course_not_evaluatable'  => 'هذه الدورة غير متاحة للتقييم.',
     'submission_file_type'    => 'نوع الملف غير مقبول. المسموح: PDF أو Word أو Excel أو PowerPoint أو نص أو CSV أو PNG أو JPEG أو ZIP.',
+    'import_file_type'        => 'نوع الملف غير مقبول. ارفع ملف XLSX أو XLS أو CSV.',
+    'import_unreadable'       => 'تعذّرت قراءة الملف. نزّل القالب واملأه ثم أعد الرفع.',
+    'import_empty'            => 'الملف المرفوع لا يحتوي على صفوف.',
+    'import_missing_columns'  => 'الملف تنقصه أعمدة مطلوبة: :columns.',
+    'import_too_many_rows'    => 'عدد الصفوف كبير جدًا. استورد :max صف على الأكثر في المرة الواحدة.',
+    'import_name_required'    => 'الاسم بالإنجليزية والعربية مطلوبان معًا.',
+    'import_unknown_job_titles' => 'مسميات وظيفية غير معروفة، لم يتم ربطها: :names.',
 
     // Certificates (first-class entity)
     'certificate_issued'      => 'تم إصدار الشهادة بنجاح.',

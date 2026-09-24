@@ -35,6 +35,13 @@ return [
     'course_not_enrolled'     => 'You are not enrolled in this course.',
     'course_not_evaluatable'  => 'This course is not available for evaluation.',
     'submission_file_type'    => 'That file type is not accepted. Allowed: PDF, Word, Excel, PowerPoint, text, CSV, PNG, JPEG or ZIP.',
+    'import_file_type'        => 'That file type is not accepted. Upload an XLSX, XLS or CSV file.',
+    'import_unreadable'       => 'The file could not be read. Export the template and fill it in, then upload again.',
+    'import_empty'            => 'The uploaded file has no rows.',
+    'import_missing_columns'  => 'The file is missing required columns: :columns.',
+    'import_too_many_rows'    => 'Too many rows. Import at most :max at a time.',
+    'import_name_required'    => 'Both name_en and name_ar are required.',
+    'import_unknown_job_titles' => 'Unknown job titles, left unassigned: :names.',
 
     // Certificates (first-class entity)
     'certificate_issued'      => 'Certificate issued successfully.',

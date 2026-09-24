@@ -58,23 +58,34 @@ Route::middleware(['auth.user', 'role:User'])->group(function () {
         Route::get('ratings',             [UserDashboardController::class, 'myRatings']);
         Route::get('lecture-questions',   [UserDashboardController::class, 'myLectureQuestions']);
         Route::get('learnings',           [UserDashboardController::class, 'learnings']);
-        Route::get('courses/{course}/outline', [LearnerCoursePlayerController::class, 'outline']);
+        Route::get('courses/{course}/outline', [LearnerCoursePlayerController::class, 'outline'])
+            ->middleware('enrolled');
     });
 
-    // ── Exam Submission ────────────────────────────────────────────────────
-    Route::post('courses/{course}/exams/{exam}/submit', [UserExamController::class, 'submit']);
+    // ── Course-scoped learner routes ───────────────────────────────────────
+    //
+    // B-15: these carried no enrolment check, so any authenticated learner
+    // could read the lecture content, media URLs, quizzes and assignments of
+    // any course — including ones they were never enrolled in, and inactive or
+    // draft ones. The `enrolled` middleware gates the whole group on the
+    // route's {course}; Admins and Instructors pass through.
+    Route::middleware('enrolled')->group(function () {
 
-    // ── Lecture Progress ───────────────────────────────────────────────────
-    Route::post('courses/{course}/lectures/{lecture}/progress', [LectureProgressController::class, 'store']);
-    Route::get('courses/{course}/my-progress',                  [LectureProgressController::class, 'show']);
-    Route::get('courses/{course}/lectures/{lecture}',            [LearnerCoursePlayerController::class, 'lecture']);
+        // ── Exam Submission ────────────────────────────────────────────────
+        Route::post('courses/{course}/exams/{exam}/submit', [UserExamController::class, 'submit']);
 
-    // ── Certificate status projection (On track / At risk / Blocked) ───────
-    Route::get('courses/{course}/certificate-status', [CertificateStatusController::class, 'show']);
+        // ── Lecture Progress ───────────────────────────────────────────────
+        Route::post('courses/{course}/lectures/{lecture}/progress', [LectureProgressController::class, 'store']);
+        Route::get('courses/{course}/my-progress',                  [LectureProgressController::class, 'show']);
+        Route::get('courses/{course}/lectures/{lecture}',            [LearnerCoursePlayerController::class, 'lecture']);
 
-    // ── Course Evaluation ──────────────────────────────────────────────────
-    Route::get('courses/{course}/evaluate',  [UserCourseEvaluationController::class, 'show']);
-    Route::post('courses/{course}/evaluate', [UserCourseEvaluationController::class, 'store']);
+        // ── Certificate status projection (On track / At risk / Blocked) ───
+        Route::get('courses/{course}/certificate-status', [CertificateStatusController::class, 'show']);
+
+        // ── Course Evaluation ──────────────────────────────────────────────
+        Route::get('courses/{course}/evaluate',  [UserCourseEvaluationController::class, 'show']);
+        Route::post('courses/{course}/evaluate', [UserCourseEvaluationController::class, 'store']);
+    });
 
     // ── Form Submission ────────────────────────────────────────────────────
     Route::get('forms/{formUuid}/start',   [UserFormController::class, 'start']);

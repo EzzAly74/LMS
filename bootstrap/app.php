@@ -3,6 +3,7 @@
 use App\Http\Middleware\AdminLogMiddleware;
 use App\Http\Middleware\ApiProtectMiddleware;
 use App\Http\Middleware\AuthenticationMiddleware;
+use App\Http\Middleware\EnsureEnrolledInCourse;
 use App\Http\Middleware\OptionalAuthenticationMiddleware;
 use App\Http\Middleware\ResolveMobileEmployeeMiddleware;
 use App\Http\Middleware\RoleMiddleware;
@@ -94,6 +95,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'auth.user.optional' => OptionalAuthenticationMiddleware::class,
             // API role check — role:Admin | role:User | role:Admin,User
             'role'               => RoleMiddleware::class,
+            // Learner must be enrolled in the route's {course} (B-15).
+            // Admins and Instructors pass through.
+            'enrolled'           => EnsureEnrolledInCourse::class,
             // Spatie permission package middlewares (Laravel 11 no longer
             // auto-registers these; the admin panel relies on `permission:*`)
             'permission'         => PermissionMiddleware::class,

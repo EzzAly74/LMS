@@ -21,9 +21,11 @@ class LectureProgressSignalTest extends ApiTestCase
 {
     public function test_my_progress_exposes_content_type_require_completion_and_module_grouping(): void
     {
-        ['headers' => $headers] = $this->userToken();
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
         $course = Course::factory()->create();
+
+        $course->users()->attach($learner->getKey());
         // NOTE: pass `name` as an array, not a pre-json_encode()'d string —
         // HasTranslations::setAttribute() treats a scalar string as "the
         // translation for the CURRENT app locale" and wraps it, which would
@@ -54,9 +56,11 @@ class LectureProgressSignalTest extends ApiTestCase
 
     public function test_confirmed_true_marks_complete_regardless_of_progress(): void
     {
-        ['headers' => $headers] = $this->userToken();
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
         $course = Course::factory()->create();
+
+        $course->users()->attach($learner->getKey());
         $lecture = CourseLecture::factory()->create(['course_id' => $course->id, 'content_type' => 'link']);
 
         $response = $this->withHeaders($headers)->postJson(
@@ -71,9 +75,11 @@ class LectureProgressSignalTest extends ApiTestCase
 
     public function test_confirmed_false_leaves_lecture_incomplete(): void
     {
-        ['headers' => $headers] = $this->userToken();
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
         $course = Course::factory()->create();
+
+        $course->users()->attach($learner->getKey());
         $lecture = CourseLecture::factory()->create(['course_id' => $course->id, 'content_type' => 'video']);
 
         $response = $this->withHeaders($headers)->postJson(
@@ -87,9 +93,11 @@ class LectureProgressSignalTest extends ApiTestCase
 
     public function test_legacy_numeric_progress_still_works_without_confirmed(): void
     {
-        ['headers' => $headers] = $this->userToken();
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
         $course = Course::factory()->create();
+
+        $course->users()->attach($learner->getKey());
         $lecture = CourseLecture::factory()->create(['course_id' => $course->id]);
 
         $response = $this->withHeaders($headers)->postJson(
@@ -104,9 +112,11 @@ class LectureProgressSignalTest extends ApiTestCase
 
     public function test_progress_is_still_required_when_confirmed_is_absent(): void
     {
-        ['headers' => $headers] = $this->userToken();
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
         $course = Course::factory()->create();
+
+        $course->users()->attach($learner->getKey());
         $lecture = CourseLecture::factory()->create(['course_id' => $course->id]);
 
         $response = $this->withHeaders($headers)->postJson(

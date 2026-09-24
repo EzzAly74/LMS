@@ -18,9 +18,11 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
 {
     public function test_outline_groups_lectures_by_section_and_includes_a_rich_quiz(): void
     {
-        ['headers' => $headers] = $this->userToken();
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
         $course = Course::factory()->create(['certificate' => false]);
+
+        $course->users()->attach($learner->getKey());
 
         $week1 = CourseSection::factory()->create([
             'course_id' => $course->id,
@@ -92,9 +94,11 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
 
     public function test_single_lecture_endpoint_returns_full_article_body(): void
     {
-        ['headers' => $headers] = $this->userToken();
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
         $course = Course::factory()->create();
+
+        $course->users()->attach($learner->getKey());
         $lecture = CourseLecture::factory()->create([
             'course_id' => $course->id,
             'content_type' => 'article',
@@ -118,9 +122,11 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
 
     public function test_single_lecture_endpoint_404s_when_lecture_belongs_to_a_different_course(): void
     {
-        ['headers' => $headers] = $this->userToken();
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
         $course = Course::factory()->create();
+
+        $course->users()->attach($learner->getKey());
         $otherCourse = Course::factory()->create();
         $lecture = CourseLecture::factory()->create(['course_id' => $otherCourse->id]);
 

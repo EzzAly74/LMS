@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AdminLogMiddleware;
+use App\Http\Middleware\AdminPermissionMiddleware;
 use App\Http\Middleware\ApiProtectMiddleware;
 use App\Http\Middleware\AuthenticationMiddleware;
 use App\Http\Middleware\EnsureEnrolledInCourse;
@@ -18,8 +19,6 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
-use Spatie\Permission\Middleware\PermissionMiddleware;
-use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -77,9 +76,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'throttle:api',
         ]);
 
-        // Guests hitting protected routes are redirected to the appropriate
-        // login page. There is no `login` named route in this project; admin
-        // routes use `admin.login_page` and the user area uses `front.auth.login`.
         // API-only project (Q-005): there is no login page to redirect a guest
         // to, so always return null and let the framework raise a 401. The
         // previous closure pointed at `admin.login_page` / `front.auth.login`,
@@ -98,10 +94,19 @@ return Application::configure(basePath: dirname(__DIR__))
             // Learner must be enrolled in the route's {course} (B-15).
             // Admins and Instructors pass through.
             'enrolled'           => EnsureEnrolledInCourse::class,
-            // Spatie permission package middlewares (Laravel 11 no longer
-            // auto-registers these; the admin panel relies on `permission:*`)
-            'permission'         => PermissionMiddleware::class,
-            'role_or_permission' => RoleOrPermissionMiddleware::class,
+            // Permission check (DB-01). NOT Spatie's PermissionMiddleware:
+            // that resolves the principal with Auth::guard()->user(), and this
+            // project only sets $request->setUserResolver(), so Spatie's
+            // version refuses every request — including from an admin who does
+            // hold the permission. Ours reads $request->user() like the rest of
+            // the app and defers the check to Spatie's HasRoles trait, so the
+            // permission data and caching remain Spatie's.
+            'permission'         => AdminPermissionMiddleware::class,
+            // `role_or_permission` (Spatie) was registered here but used by no
+            // route. It has the same Auth::guard() incompatibility described
+            // above, so it would silently 403 anything it was applied to.
+            // Removed rather than left as a trap — add an equivalent to
+            // AdminPermissionMiddleware if a route ever needs role-or-permission.
             // Legacy / Blade middleware
             'admin.logs'         => AdminLogMiddleware::class,
             'api-protect'        => ApiProtectMiddleware::class,

@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
 | untouched and continue to serve their original consumers.
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-controllers'])->prefix('admin')->group(function () {
     Route::get('controllers',            [AdminControllersController::class, 'index']);
     Route::post('controllers',           [AdminControllersController::class, 'store']);
     Route::get('controllers/{admin}',    [AdminControllersController::class, 'show'])->whereNumber('admin');

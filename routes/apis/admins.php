@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-controllers'])->group(function () {
 
     // Dashboard statistics
     Route::get('dashboard', [DashboardController::class, 'index']);

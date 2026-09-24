@@ -34,6 +34,7 @@ return [
     'conflict'                => 'A conflict occurred with the current state of the resource.',
     'course_not_enrolled'     => 'You are not enrolled in this course.',
     'course_not_evaluatable'  => 'This course is not available for evaluation.',
+    'submission_file_type'    => 'That file type is not accepted. Allowed: PDF, Word, Excel, PowerPoint, text, CSV, PNG, JPEG or ZIP.',
 
     // Certificates (first-class entity)
     'certificate_issued'      => 'Certificate issued successfully.',

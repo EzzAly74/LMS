@@ -34,6 +34,7 @@ return [
     'conflict'                => 'حدث تعارض مع الحالة الحالية للمورد.',
     'course_not_enrolled'     => 'أنت غير مسجل في هذه الدورة.',
     'course_not_evaluatable'  => 'هذه الدورة غير متاحة للتقييم.',
+    'submission_file_type'    => 'نوع الملف غير مقبول. المسموح: PDF أو Word أو Excel أو PowerPoint أو نص أو CSV أو PNG أو JPEG أو ZIP.',
 
     // Certificates (first-class entity)
     'certificate_issued'      => 'تم إصدار الشهادة بنجاح.',

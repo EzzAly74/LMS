@@ -352,7 +352,19 @@ class CourseAssignmentController extends ApiController
         abort_if($assignment->course_id !== $course->id, 404);
 
         /** @var \App\Models\User $user */
-        $user       = $request->user();
+        $user = $request->user();
+
+        // B-02: there was no enrolment check here at all, so any authenticated
+        // learner could submit a file against any assignment of any course —
+        // including courses they were never enrolled in. The upload itself is
+        // now type-restricted, but an unenrolled learner still has no business
+        // writing a submission row.
+        abort_unless(
+            $course->users()->whereKey($user->getKey())->exists(),
+            403,
+            __('messages.course_not_enrolled'),
+        );
+
         $submission = $this->service->submitFile($assignment, $user, $request->file('file'));
 
         return $this->success(__('messages.updated'), new UserCourseAssignmentResource($submission));

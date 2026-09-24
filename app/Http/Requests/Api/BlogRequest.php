@@ -27,8 +27,8 @@ class BlogRequest extends FormRequest
         $isUpdate = $this->isMethod('PUT') || $this->isMethod('PATCH');
 
         $imageRule = $isUpdate
-            ? 'nullable|image|mimes:png,jpg,jpeg,webp,svg,gif|max:4000'
-            : 'required|image|mimes:png,jpg,jpeg,webp,svg,gif|max:4000';
+            ? 'nullable|image|mimes:png,jpg,jpeg,webp,gif|max:4000'
+            : 'required|image|mimes:png,jpg,jpeg,webp,gif|max:4000';
 
         return [
             'title'                   => 'required|array',

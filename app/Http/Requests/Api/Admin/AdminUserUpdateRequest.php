@@ -52,7 +52,7 @@ class AdminUserUpdateRequest extends FormRequest
             'brief_ar'        => ['sometimes', 'nullable', 'string', 'max:2000'],
             'learner_type'    => ['sometimes', 'nullable', Rule::in(['online', 'offline', 'hybrid'])],
             'status'          => ['sometimes', 'nullable', Rule::in(['active', 'inactive', 'deactivated'])],
-            'image'           => ['sometimes', 'nullable', 'image', 'mimes:png,jpg,jpeg,webp,svg,gif', 'max:3072'],
+            'image'           => ['sometimes', 'nullable', 'image', 'mimes:png,jpg,jpeg,webp,gif', 'max:3072'],
         ];
     }
 }

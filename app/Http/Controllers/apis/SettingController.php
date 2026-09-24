@@ -7,6 +7,7 @@ use App\Http\Traits\HasFile;
 use App\Services\SettingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use OpenApi\Annotations as OA;
 
 class SettingController extends ApiController
@@ -181,9 +182,27 @@ class SettingController extends ApiController
      */
     public function upload(Request $request): JsonResponse
     {
+        // B-16 (Medium): `key` was `required|string|max:255` and went straight
+        // into updateMany(), so this endpoint could overwrite ANY setting with
+        // a file path — including `mobile_shared_bearer_token`, the secret
+        // guarding /api/v1/mobile/* — or invent new keys.
+        //
+        // The key must now already exist and already be a `file` setting. That
+        // is deny-by-default and, unlike a hardcoded list, cannot drift as
+        // settings are added: a new file setting is uploadable the moment it is
+        // seeded, and a non-file setting is never a valid target.
+        //
+        // `image` no longer accepts SVG (B-17): Laravel's `image` rule includes
+        // svg, which is an executable document that can carry <script> and is
+        // served inline from the public disk.
         $request->validate([
-            'key'  => 'required|string|max:255',
-            'file' => 'required|file|image|max:3072', // 3 MB cap covers banner/logo per Figma
+            'key' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::exists('settings', 'key')->where('type', 'file'),
+            ],
+            'file' => 'required|file|image|mimes:png,jpg,jpeg,webp,gif|max:3072', // 3 MB covers banner/logo per Figma
         ]);
 
         $key  = (string) $request->input('key');

@@ -81,8 +81,8 @@ class CourseRequest extends FormRequest
     public function rules(): array
     {
         $imageRule = $this->isMethod('post')
-            ? 'nullable|image|mimes:png,jpg,jpeg,webp,svg,gif|max:2048'
-            : 'nullable|image|mimes:png,jpg,jpeg,webp,svg,gif|max:2048';
+            ? 'nullable|image|mimes:png,jpg,jpeg,webp,gif|max:2048'
+            : 'nullable|image|mimes:png,jpg,jpeg,webp,gif|max:2048';
 
         return [
             'course_type'             => 'sometimes|in:online,offline,hybrid,external_link',

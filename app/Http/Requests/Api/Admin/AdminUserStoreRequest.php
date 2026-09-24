@@ -50,7 +50,7 @@ class AdminUserStoreRequest extends FormRequest
             'brief_en'        => ['nullable', 'string', 'max:2000'],
             'brief_ar'        => ['nullable', 'string', 'max:2000'],
             'learner_type'    => ['nullable', Rule::in(['online', 'offline', 'hybrid'])],
-            'image'           => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp,svg,gif', 'max:3072'],
+            'image'           => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp,gif', 'max:3072'],
         ];
     }
 }

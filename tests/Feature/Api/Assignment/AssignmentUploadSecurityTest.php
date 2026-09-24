@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\CourseAssignment;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Api\ApiTestCase;
 
 /**
@@ -47,7 +48,7 @@ class AssignmentUploadSecurityTest extends ApiTestCase
         ];
     }
 
-    /** @dataProvider dangerousFiles */
+    #[DataProvider('dangerousFiles')]
     public function test_dangerous_uploads_are_rejected(string $name, string $contents): void
     {
         Storage::fake('public');

@@ -23,7 +23,7 @@ class PartnerRequest extends FormRequest
     {
         return [
             'images' => 'required',
-            'images.*' => 'mimes:png,jpg,jpeg,webp,svg,gif|max:2000',
+            'images.*' => 'mimes:png,jpg,jpeg,webp,gif|max:2000',
         ];
     }
 

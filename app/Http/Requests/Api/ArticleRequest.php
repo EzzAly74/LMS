@@ -11,8 +11,8 @@ class ArticleRequest extends FormRequest
     public function rules(): array
     {
         $imageRule = $this->isMethod('PUT')
-            ? 'nullable|image|mimes:png,jpg,jpeg,webp,svg,gif|max:2000'
-            : 'required|image|mimes:png,jpg,jpeg,webp,svg,gif|max:2000';
+            ? 'nullable|image|mimes:png,jpg,jpeg,webp,gif|max:2000'
+            : 'required|image|mimes:png,jpg,jpeg,webp,gif|max:2000';
 
         return [
             'type'              => 'required|in:news,blogs,event',

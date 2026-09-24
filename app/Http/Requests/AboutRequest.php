@@ -30,7 +30,7 @@ class AboutRequest extends FormRequest
             'vision_ar' => 'nullable',
             'goals_en' => 'nullable',
             'goals_ar' => 'nullable',
-            'image' => 'nullable|mimes:jpg,jpeg,png,webp,gif,svg|max:2000',
+            'image' => 'nullable|mimes:jpg,jpeg,png,webp,gif|max:2000',
         ];
 
     }

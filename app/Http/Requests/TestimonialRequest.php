@@ -22,8 +22,8 @@ class TestimonialRequest extends FormRequest
     public function rules(): array
     {
         $required_image = request()->isMethod('put') ?
-            'nullable|mimes:png,jpg,jpeg,webp,svg,gif|max:2000' :
-            'required|mimes:png,jpg,jpeg,webp,svg,gif|max:2000';
+            'nullable|mimes:png,jpg,jpeg,webp,gif|max:2000' :
+            'required|mimes:png,jpg,jpeg,webp,gif|max:2000';
         return [
             'name_ar' => 'required|max:255',
             'description_ar' => 'required',

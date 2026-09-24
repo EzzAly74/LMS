@@ -28,7 +28,7 @@ class CategoryRequest extends FormRequest
              * The rule stays `nullable` purely so any stray legacy multipart
              * submission still validates instead of 422-ing.
              */
-            'logo'    => 'nullable|image|mimes:png,jpg,jpeg,webp,svg|max:2048',
+            'logo'    => 'nullable|image|mimes:png,jpg,jpeg,webp|max:2048',
         ];
     }
 }

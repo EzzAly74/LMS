@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 | continue to serve the existing learner-facing API.
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-quizzes'])->prefix('admin')->group(function () {
 
     // Lookup endpoints (declared before the resource routes so the URI
     // segments don't get matched as integer ids).

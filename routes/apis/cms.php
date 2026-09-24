@@ -15,7 +15,7 @@ Route::get('testimonials/active',      [CmsController::class, 'testimonialActive
 Route::get('testimonials',             [CmsController::class, 'testimonialIndex']);
 Route::get('testimonials/{testimonial}', [CmsController::class, 'testimonialShow']);
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-content'])->group(function () {
     Route::post('about',                   [CmsController::class, 'aboutUpdate']);
 
     Route::post('testimonials',                        [CmsController::class, 'testimonialStore']);

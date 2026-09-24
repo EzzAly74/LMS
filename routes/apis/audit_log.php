@@ -9,6 +9,6 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-audit-log'])->group(function () {
     Route::get('audit-log', [AuditLogController::class, 'index']);
 });

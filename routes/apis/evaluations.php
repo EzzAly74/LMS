@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-evaluations'])->group(function () {
 
     // Evaluation categories
     Route::get('evaluation-categories/all',                    [EvaluationCategoryController::class, 'all']);

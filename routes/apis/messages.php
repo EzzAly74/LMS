@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Admin-only routes
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-inbox'])->group(function () {
     Route::get('messages',                         [AdminMessageController::class, 'index']);
     // NOTE: keep `recipients` BEFORE the `{message}` wildcard so it is not
     // swallowed as a model-bound id.

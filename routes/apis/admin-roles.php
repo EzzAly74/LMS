@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
 | remain untouched and continue to serve their original consumers.
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-roles'])->prefix('admin')->group(function () {
     Route::get('roles/sections', [AdminRoleController::class, 'sections']);
 
     Route::get('roles',           [AdminRoleController::class, 'index']);

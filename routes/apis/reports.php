@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->prefix('reports')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-reports'])->prefix('reports')->group(function () {
     Route::get('compliance-by-job-title', [ReportController::class, 'complianceByJobTitle']);
     Route::get('individual-compliance',   [ReportController::class, 'individualCompliance']);
     Route::get('attendance',              [ReportController::class, 'attendance']);

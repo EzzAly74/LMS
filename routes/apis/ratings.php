@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-ratings'])->group(function () {
     Route::get('ratings',                              [CourseRatingController::class, 'allRatings']);
     Route::get('courses/{course}/ratings',              [CourseRatingController::class, 'index']);
     Route::delete('courses/{course}/ratings/{rating}',  [CourseRatingController::class, 'destroy']);

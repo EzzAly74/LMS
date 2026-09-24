@@ -16,7 +16,7 @@ Route::middleware('auth.user')->group(function () {
 });
 
 // Admin only — create / update / delete
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-resources'])->group(function () {
     Route::post('lms-resources',                      [LmsResourceController::class, 'store']);
     Route::put('lms-resources/{lms_resource}',        [LmsResourceController::class, 'update']);
     Route::delete('lms-resources/{lms_resource}',     [LmsResourceController::class, 'destroy']);

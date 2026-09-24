@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Route;
 // Public: all instructors list for course creation form
 Route::get('instructors/all', [InstructorController::class, 'all']);
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-instructors'])->group(function () {
     Route::get('instructors',                  [InstructorController::class, 'index']);
     Route::get('instructors/{instructor}',     [InstructorController::class, 'show']);
     Route::post('instructors',                 [InstructorController::class, 'store']);

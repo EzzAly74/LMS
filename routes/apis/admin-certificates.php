@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
 | remain untouched and continue to serve their original consumers.
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-certificates'])->prefix('admin')->group(function () {
     Route::get('certificates/template/overview', [AdminCertificateController::class, 'templateOverview']);
     Route::post('certificates/template',         [AdminCertificateController::class, 'uploadTemplate']);
     Route::get('certificates/template/file',     [AdminCertificateController::class, 'templateFile']);

@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-forms'])->group(function () {
     Route::get('forms',              [FormController::class, 'index']);
     Route::get('forms/{form}',       [FormController::class, 'show']);
     Route::post('forms',             [FormController::class, 'store']);

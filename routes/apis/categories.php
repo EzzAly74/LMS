@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Route;
 // Public: active list for frontend dropdowns
 Route::get('categories/active', [CategoryController::class, 'activeList']);
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-categories'])->group(function () {
     Route::get('categories',               [CategoryController::class, 'index']);
     Route::get('categories/{category}',    [CategoryController::class, 'show']);
     Route::post('categories',              [CategoryController::class, 'store']);

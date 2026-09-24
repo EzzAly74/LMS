@@ -4,3 +4,37 @@ npm-debug.log
 yarn-error.log
 
 public/service-account-credentials.json
+
+# ---------------------------------------------------------------------------
+# Environment files — never commit.
+#
+# F-001 (Critical): the production .env was committed in d607028 and pushed to
+# GitHub, exposing the database password, mail credentials, Pusher/Reverb keys,
+# the reCAPTCHA secret, the HR admin login, API_PROTECT_KEY and APP_KEY.
+#
+# A tracked .env is also a working hazard: on 2026-09-25 a routine branch
+# operation silently replaced a developer's local .env with the committed
+# production one, pointing a local `artisan migrate` at production credentials.
+# It failed only because that host is unreachable from the dev machine.
+#
+# Untracking here does NOT rotate the leaked secrets and does NOT remove them
+# from history. Both remain open: Q-001 (rotation) and Q-002 (history purge).
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# Database dumps — never commit.
+#
+# F-002 (Critical): live.sql is a 9.6 MB production dump.
+# F-003 (Critical): database/seeders/data/users.sql holds ~1,056 real employee
+# records — names, corporate emails, mobile numbers, departments and password
+# hashes.
+# ---------------------------------------------------------------------------
+/live.sql
+*.sql.gz
+*.dump
+
+# PHPUnit run cache — local only.
+.phpunit.result.cache

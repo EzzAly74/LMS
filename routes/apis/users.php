@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-users'])->group(function () {
     Route::get('users/search',       [UserController::class, 'search']);
     Route::get('users',              [UserController::class, 'index']);
     Route::get('users/{user}',       [UserController::class, 'show']);

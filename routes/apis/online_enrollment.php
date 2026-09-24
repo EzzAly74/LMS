@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])->group(function () {
     Route::get('courses/{course}/online-users',    [OnlineEnrollmentController::class, 'index']);
     Route::post('courses/{course}/online-users',   [OnlineEnrollmentController::class, 'store']);
     Route::put('courses/{course}/online-users',    [OnlineEnrollmentController::class, 'update']);

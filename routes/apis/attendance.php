@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
 |        GET  /api/v1/courses/{course}/cohorts/{cohort}/attendance       — full cohort rollup for the drawer
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-attendance'])->group(function () {
     Route::get('attendance',  [AttendanceController::class, 'index']);
     Route::post('attendance', [AttendanceController::class, 'store']);
 

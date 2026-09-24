@@ -40,7 +40,7 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])
         ->middleware('throttle:10,1')->name('admin.qualifications.import');
 });
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])->group(function () {
     Route::post('qualification-skills',                          [QualificationSkillController::class, 'store']);
     Route::put('qualification-skills/{qualification_skill}',     [QualificationSkillController::class, 'update']);
     Route::delete('qualification-skills/{qualification_skill}',  [QualificationSkillController::class, 'destroy']);

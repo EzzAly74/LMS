@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 | untouched and continue to serve the existing API surface.
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-ratings'])->prefix('admin')->group(function () {
 
     // Lookup endpoints
     Route::get('ratings/summary',         [AdminRatingController::class, 'summary']);

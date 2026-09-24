@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Route;
 |   - admin       →  admins
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-users'])->prefix('admin')->group(function () {
 
     /*
      * Learner detail (Figma 2181:115043). New surface: the learner-side

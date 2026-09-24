@@ -27,7 +27,7 @@ Route::middleware('auth.user')->group(function () {
     Route::get('courses/{course}/exams/{exam}',  [CourseExamController::class, 'show']);
 });
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])->group(function () {
 
     // Sections — write
     Route::post('courses/{course}/sections',               [CourseSectionController::class, 'store']);

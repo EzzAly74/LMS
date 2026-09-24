@@ -17,7 +17,7 @@ Route::middleware('auth.user')->group(function () {
 });
 
 // Admin only
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])->group(function () {
     Route::post('courses',            [CourseController::class, 'store']);
     Route::put('courses/{course}',    [CourseController::class, 'update']);
     Route::delete('courses/{course}', [CourseController::class, 'destroy']);

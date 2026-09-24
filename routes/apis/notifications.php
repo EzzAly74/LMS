@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-notifications'])->group(function () {
     Route::get('notifications',                [NotificationController::class, 'index']);
     Route::get('notifications/{notification}', [NotificationController::class, 'show']);
     Route::post('notifications',               [NotificationController::class, 'store']);

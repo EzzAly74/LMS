@@ -25,7 +25,7 @@ Route::middleware('auth.user')->group(function () {
 });
 
 // ── Admin (dashboard) ──────────────────────────────────────────────────────
-Route::prefix('admin')->middleware(['auth.user', 'role:Admin'])->group(function () {
+Route::prefix('admin')->middleware(['auth.user', 'role:Admin', 'permission:view-content'])->group(function () {
     Route::get('blogs',            [BlogController::class, 'adminIndex']);
     Route::get('blogs/{blog}',     [BlogController::class, 'adminShow']);
     Route::post('blogs',           [BlogController::class, 'store']);

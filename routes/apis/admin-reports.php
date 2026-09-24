@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
 | legacy endpoints in routes/apis/reports.php remain untouched.
 */
 
-Route::middleware(['auth.user', 'role:Admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-reports'])->prefix('admin')->group(function () {
 
     Route::get('reports/summary',             [AdminReportController::class, 'summary']);
     Route::get('reports/compliance-preview',  [AdminReportController::class, 'compliancePreview']);

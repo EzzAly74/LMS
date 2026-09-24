@@ -5,6 +5,7 @@ namespace App\Repositories\Eloquents;
 use App\Models\Course;
 use App\Repositories\Contracts\DashboardRepositoryInterface;
 use Illuminate\Support\Collection;
+use App\Support\CourseCompletion;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -70,8 +71,10 @@ class DashboardRepository implements DashboardRepositoryInterface
                 'sections:id,course_id,start_date,end_date,status',
             ])
             ->selectRaw('
-                (SELECT COUNT(*) FROM users_courses uc WHERE uc.course_id = courses.id)                                        AS users_count,
-                (SELECT COUNT(*) FROM users_courses uc WHERE uc.course_id = courses.id AND uc.updated_at > uc.created_at)      AS completed_count
+                (SELECT COUNT(*) FROM users_courses uc WHERE uc.course_id = courses.id) AS users_count,
+                (SELECT COUNT(DISTINCT uc.user_id) FROM users_courses uc
+                   WHERE uc.course_id = courses.id AND '.CourseCompletion::existsSql('uc.user_id', 'uc.course_id').')
+                    AS completed_count
             ')
             ->orderByDesc('users_count')
             ->limit($limit)
@@ -104,11 +107,20 @@ class DashboardRepository implements DashboardRepositoryInterface
                 GROUP BY DATE(created_at)
             ) e ON e.dt = d.gen_date
             LEFT JOIN (
-                SELECT DATE(updated_at) AS dt, COUNT(*) AS completions
-                FROM users_courses
-                WHERE updated_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-                  AND updated_at > created_at
-                GROUP BY DATE(updated_at)
+                -- B-104: a completion is a passing exam, dated by the FIRST
+                -- passing submission so a retake cannot move it into another
+                -- bucket. Previously this counted any enrolment row whose
+                -- updated_at had moved, which is activity, not completion.
+                SELECT DATE(cc.completed_at) AS dt, COUNT(*) AS completions
+                FROM (
+                    SELECT user_id, course_id, MIN(COALESCE(submitted_at, updated_at)) AS completed_at
+                    FROM user_exams
+                    WHERE LOWER(COALESCE(status, '')) IN ('passed', 'completed')
+                      AND course_id IS NOT NULL
+                    GROUP BY user_id, course_id
+                ) cc
+                WHERE cc.completed_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+                GROUP BY DATE(cc.completed_at)
             ) c ON c.dt = d.gen_date
             ORDER BY d.gen_date ASC
         ", [$days, $days, $days]);
@@ -177,10 +189,10 @@ class DashboardRepository implements DashboardRepositoryInterface
             ->groupBy('yw')
             ->pluck('total', 'yw');
 
-        $completions = DB::table('users_courses')
-            ->selectRaw('YEARWEEK(updated_at, 3) AS yw, COUNT(*) AS total')
-            ->where('updated_at', '>=', $start)
-            ->whereColumn('updated_at', '>', 'created_at')
+        $completions = DB::query()
+            ->fromSub(CourseCompletion::query(), 'cc')
+            ->selectRaw('YEARWEEK(cc.completed_at, 3) AS yw, COUNT(*) AS total')
+            ->where('cc.completed_at', '>=', $start)
             ->groupBy('yw')
             ->pluck('total', 'yw');
 
@@ -212,10 +224,10 @@ class DashboardRepository implements DashboardRepositoryInterface
             ->groupBy('ym')
             ->pluck('total', 'ym');
 
-        $completions = DB::table('users_courses')
-            ->selectRaw("DATE_FORMAT(updated_at, '%Y-%m') AS ym, COUNT(*) AS total")
-            ->where('updated_at', '>=', $start)
-            ->whereColumn('updated_at', '>', 'created_at')
+        $completions = DB::query()
+            ->fromSub(CourseCompletion::query(), 'cc')
+            ->selectRaw("DATE_FORMAT(cc.completed_at, '%Y-%m') AS ym, COUNT(*) AS total")
+            ->where('cc.completed_at', '>=', $start)
             ->groupBy('ym')
             ->pluck('total', 'ym');
 

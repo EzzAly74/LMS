@@ -6,6 +6,7 @@ use App\Models\JobTitle;
 use App\Repositories\Contracts\JobTitleRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use App\Support\CourseCompletion;
 use Illuminate\Support\Facades\DB;
 
 class JobTitleService
@@ -92,7 +93,7 @@ class JobTitleService
                 DB::raw('COUNT(DISTINCT users_courses.course_id) as courses_total'),
                 // Same "completed" heuristic as list() and paginateLearners,
                 // so the sub-rows add up to the row above them.
-                DB::raw('COUNT(DISTINCT CASE WHEN users_courses.updated_at > users_courses.created_at THEN users_courses.course_id END) as courses_completed'),
+                DB::raw('COUNT(DISTINCT CASE WHEN '.CourseCompletion::existsSql('users_courses.user_id', 'users_courses.course_id').' THEN users_courses.course_id END) as courses_completed'),
             ])
             ->get()
             ->groupBy('user_id');

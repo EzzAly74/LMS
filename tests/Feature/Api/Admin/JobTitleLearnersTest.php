@@ -54,12 +54,38 @@ class JobTitleLearnersTest extends ApiTestCase
                 'user_id'    => $user->id,
                 'course_id'  => $course->id,
                 'created_at' => $created,
-                // "completed" is the project-wide heuristic: updated_at > created_at.
-                'updated_at' => $i < $completed ? $created->copy()->addDay() : $created,
+                // Deliberately moved on EVERY enrolment, completed or not.
+                // This fixture used to mark completion with
+                // `updated_at > created_at`, which encoded the B-104 defect
+                // into the test: touching a row counted as finishing a
+                // course. Moving it everywhere now proves the opposite -
+                // that a touched row is NOT a completion.
+                'updated_at' => $created->copy()->addDay(),
             ]);
+
+            // Completion is a passing exam (App\Support\CourseCompletion).
+            if ($i < $completed) {
+                $this->passExam($user, $course);
+            }
         }
 
         return $user;
+    }
+
+    /** Give $user a passing exam record for $course - the completion signal. */
+    private function passExam(User $user, Course $course, string $status = 'passed'): void
+    {
+        $exam = \App\Models\CourseExam::factory()->create(['course_id' => $course->id]);
+
+        DB::table('user_exams')->insert([
+            'user_id'      => $user->id,
+            'course_id'    => $course->id,
+            'exam_id'      => $exam->id,
+            'status'       => $status,
+            'submitted_at' => now()->subDays(2),
+            'created_at'   => now()->subDays(2),
+            'updated_at'   => now()->subDays(2),
+        ]);
     }
 
     private function url(?JobTitle $jt = null): string
@@ -271,6 +297,7 @@ class JobTitleLearnersTest extends ApiTestCase
             'created_at' => $created,
             'updated_at' => $created->copy()->addDay(),
         ]);
+        $this->passExam($learner, $course);
 
         ['headers' => $headers] = $this->adminToken();
         $row = $this->getJson($this->url(), $headers)->assertOk()->json('result.0');

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Repositories\Contracts\JobTitleRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use App\Support\CourseCompletion;
 use Illuminate\Support\Facades\DB;
 
 class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInterface
@@ -63,7 +64,8 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
             ->selectRaw('COUNT(DISTINCT users_courses.course_id)')
             ->whereColumn('users_courses.user_id', 'users.id')
             ->whereIn('users_courses.course_id', $relevantCourses)
-            ->whereColumn('users_courses.updated_at', '>', 'users_courses.created_at');
+            // B-104: a passing exam, not "the row was touched".
+            ->whereRaw(CourseCompletion::existsSql('users_courses.user_id', 'users_courses.course_id'));
 
         $query = User::query()
             ->where('users.job_title_id', $jobTitle->id)
@@ -106,10 +108,11 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
          * employees of this job title only (same join as $learnersSubQuery).
          *
          * For every required qualification of this job title, count once
-         * per learner who has finished any course that grants it. The
-         * `updated_at > created_at` heuristic — borrowed from the
-         * existing dashboard repo — is the project-wide signal for
-         * "course completed".
+         * per learner who has finished any course that grants it.
+         * "Finished" is App\Support\CourseCompletion: a passing exam
+         * record. This used to be `updated_at > created_at`, which is
+         * true as soon as anything touches the enrolment row and so
+         * inflated every compliance bar on this screen (B-104).
          *
          * Divided by (learners_count × qualifications_count) in the
          * resource, this becomes the compliance percentage the 2026
@@ -122,7 +125,7 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
             ->join('job_title_qualification_skill', 'course_qualification_skills.qualification_skill_id', '=', 'job_title_qualification_skill.qualification_skill_id')
             ->whereColumn('job_title_qualification_skill.job_title_id', 'job_titles.id')
             ->whereColumn('users.job_title_id', 'job_titles.id')
-            ->whereColumn('users_courses.updated_at', '>', 'users_courses.created_at');
+            ->whereRaw(CourseCompletion::existsSql('users_courses.user_id', 'users_courses.course_id'));
 
         return $this->model->newQuery()
             ->when($search, fn ($q) => $q->where(function ($q2) use ($search) {

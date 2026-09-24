@@ -3,6 +3,7 @@
 namespace App\Services\Admin;
 
 use App\Models\User;
+use App\Support\CourseCompletion;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -13,21 +14,14 @@ use Illuminate\Support\Facades\DB;
  * the logged-in user, so an admin cannot reuse any of them — this is genuinely
  * new surface, as 02-figma-map.md recorded.
  *
- * ── On "completed" ───────────────────────────────────────────────────────────
- * The codebase carries two different definitions of a completed course:
+ * ── On "completed" ───────────────────────────────────────────────────
+ * This service used to note that the codebase carried two contradictory
+ * definitions of a completed course, and picked the exam-based one so that
+ * this screen agreed with the list it drills into. That was B-104.
  *
- *   1. `users_courses.updated_at > created_at`      (JobTitleRepository, dashboard repo)
- *   2. `user_exams.status IN (passed, completed)`   (AdminUserService)
- *
- * This service uses (2), matching AdminUserService, because this screen is the
- * drill-down from the learners list that AdminUserService renders — the tiles
- * here must agree with the "Courses Earned" and "Qualification %" columns the
- * admin just clicked. Using (1) would make the two screens contradict each
- * other for the same learner.
- *
- * That the two definitions coexist at all is a real inconsistency, logged as
- * B-104 rather than silently reconciled here: picking one project-wide changes
- * numbers on screens outside this stage's scope.
+ * It is resolved: App\Support\CourseCompletion is now the single definition
+ * project-wide, and it is the exam-based one. This service delegates to it
+ * rather than repeating the status literals.
  */
 class AdminLearnerProfileService
 {
@@ -36,11 +30,7 @@ class AdminLearnerProfileService
     {
         $enrolled = DB::table('users_courses')->where('user_id', $learner->id);
 
-        $passedCourseIds = DB::table('user_exams')
-            ->where('user_id', $learner->id)
-            ->whereRaw('LOWER(COALESCE(status, "")) IN (?, ?)', ['passed', 'completed'])
-            ->distinct()
-            ->pluck('course_id');
+        $passedCourseIds = CourseCompletion::courseIdsFor($learner->id);
 
         $enrolledCount  = (clone $enrolled)->count();
         $completedCount = $passedCourseIds->count();

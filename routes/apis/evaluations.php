@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\apis\Admin\AdminEvaluationReportController;
 use App\Http\Controllers\apis\EvaluationCategoryController;
 use App\Http\Controllers\apis\EvaluationController;
 use Illuminate\Support\Facades\Route;
@@ -26,4 +27,31 @@ Route::middleware(['auth.user', 'role:Admin'])->group(function () {
     Route::post('evaluations',             [EvaluationController::class, 'store']);
     Route::put('evaluations/{evaluation}', [EvaluationController::class, 'update']);
     Route::delete('evaluations/{evaluation}', [EvaluationController::class, 'destroy']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Evaluation reporting (Stage B / B3)
+|--------------------------------------------------------------------------
+| Read-only aggregates for the 2026 evaluation screens. Gated on the new
+| `view-evaluations` permission — the Dashboard's evaluations route is
+| currently annotated "legacy, un-gated" (finding DB-06), so no key existed.
+|
+| A submission has no id: user_course_evaluations holds one row per
+| (learner, course, question), so the detail route addresses it by the natural
+| key rather than by a surrogate.
+*/
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-evaluations'])->prefix('admin')->group(function () {
+    Route::get('courses/{course}/evaluation-summary', [AdminEvaluationReportController::class, 'courseSummary'])
+        ->name('admin.evaluations.course-summary');
+
+    // Static segment first, so "scores" is never captured as {template}.
+    Route::get('evaluations/scores', [AdminEvaluationReportController::class, 'scores'])
+        ->name('admin.evaluations.scores');
+
+    Route::get('evaluations/scores/{learner}/{course}', [AdminEvaluationReportController::class, 'submission'])
+        ->name('admin.evaluations.submission');
+
+    Route::get('evaluations/{template}/results', [AdminEvaluationReportController::class, 'templateResults'])
+        ->name('admin.evaluations.template-results');
 });

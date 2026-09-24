@@ -1,0 +1,472 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Mobile;
+
+use App\Enums\EnumRegistry;
+use App\Enums\Mobile\CourseCtaState;
+use App\Enums\Mobile\CourseDurationBucket;
+use App\Models\Course;
+use App\Models\CourseNotifyInterest;
+use App\Models\CourseSection;
+use App\Models\JobTitle;
+use App\Models\User;
+use App\Repositories\Contracts\Mobile\AcademyRepositoryInterface;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Discovery + enrolment intent for the Academy (S-01 → S-04).
+ *
+ * Pure orchestration: it asks the repository for the live data, asks
+ * `MobileSettings` for every threshold, and resolves view-model
+ * details (deadline flags, cohort CTA state, seats progress) so the
+ * resources stay declarative.
+ */
+final class AcademyService
+{
+    public function __construct(
+        private readonly AcademyRepositoryInterface $repository,
+        private readonly MobileSettings $settings,
+    ) {}
+
+    /**
+     * S-01 entry card: count + label.
+     *
+     * @return array{available_count: int, has_available: bool}
+     */
+    public function summaryFor(User $user): array
+    {
+        $count = $this->repository->countAvailableForUser(
+            $user,
+            now(),
+            $this->settings->academyDefaultCloseOffsetDays(),
+            $this->settings->academyScheduledVisibilityDays(),
+        );
+
+        return [
+            'available_count' => $count,
+            'has_available'   => $count > 0,
+        ];
+    }
+
+    /**
+     * S-02 scope chips — fixed `All` / `Special` / `General` filters.
+     *
+     *   - Special → courses tied to the employee's job-title
+     *     qualification skills.
+     *   - General → every other available course (the complement of
+     *     Special), so `all = special + general` always holds.
+     *
+     * Counts reuse the exact same availability predicate as the list,
+     * so the badges always agree with what the list renders.
+     *
+     * @return Collection<int, array{key: string, label: string, count: int, is_all: bool}>
+     */
+    public function scopeChipsFor(?User $user, string $locale): Collection
+    {
+        $counts = $this->repository->scopeCounts(
+            $user,
+            now(),
+            $this->settings->academyDefaultCloseOffsetDays(),
+            $this->settings->academyScheduledVisibilityDays(),
+        );
+
+        return collect([
+            ['key' => 'all',     'count' => (int) $counts['all'],     'is_all' => true],
+            ['key' => 'special', 'count' => (int) $counts['special'], 'is_all' => false],
+            ['key' => 'general', 'count' => (int) $counts['general'], 'is_all' => false],
+        ])->map(fn (array $chip) => [
+            'key'    => $chip['key'],
+            'label'  => __('messages.mobile.scope_' . $chip['key'], [], $locale),
+            'count'  => $chip['count'],
+            'is_all' => $chip['is_all'],
+        ])->values();
+    }
+
+    /**
+     * S-02 paginated list.
+     *
+     * @param  array<int, string>|null  $levels           Whitelisted against `EnumRegistry::values('course_level')`.
+     * @param  array<int, string>|null  $courseTypes      Whitelisted against `EnumRegistry::values('course_type')`.
+     * @param  array<int, string>|null  $durationBuckets  Whitelisted against `CourseDurationBucket::values()`.
+     * @param  array<int, int>|null     $jobRoleIds       `job_titles.id` values.
+     */
+    public function listAvailable(
+        ?User   $user,
+        ?int    $categoryId,
+        ?string $search,
+        ?int    $perPage,
+        ?string $scope = null,
+        ?array  $levels = null,
+        ?array  $courseTypes = null,
+        ?array  $durationBuckets = null,
+        ?array  $jobRoleIds = null,
+        ?string $sort = null,
+    ): LengthAwarePaginator {
+        $effectivePerPage = $perPage !== null && $perPage > 0
+            ? min($perPage, $this->settings->academyPerPage() * 5)
+            : $this->settings->academyPerPage();
+
+        return $this->repository->paginateAvailable(
+            user: $user,
+            now: now(),
+            defaultCloseOffsetDays: $this->settings->academyDefaultCloseOffsetDays(),
+            scheduledVisibilityDays: $this->settings->academyScheduledVisibilityDays(),
+            perPage: $effectivePerPage,
+            categoryId: $categoryId,
+            search: $this->cleanSearch($search),
+            scope: $this->normaliseScope($scope),
+            levels: $this->normaliseLevels($levels),
+            courseTypes: $this->normaliseCourseTypes($courseTypes),
+            durationBuckets: $this->normaliseDurationBuckets($durationBuckets),
+            jobRoleIds: $this->normaliseJobRoleIds($jobRoleIds),
+            sort: $this->normaliseSort($sort),
+        );
+    }
+
+    /**
+     * Per-option Type / Level / Duration facet counts for the S-02
+     * Catalogue filter sidebar, computed against whichever OTHER filters
+     * are currently applied (see `AcademyRepositoryInterface::filterFacetCounts()`).
+     *
+     * @param  array<int, string>|null  $levels
+     * @param  array<int, string>|null  $courseTypes
+     * @param  array<int, string>|null  $durationBuckets
+     * @param  array<int, int>|null     $jobRoleIds
+     * @return array{type: array<string, int>, level: array<string, int>, duration: array<string, int>}
+     */
+    public function filterFacetCounts(
+        ?User   $user,
+        ?int    $categoryId,
+        ?string $search,
+        ?string $scope = null,
+        ?array  $levels = null,
+        ?array  $courseTypes = null,
+        ?array  $durationBuckets = null,
+        ?array  $jobRoleIds = null,
+    ): array {
+        return $this->repository->filterFacetCounts(
+            user: $user,
+            now: now(),
+            defaultCloseOffsetDays: $this->settings->academyDefaultCloseOffsetDays(),
+            scheduledVisibilityDays: $this->settings->academyScheduledVisibilityDays(),
+            categoryId: $categoryId,
+            search: $this->cleanSearch($search),
+            scope: $this->normaliseScope($scope),
+            levels: $this->normaliseLevels($levels),
+            courseTypes: $this->normaliseCourseTypes($courseTypes),
+            durationBuckets: $this->normaliseDurationBuckets($durationBuckets),
+            jobRoleIds: $this->normaliseJobRoleIds($jobRoleIds),
+        );
+    }
+
+    /**
+     * Job Role filter options for the catalogue sidebar — only the job titles
+     * actually reachable from a catalogue course. A course reaches a job title
+     * through its qualification skills (course → course_qualification_skills →
+     * job_title_qualification_skill → job_titles), so listing every active job
+     * title (as `/job-titles/active` does) would offer filters that can never
+     * match a result. Mirrors BlogService::jobTitleFilters().
+     *
+     * @return array<int, array{id: int, name: string}>
+     */
+    public function jobRoleFilters(): array
+    {
+        $qualIds = DB::table('course_qualification_skills as cqs')
+            ->join('courses', 'courses.id', '=', 'cqs.course_id')
+            ->where('courses.active', 1)
+            ->distinct()
+            ->pluck('cqs.qualification_skill_id')
+            ->all();
+
+        if ($qualIds === []) {
+            return [];
+        }
+
+        $jobTitleIds = DB::table('job_title_qualification_skill')
+            ->whereIn('qualification_skill_id', $qualIds)
+            ->distinct()
+            ->pluck('job_title_id')
+            ->all();
+
+        if ($jobTitleIds === []) {
+            return [];
+        }
+
+        return JobTitle::query()
+            ->whereIn('id', $jobTitleIds)
+            ->get()
+            ->map(fn (JobTitle $jt) => ['id' => $jt->id, 'name' => $jt->getLocalizedName()])
+            ->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * GAP 4 — record (idempotently) that this learner wants to be
+     * notified when `$course`'s next cohort opens for enrolment. Storage
+     * only: the admin-side trigger that actually sends the notification
+     * when a new cohort opens is a separate follow-up, not built here.
+     */
+    public function notifyMeForNextCohort(User $user, Course $course): void
+    {
+        CourseNotifyInterest::query()->updateOrCreate([
+            'user_id'   => $user->id,
+            'course_id' => $course->id,
+        ]);
+    }
+
+    private function cleanSearch(?string $search): ?string
+    {
+        $minChars = $this->settings->academySearchMinChars();
+
+        return $search !== null && mb_strlen(trim($search)) >= $minChars
+            ? trim($search)
+            : null;
+    }
+
+    /**
+     * Whitelist the scope so a stray query string can never reach the
+     * repository. Unknown values collapse to `all`.
+     */
+    private function normaliseScope(?string $scope): string
+    {
+        return in_array($scope, ['special', 'general'], true) ? $scope : 'all';
+    }
+
+    /**
+     * @param  array<int, string>|null  $levels
+     * @return array<int, string>|null
+     */
+    private function normaliseLevels(?array $levels): ?array
+    {
+        if (empty($levels)) {
+            return null;
+        }
+
+        $valid = array_values(array_intersect($levels, EnumRegistry::values('course_level')));
+
+        return $valid !== [] ? $valid : null;
+    }
+
+    /**
+     * @param  array<int, string>|null  $courseTypes
+     * @return array<int, string>|null
+     */
+    private function normaliseCourseTypes(?array $courseTypes): ?array
+    {
+        if (empty($courseTypes)) {
+            return null;
+        }
+
+        $valid = array_values(array_intersect($courseTypes, EnumRegistry::values('course_type')));
+
+        return $valid !== [] ? $valid : null;
+    }
+
+    /**
+     * @param  array<int, string>|null  $durationBuckets
+     * @return array<int, string>|null
+     */
+    private function normaliseDurationBuckets(?array $durationBuckets): ?array
+    {
+        if (empty($durationBuckets)) {
+            return null;
+        }
+
+        $valid = array_values(array_intersect($durationBuckets, CourseDurationBucket::values()));
+
+        return $valid !== [] ? $valid : null;
+    }
+
+    /**
+     * @param  array<int, mixed>|null  $jobRoleIds
+     * @return array<int, int>|null
+     */
+    private function normaliseJobRoleIds(?array $jobRoleIds): ?array
+    {
+        if (empty($jobRoleIds)) {
+            return null;
+        }
+
+        $valid = array_values(array_unique(array_map(
+            static fn ($id) => (int) $id,
+            array_filter($jobRoleIds, static fn ($id) => (int) $id > 0),
+        )));
+
+        return $valid !== [] ? $valid : null;
+    }
+
+    /**
+     * Whitelist the sort key. Unknown/missing values collapse to
+     * `most_relevant` — the original, unchanged default ordering.
+     */
+    private function normaliseSort(?string $sort): string
+    {
+        return in_array($sort, ['most_relevant', 'highest_rated', 'soonest_start', 'newest'], true)
+            ? $sort
+            : 'most_relevant';
+    }
+
+    /**
+     * S-03 detail.
+     */
+    public function findDetail(int $courseId): Course
+    {
+        return $this->repository->findForDetail($courseId);
+    }
+
+    /**
+     * Resolve the cohort the S-03 detail screen should anchor on for
+     * THIS user — either the next joinable cohort, or the one they're
+     * already enrolled in if any.
+     */
+    public function anchorCohortFor(Course $course, ?User $user): ?CourseSection
+    {
+        // 1. Already-enrolled cohort wins so the CTA reads "Enrolled ✓".
+        //    A guest has no enrolments, so skip straight to the next joinable.
+        if ($user !== null) {
+            $enrolledCohortId = \DB::table('users_courses')
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
+                ->value('group_id');
+
+            if (!empty($enrolledCohortId)) {
+                return $course->sections->firstWhere('id', (int) $enrolledCohortId)
+                    ?? CourseSection::query()->find($enrolledCohortId);
+            }
+        }
+
+        return $this->repository->nextJoinableCohort(
+            $course,
+            $user,
+            now(),
+            $this->settings->academyDefaultCloseOffsetDays(),
+            $this->settings->academyScheduledVisibilityDays(),
+        );
+    }
+
+    /**
+     * Compute the CTA state for the S-03 sticky button.
+     */
+    public function resolveCtaState(Course $course, ?User $user, ?CourseSection $anchorCohort): CourseCtaState
+    {
+        // A guest is never enrolled — the CTA is purely deadline/capacity
+        // driven (EnrolNow / GetNotified / Unavailable). The frontend gates the
+        // actual enrolment behind a login prompt.
+        if ($user !== null && $this->repository->isEnrolledInCourse($user, $course->id)) {
+            return CourseCtaState::EnrolledViewLearning;
+        }
+
+        return $this->resolveCtaStateForAvailableCourse($anchorCohort);
+    }
+
+    /**
+     * The deadline/capacity-only half of `resolveCtaState()`, extracted
+     * so the S-02 card list can reuse the exact same business rule
+     * WITHOUT an `isEnrolledInCourse()` round trip per card (which would
+     * be an N+1 query across a page of results).
+     *
+     * Safe to skip the enrolled check here because every course in the
+     * S-02 "available" set is already guaranteed NOT enrolled — see
+     * `AcademyRepository::baseAvailableQuery()`, which excludes any
+     * course the learner holds ANY existing enrolment in. So this can
+     * only ever resolve to `EnrolNow` / `GetNotified` / `Unavailable`,
+     * never `EnrolledViewLearning` — exactly the 3 states the card needs.
+     */
+    public function resolveCtaStateForAvailableCourse(?CourseSection $anchorCohort): CourseCtaState
+    {
+        if ($anchorCohort === null) {
+            return CourseCtaState::Unavailable;
+        }
+
+        // Determine whether the deadline has passed.
+        $deadline = $this->effectiveDeadline($anchorCohort);
+        if ($deadline === null || $deadline->isPast()) {
+            return CourseCtaState::GetNotified;
+        }
+
+        // Capacity check.
+        $capacity = $anchorCohort->capacity;
+        if ($capacity !== null) {
+            $enrolled = $anchorCohort->enrolled_count ?? \DB::table('users_courses')
+                ->where('group_id', $anchorCohort->id)->count();
+            if ($enrolled >= $capacity) {
+                return CourseCtaState::Unavailable;
+            }
+        }
+
+        return CourseCtaState::EnrolNow;
+    }
+
+    /**
+     * Days before its start a `scheduled` cohort becomes app-visible.
+     * Exposed so collaborators (e.g. EnrolmentService) resolve the next
+     * joinable cohort with the same visibility window as the listing.
+     */
+    public function scheduledVisibilityDays(): int
+    {
+        return $this->settings->academyScheduledVisibilityDays();
+    }
+
+    /**
+     * Effective enrolment deadline = explicit `enrolment_closes_at`
+     * if set, otherwise `start_date - mobile_academy.default_close_offset_days`.
+     */
+    public function effectiveDeadline(CourseSection $cohort): ?Carbon
+    {
+        if ($cohort->enrolment_closes_at !== null) {
+            return Carbon::parse($cohort->enrolment_closes_at)->endOfDay();
+        }
+
+        if ($cohort->start_date === null) {
+            return null;
+        }
+
+        $offset = $this->settings->academyDefaultCloseOffsetDays();
+
+        return Carbon::parse($cohort->start_date)
+            ->subDays($offset)
+            ->endOfDay();
+    }
+
+    /**
+     * Days remaining until the deadline (negative if past).
+     */
+    public function daysUntilDeadline(CourseSection $cohort, Carbon $now): ?int
+    {
+        $deadline = $this->effectiveDeadline($cohort);
+        if ($deadline === null) {
+            return null;
+        }
+
+        return (int) $now->startOfDay()->diffInDays($deadline->startOfDay(), false);
+    }
+
+    /**
+     * Classify a deadline against the platform warning thresholds.
+     * Returns one of `none|warning|critical|closed`.
+     */
+    public function deadlineSeverity(CourseSection $cohort, Carbon $now): string
+    {
+        $days = $this->daysUntilDeadline($cohort, $now);
+
+        if ($days === null) {
+            return 'none';
+        }
+        if ($days < 0) {
+            return 'closed';
+        }
+        if ($days <= $this->settings->academyDeadlineCriticalDays()) {
+            return 'critical';
+        }
+        if ($days <= $this->settings->academyDeadlineWarningDays()) {
+            return 'warning';
+        }
+        return 'none';
+    }
+}

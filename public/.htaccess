@@ -1,0 +1,50 @@
+<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    </IfModule>
+
+    # The Angular SPA (copied from the website/ build) is the entry point.
+    # Was index.php when this served the Blade front-end.
+    DirectoryIndex index.html
+
+    RewriteEngine On
+
+    # Handle Authorization Header (Sanctum Bearer tokens)
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # --- Laravel backend stays server-side ---
+    # API always goes to the front controller
+    RewriteRule ^api(/.*)?$ index.php [L]
+
+    # L5-Swagger serves the OpenAPI spec (/docs) and the swagger-ui bundle
+    # (/docs/asset/*) through Laravel routes, not as files on disk. Without
+    # this they hit the SPA fallback below and every asset comes back as
+    # index.html -> "Uncaught SyntaxError: Unexpected token '<'" on
+    # /api/documentation.
+    RewriteRule ^docs(/.*)?$ index.php [L]
+
+    # Laravel Debugbar's asset routes (registered only while the debugbar is
+    # enabled) are likewise Laravel routes, not files.
+    RewriteRule ^_debugbar(/.*)?$ index.php [L]
+
+    # Uploaded files: served directly when the storage symlink exists;
+    # otherwise Laravel's /storage fallback route streams them.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^storage(/.*)?$ index.php [L]
+
+    # --- Everything else: real files serve directly, all other paths
+    #     fall through to the Angular SPA entry point ---
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.html [L]
+</IfModule>
+<IfModule mod_php8.c>
+    php_value upload_max_filesize 2048M
+    php_value post_max_size 2048M
+</IfModule>
+
+<IfModule mod_headers.c>
+    LimitRequestBody 0
+</IfModule>

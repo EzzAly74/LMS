@@ -1,0 +1,1094 @@
+<?php
+
+namespace App\Services\Admin;
+
+use App\Http\Traits\HasFile;
+use App\Models\Admin;
+use App\Models\Instructor;
+use App\Models\User;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Pagination\LengthAwarePaginator as PaginatorImpl;
+use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+
+/**
+ * Service backing the 2026 admin Users redesign.
+ *
+ * The LMS keeps three separate person-tables that the Figma redesign
+ * unifies in a single list:
+ *
+ *   - users        →  learners + HR-synced employees
+ *   - instructors  →  course instructor profiles (bilingual names)
+ *   - admins       →  back-office login accounts
+ *
+ * This service therefore exposes a "virtual" composite resource keyed by a
+ * (`source`, `id`) tuple.  Every read path UNION-ALLs across the three
+ * tables; every write path routes to the table indicated by `source`.
+ *
+ * Strict additivity is preserved — none of the legacy services, models, or
+ * controllers (App\Services\UserService, App\Services\AdminService, etc.)
+ * are touched.
+ */
+class AdminUserService
+{
+    use HasFile;
+
+    /** @var array<int,string> Source identifiers used by the API. */
+    public const SOURCES = ['user', 'instructor', 'admin'];
+
+    /**
+     * @var array<int,string>
+     *
+     * Roles whose machine names map to a dedicated person-table bucket.
+     * Anything outside this list lands in `users` and is attached to the
+     * Spatie role via `model_has_roles`. This list is intentionally not
+     * exposed to the UI — the dropdown is sourced from the `roles` table
+     * (Figma 529:38878), so admins can add new custom roles without a
+     * code change.
+     */
+    private const BUCKETED_ROLES = ['admin', 'instructor', 'learner'];
+
+    /* ------------------------------------------------------------------ *
+     |  PAGINATED LIST (UNION across the three tables)                    |
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Paginate the unified people list.
+     *
+     * @param  string|null         $role           One of self::ROLES or null/"all".
+     * @param  string|null         $status         active | inactive | deactivated
+     * @param  string|null         $search         Free-text filter on name / email.
+     * @param  array<int,int>|null $instructorIds  Optional instructor-ids filter
+     *                                             (sub-filter on the Instructors pill).
+     */
+    public function paginate(
+        ?string $role          = null,
+        ?string $status        = null,
+        ?string $search        = null,
+        ?array  $instructorIds = null,
+        int     $perPage       = 15,
+    ): LengthAwarePaginator {
+        $sub = $this->unifiedQuery();
+
+        $query = DB::query()->fromSub($sub, 'p');
+
+        if ($role) {
+            // Accept either a bucketed system role (`admin`/`instructor`/
+            // `learner`) — which matches `role_key` 1:1 — or any custom
+            // role machine name from the `roles` table; the latter is
+            // matched against the Spatie `model_has_roles` pivot.
+            $bucket = $this->bucketForRole($role);
+            if ($bucket !== null) {
+                $query->where('p.role_key', $bucket);
+            } else {
+                $customIds = $this->idsForCustomRole($role);
+                if ($customIds === []) {
+                    // Force an empty result set if no users are attached.
+                    $query->whereRaw('1=0');
+                } else {
+                    $query->whereIn(DB::raw('CONCAT(p.source, ":", p.id)'), $customIds);
+                }
+            }
+        }
+
+        if ($status) {
+            $query->where('p.status', $status);
+        }
+
+        if (!empty($instructorIds)) {
+            $query->where('p.source', 'instructor')
+                  ->whereIn('p.id', $instructorIds);
+        }
+
+        if ($search) {
+            $needle = "%{$search}%";
+            $query->where(function ($w) use ($needle) {
+                $w->where('p.name_en',       'LIKE', $needle)
+                  ->orWhere('p.name_ar',       'LIKE', $needle)
+                  ->orWhere('p.name_fallback', 'LIKE', $needle)
+                  ->orWhere('p.email',         'LIKE', $needle);
+            });
+        }
+
+        // Sort by the best available name across all three tables/locales.
+        $query->orderByRaw('COALESCE(p.name_en, p.name_ar, p.name_fallback)');
+
+        $page  = (int) (Paginator::resolveCurrentPage() ?: 1);
+        $total = (clone $query)->count();
+        $rows  = $query->forPage($page, $perPage)->get();
+
+        // Attach computed compliance % for the learner rows.
+        $rows = $this->attachCompliance($rows);
+        // Resolve each row's real (Spatie) role + colour for the badge/filter.
+        $rows = $this->attachRoles($rows);
+
+        return new PaginatorImpl(
+            items:       $rows,
+            total:       $total,
+            perPage:     $perPage,
+            currentPage: $page,
+            options:     [
+                'path'     => Paginator::resolveCurrentPath(),
+                'pageName' => 'page',
+            ],
+        );
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  SUMMARY (KPI cards)                                               |
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Build the four KPI cards shown at the top of the page.
+     *
+     * @return array{
+     *   total_users:int,
+     *   instructors:int,
+     *   admins:int,
+     *   inactive:int
+     * }
+     */
+    public function summary(): array
+    {
+        $users       = (int) DB::table('users')->count();
+        $instructors = (int) DB::table('instructors')->count();
+        $admins      = (int) DB::table('admins')->count();
+
+        $inactive = 0;
+        foreach (['users', 'instructors', 'admins'] as $table) {
+            if (Schema::hasColumn($table, 'status')) {
+                $inactive += (int) DB::table($table)
+                    ->whereIn('status', ['inactive', 'deactivated'])
+                    ->count();
+            }
+        }
+
+        return [
+            'total_users' => $users + $instructors + $admins,
+            'instructors' => $instructors,
+            'admins'      => $admins,
+            'inactive'    => $inactive,
+        ];
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  FILTER OPTIONS (instructors sub-filter modal)                     |
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Payload for the "Instructors" filter modal + the Add/Edit modal's
+     * supporting lookups.
+     *
+     *   roles        →  every admin-guard role from the `roles` table —
+     *                   bilingual labels included so the Figma role
+     *                   dropdown stays dynamic. Custom roles created by
+     *                   the admin appear here without any code change.
+     *   instructors  →  every row in the `instructors` table (the
+     *                   Instructors filter sub-modal).
+     *
+     * @return array{
+     *   roles:       array<int,array{key:string,label:string,count:int}>,
+     *   instructors: array<int,array{id:int,name:string,email:string|null}>
+     * }
+     */
+    public function filterOptions(): array
+    {
+        $locale = app()->getLocale();
+
+        $roleRows = DB::table('roles')
+            ->where('guard_name', 'admin')
+            ->orderByDesc('is_system')
+            ->orderBy('name_en')
+            ->get(['name', 'name_en', 'name_ar', 'color']);
+
+        // Counts come from the underlying person table for bucketed
+        // system roles (admin/instructor/learner) and from the Spatie
+        // pivot for everything else. `color` lets the Figma filter pills
+        // (and the table role badge) render each role in its own colour.
+        $roles = $roleRows->map(function ($r) use ($locale) {
+            $key = (string) $r->name;
+            return [
+                'key'   => $key,
+                'label' => $this->labelForRoleRow($r, $locale),
+                'color' => (string) ($r->color ?? 'teal'),
+                'count' => $this->countUsersInRole($key),
+            ];
+        })->values()->all();
+
+        $instructors = Instructor::query()
+            ->orderBy('id')
+            ->get(['id', 'name', 'email'])
+            ->map(fn (Instructor $i) => [
+                'id'    => (int) $i->id,
+                'name'  => $this->translateJsonName((string) $i->name, $locale),
+                'email' => $i->email,
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'roles'       => $roles,
+            'instructors' => $instructors,
+        ];
+    }
+
+    /**
+     * Map a persona key to its corresponding `source` token. Bucketed
+     * system roles route to their dedicated tables; every other role is
+     * a custom Spatie role and lands in `users`.
+     */
+    private function sourceForRole(string $role): string
+    {
+        return match ($role) {
+            'admin', 'superAdmin' => 'admin',
+            'instructor'          => 'instructor',
+            default               => 'user',
+        };
+    }
+
+    /**
+     * Map an incoming role identifier to its bucketed system role,
+     * tolerant of the casing/spacing used by the `roles` table (e.g.
+     * "Instructor", "Learner", "Super Admin"). Returns null for
+     * non-bucketed / custom roles (e.g. "Reports Viewer"), which are
+     * resolved via the Spatie `model_has_roles` pivot instead.
+     *
+     * This is the fix for the "Instructor filter shows 3 of 27" bug: the
+     * UI sends the `roles` table's machine name ("Instructor"), but the
+     * person-table buckets are lower-case, so an exact match wrongly
+     * routed the filter down the custom-role (pivot) path.
+     */
+    private function bucketForRole(?string $role): ?string
+    {
+        return match (strtolower(trim((string) $role))) {
+            'admin'      => 'admin',
+            'instructor' => 'instructor',
+            'learner'    => 'learner',
+            default      => null,
+        };
+    }
+
+    /**
+     * Translate a `roles` row into a user-facing label, honouring the
+     * current Accept-Language locale.
+     */
+    private function labelForRoleRow(object $row, string $locale): string
+    {
+        $en = (string) ($row->name_en ?? '');
+        $ar = $row->name_ar !== null ? (string) $row->name_ar : '';
+
+        return $locale === 'ar'
+            ? ($ar ?: ($en ?: ucfirst((string) $row->name)))
+            : ($en ?: ($ar ?: ucfirst((string) $row->name)));
+    }
+
+    /**
+     * Count how many people are attached to `$roleKey`. For bucketed
+     * system roles the count comes from the underlying person table
+     * (so a Learner reflects every row in `users`); for everything else
+     * we read `model_has_roles` which Spatie populates via assignRole().
+     */
+    private function countUsersInRole(string $roleKey): int
+    {
+        $bucket = $this->bucketForRole($roleKey);
+        if ($bucket !== null) {
+            return (int) DB::table($this->tableFor($this->sourceForRole($bucket)))->count();
+        }
+
+        return (int) DB::table('model_has_roles as mhr')
+            ->join('roles as r', 'r.id', '=', 'mhr.role_id')
+            ->where('r.name', $roleKey)
+            ->where('r.guard_name', 'admin')
+            ->count();
+    }
+
+    /**
+     * Build the `source:id` whitelist for a custom-role filter. Used by
+     * `paginate()` to scope the unified query when the dropdown is set
+     * to a non-bucketed role.
+     *
+     * @return array<int,string>
+     */
+    private function idsForCustomRole(string $roleKey): array
+    {
+        $rows = DB::table('model_has_roles as mhr')
+            ->join('roles as r', 'r.id', '=', 'mhr.role_id')
+            ->where('r.name', $roleKey)
+            ->where('r.guard_name', 'admin')
+            ->get(['mhr.model_type', 'mhr.model_id']);
+
+        return $rows->map(static function ($row) {
+            $source = match ($row->model_type) {
+                Admin::class      => 'admin',
+                Instructor::class => 'instructor',
+                User::class       => 'user',
+                default           => null,
+            };
+            return $source ? sprintf('%s:%d', $source, (int) $row->model_id) : null;
+        })->filter()->values()->all();
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  DETAIL                                                            |
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Look up a single row across the three tables. Returns a stdClass
+     * shaped identically to the rows returned by paginate().
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function show(string $source, int $id): \stdClass
+    {
+        $this->assertSource($source);
+
+        $sub = $this->unifiedQuery();
+
+        $row = DB::query()
+            ->fromSub($sub, 'p')
+            ->where('p.source', $source)
+            ->where('p.id', $id)
+            ->first();
+
+        if (!$row) {
+            throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())
+                ->setModel($this->modelClassFor($source), [$id]);
+        }
+
+        $rows = $this->attachCompliance(collect([$row]));
+        $rows = $this->attachRoles($rows);
+
+        return $rows->first();
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  CREATE                                                            |
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Create a row in whichever table matches the chosen role.
+     *
+     * Bucketed system roles route to their dedicated person table; any
+     * other (custom) role lands in `users` and is also attached via the
+     * Spatie `model_has_roles` pivot so the role's permissions take
+     * effect across the app.
+     *
+     * @param  array{
+     *   name_en:string, name_ar:string, email:string, role:string,
+     *   department_name?:string|null, phone?:string|null,
+     *   learner_type?:string|null, image?:UploadedFile|null
+     * }  $data
+     *
+     * @return array{source:string,id:int}
+     */
+    public function create(array $data): array
+    {
+        $role  = (string) ($data['role'] ?? '');
+        $image = $data['image'] ?? null;
+        unset($data['image']);
+
+        return DB::transaction(function () use ($data, $role, $image) {
+            $created = match ($role) {
+                'admin', 'superAdmin' => $this->createAdmin($data, $image),
+                'instructor'          => $this->createInstructor($data, $image),
+                'learner'             => $this->createLearner($data, $image),
+                default               => $this->createLearner($data, $image),
+            };
+
+            // Attach the chosen Spatie role so permissions take effect and
+            // the role chip resolves to its real name/colour. Admins carry
+            // their back-office role (admin/superAdmin/custom); learners
+            // only get a pivot row for non-bucketed custom roles.
+            $shouldAssign = $created['source'] === 'admin'
+                || (! in_array($role, self::BUCKETED_ROLES, true) && $role !== '');
+            if ($shouldAssign) {
+                $model = $this->modelInstance($created['source'], $created['id']);
+                if (method_exists($model, 'assignRole')) {
+                    try { $model->assignRole($role); } catch (\Throwable $e) { /* no-op */ }
+                }
+            }
+
+            // Any non-learner role is a back-office (dashboard) role. When the
+            // primary record isn't already an admin (instructor / reports-viewer
+            // / custom), provision a hidden `admins` login so the person can sign
+            // in to the dashboard — the shadow row is excluded from the Users
+            // list so nobody appears twice.
+            if ($created['source'] !== 'admin') {
+                $this->ensureDashboardLogin(
+                    $data['email']    ?? null,
+                    $data['name_en']  ?? null,
+                    $data['password'] ?? null,
+                    $role,
+                );
+            }
+
+            return $created;
+        });
+    }
+
+    /**
+     * @param  UploadedFile|null  $image
+     */
+    private function createLearner(array $data, ?UploadedFile $image = null): array
+    {
+        $systemId = $this->allocateSystemId();
+
+        $attributes = [
+            'system_id'       => $systemId,
+            'name'            => $data['name_en'],
+            'name_en'         => $data['name_en'],
+            'name_ar'         => $data['name_ar'],
+            'email'           => $data['email'],
+            'phone'           => $data['phone']           ?? null,
+            'department_name' => $data['department_name'] ?? null,
+            'learner_type'    => $data['learner_type']    ?? 'online',
+            'machine_code'    => Str::upper(Str::random(4)),
+            'status'          => 'active',
+            'image'           => $image ? $this->uploadRequestFile('users', null, null, $image) : null,
+        ];
+        if (! empty($data['password']) && Schema::hasColumn('users', 'password')) {
+            $attributes['password'] = bcrypt($data['password']);
+        }
+
+        $user = User::query()->create($attributes);
+
+        return ['source' => 'user', 'id' => (int) $user->id];
+    }
+
+    /**
+     * @param  UploadedFile|null  $image
+     */
+    private function createInstructor(array $data, ?UploadedFile $image = null): array
+    {
+        $attributes = [
+            'name'           => ['en' => $data['name_en'], 'ar' => $data['name_ar']],
+            'email'          => $data['email'],
+            'image'          => $image ? $this->uploadRequestFile('instructors', null, null, $image) : null,
+            // "Brief on the instructor" — bilingual, stored on the translatable
+            // bio column (the same field the Instructors catalogue uses).
+            'bio'            => ['en' => $data['brief_en'] ?? '', 'ar' => $data['brief_ar'] ?? ''],
+            'status'         => 'active',
+        ];
+        if (! empty($data['password']) && Schema::hasColumn('instructors', 'password')) {
+            $attributes['password'] = bcrypt($data['password']);
+        }
+
+        $instructor = Instructor::query()->create($attributes);
+
+        return ['source' => 'instructor', 'id' => (int) $instructor->id];
+    }
+
+    /**
+     * @param  UploadedFile|null  $image
+     */
+    private function createAdmin(array $data, ?UploadedFile $image = null): array
+    {
+        // Admin's $fillable list intentionally omits status / image to
+        // protect the legacy login flow — set them directly so we still
+        // honour mass-assignment guards.
+        $admin = new Admin();
+        $admin->name              = $data['name_en'];
+        $admin->email             = $data['email'];
+        // Password comes from the Add User form (replacing the legacy
+        // Controllers screen); fall back to a random secret if omitted.
+        $admin->password          = bcrypt(! empty($data['password']) ? $data['password'] : Str::random(24));
+        if (Schema::hasColumn('admins', 'status')) { $admin->status = 'active'; }
+        if (Schema::hasColumn('admins', 'image') && $image) {
+            $admin->image = $this->uploadRequestFile('admins', null, null, $image);
+        }
+        $admin->save();
+
+        return ['source' => 'admin', 'id' => (int) $admin->id];
+    }
+
+    /**
+     * Provision (or refresh) a hidden `admins` login for a back-office user
+     * whose primary record lives in another table (instructor / reports-
+     * viewer / custom role). This is what lets "any role with dashboard
+     * access" sign in: the dashboard login + `role:Admin` gate both operate
+     * on the `admins` table, so we mirror the credential there.
+     *
+     * The row is keyed by email and kept out of the Users list by
+     * {@see self::unifiedQuery()} so the person never appears twice. A login
+     * can only be created when a password is supplied; without one we simply
+     * keep the role in sync on any existing shadow.
+     */
+    private function ensureDashboardLogin(?string $email, ?string $name, ?string $plainPassword, string $role): void
+    {
+        $email = trim((string) $email);
+        if ($email === '' || $role === '' || $role === 'learner') {
+            return;
+        }
+
+        $admin = Admin::query()->where('email', $email)->first();
+
+        if (! $admin) {
+            // No login yet — we can only create one when we have a password.
+            if (empty($plainPassword)) {
+                return;
+            }
+            $admin = new Admin();
+            $admin->name     = $name ?: $email;
+            $admin->email    = $email;
+            $admin->password = bcrypt($plainPassword);
+            if (Schema::hasColumn('admins', 'status')) {
+                $admin->status = 'active';
+            }
+            $admin->save();
+        } else {
+            $dirty = false;
+            if ($name && $admin->name !== $name) {
+                $admin->name = $name;
+                $dirty = true;
+            }
+            if (! empty($plainPassword)) {
+                $admin->password = bcrypt($plainPassword);
+                $dirty = true;
+            }
+            if ($dirty) {
+                $admin->save();
+            }
+        }
+
+        // Mirror the chosen role so dashboard permissions resolve correctly.
+        if (method_exists($admin, 'syncRoles')) {
+            try { $admin->syncRoles([$role]); } catch (\Throwable $e) { /* no-op */ }
+        }
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  UPDATE                                                            |
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Patch an existing row.
+     *
+     * @param  array<string,mixed>  $data
+     */
+    public function update(string $source, int $id, array $data): \stdClass
+    {
+        $this->assertSource($source);
+
+        $image = $data['image'] ?? null;
+        unset($data['image']);
+
+        DB::transaction(function () use ($source, $id, $data, $image) {
+            match ($source) {
+                'user'       => $this->updateLearner($id, $data, $image),
+                'instructor' => $this->updateInstructor($id, $data, $image),
+                'admin'      => $this->updateAdmin($id, $data, $image),
+            };
+
+            // Role re-assignment: sync the Spatie pivot when a role is
+            // supplied. Admins can switch between back-office roles
+            // (admin/superAdmin/custom); learners sync custom roles.
+            // Bucketed cross-table moves (learner↔instructor) are left to
+            // a future migration tool.
+            $role = (string) ($data['role'] ?? '');
+            $shouldSync = $role !== '' && (
+                $source === 'admin'
+                || ! in_array($role, self::BUCKETED_ROLES, true)
+            );
+            if ($shouldSync) {
+                $model = $this->modelInstance($source, $id);
+                if (method_exists($model, 'syncRoles')) {
+                    try { $model->syncRoles([$role]); } catch (\Throwable $e) { /* no-op */ }
+                }
+            }
+
+            // Keep the hidden dashboard login in sync for non-learner roles so
+            // a password change / role switch on an instructor (or other
+            // back-office role) still lets them sign in.
+            if ($source !== 'admin' && $role !== '' && $role !== 'learner') {
+                $email = $data['email'] ?? optional($this->modelInstance($source, $id))->email;
+                $this->ensureDashboardLogin(
+                    $email,
+                    $data['name_en'] ?? null,
+                    $data['password'] ?? null,
+                    $role,
+                );
+            }
+        });
+
+        return $this->show($source, $id);
+    }
+
+    private function updateLearner(int $id, array $data, ?UploadedFile $image = null): void
+    {
+        $user = User::query()->findOrFail($id);
+
+        $payload = collect($data)
+            ->only(['name_en', 'name_ar', 'email', 'phone',
+                    'department_name', 'learner_type', 'status'])
+            ->all();
+
+        if (array_key_exists('name_en', $payload) && $payload['name_en']) {
+            $payload['name'] = $payload['name_en'];
+        }
+
+        if ($image) {
+            $payload['image'] = $this->uploadRequestFile('users', null, null, $image);
+        }
+
+        if (!empty($payload)) {
+            $user->fill($payload);
+        }
+
+        // Set password directly to bypass any mass-assignment guard.
+        if (! empty($data['password']) && Schema::hasColumn('users', 'password')) {
+            $user->password = bcrypt($data['password']);
+        }
+
+        if ($user->isDirty()) {
+            $user->save();
+        }
+    }
+
+    private function updateInstructor(int $id, array $data, ?UploadedFile $image = null): void
+    {
+        $instructor = Instructor::query()->findOrFail($id);
+
+        if (array_key_exists('name_en', $data) || array_key_exists('name_ar', $data)) {
+            // Preserve existing translations and overwrite only the supplied keys.
+            $current = $this->currentJsonName((string) $instructor->name);
+            $current['en'] = $data['name_en'] ?? $current['en'] ?? '';
+            $current['ar'] = $data['name_ar'] ?? $current['ar'] ?? '';
+            $instructor->name = $current;
+        }
+
+        foreach (['email', 'status'] as $key) {
+            if (array_key_exists($key, $data) && Schema::hasColumn('instructors', $key)) {
+                $instructor->{$key} = $data[$key];
+            }
+        }
+
+        // Brief — preserve existing translations, overwrite only supplied keys
+        // (mirrors the name handling above).
+        if (array_key_exists('brief_en', $data) || array_key_exists('brief_ar', $data)) {
+            $currentBio = ['en' => $instructor->getTranslation('bio', 'en'), 'ar' => $instructor->getTranslation('bio', 'ar')];
+            $currentBio['en'] = $data['brief_en'] ?? $currentBio['en'] ?? '';
+            $currentBio['ar'] = $data['brief_ar'] ?? $currentBio['ar'] ?? '';
+            $instructor->bio = $currentBio;
+        }
+
+        if ($image) {
+            $instructor->image = $this->uploadRequestFile('instructors', null, null, $image);
+        }
+
+        if (! empty($data['password']) && Schema::hasColumn('instructors', 'password')) {
+            $instructor->password = bcrypt($data['password']);
+        }
+
+        $instructor->save();
+    }
+
+    private function updateAdmin(int $id, array $data, ?UploadedFile $image = null): void
+    {
+        $admin = Admin::query()->findOrFail($id);
+
+        if (!empty($data['name_en'])) {
+            $admin->name = $data['name_en'];
+        }
+        if (array_key_exists('email', $data)) {
+            $admin->email = $data['email'];
+        }
+        if (array_key_exists('status', $data) && Schema::hasColumn('admins', 'status')) {
+            $admin->status = $data['status'];
+        }
+        if (! empty($data['password'])) {
+            $admin->password = bcrypt($data['password']);
+        }
+        if ($image && Schema::hasColumn('admins', 'image')) {
+            $admin->image = $this->uploadRequestFile('admins', null, null, $image);
+        }
+
+        $admin->save();
+    }
+
+    /**
+     * Resolve an Eloquent instance for a (source, id) tuple — used by
+     * `create()` / `update()` to attach Spatie roles after the row has
+     * been persisted.
+     */
+    private function modelInstance(string $source, int $id): \Illuminate\Database\Eloquent\Model
+    {
+        return match ($source) {
+            'admin'      => Admin::query()->findOrFail($id),
+            'instructor' => Instructor::query()->findOrFail($id),
+            default      => User::query()->findOrFail($id),
+        };
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  DEACTIVATE                                                        |
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Soft-deactivate by setting `status = 'deactivated'`. Rows are never
+     * hard-deleted from any of the three tables so existing relationships
+     * (enrollments, exam attempts, course→instructor pivots) remain intact.
+     */
+    public function deactivate(string $source, int $id): \stdClass
+    {
+        $this->assertSource($source);
+
+        $table = $this->tableFor($source);
+        if (Schema::hasColumn($table, 'status')) {
+            DB::table($table)->where('id', $id)->update(['status' => 'deactivated']);
+        }
+
+        return $this->show($source, $id);
+    }
+
+    /**
+     * Reverse of {@see deactivate()} — flips a previously deactivated row
+     * back to `status = 'active'`. Used by the "Reactivate" row action.
+     */
+    public function reactivate(string $source, int $id): \stdClass
+    {
+        $this->assertSource($source);
+
+        $table = $this->tableFor($source);
+        if (Schema::hasColumn($table, 'status')) {
+            DB::table($table)->where('id', $id)->update(['status' => 'active']);
+        }
+
+        return $this->show($source, $id);
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  INTERNAL — Unified query builder                                  |
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Build the UNION ALL subquery that projects each table onto a
+     * uniform schema.  All callers (paginate / show) layer their filters
+     * on top of this query so the column contract stays consistent.
+     */
+    private function unifiedQuery(): QueryBuilder
+    {
+        $usersHasStatus       = Schema::hasColumn('users',       'status');
+        $usersHasLastActive   = Schema::hasColumn('users',       'last_active_at');
+        $usersHasNameEn       = Schema::hasColumn('users',       'name_en');
+        $usersHasNameAr       = Schema::hasColumn('users',       'name_ar');
+        $usersHasImage        = Schema::hasColumn('users',       'image');
+
+        $instHasStatus        = Schema::hasColumn('instructors', 'status');
+        $instHasLastActive    = Schema::hasColumn('instructors', 'last_active_at');
+        $instHasImage         = Schema::hasColumn('instructors', 'image');
+        $instHasBio           = Schema::hasColumn('instructors', 'bio');
+
+        $adminHasStatus       = Schema::hasColumn('admins',      'status');
+        $adminHasLastActive   = Schema::hasColumn('admins',      'last_active_at');
+        $adminHasImage        = Schema::hasColumn('admins',      'image');
+
+        // Expose raw bilingual columns without COALESCE-ing the Arabic fallback into
+        // name_en. The legacy `name` column (HR-synced, typically Arabic) is surfaced
+        // as `name_fallback` so the resource can use it as a last resort for both
+        // locales when neither name_en nor name_ar has been populated yet.
+        $nameEnExpr       = $usersHasNameEn ? 'NULLIF(name_en, "") AS name_en'       : 'NULL AS name_en';
+        $nameArExpr       = $usersHasNameAr ? 'NULLIF(name_ar, "") AS name_ar'       : 'NULL AS name_ar';
+        $nameFallbackExpr = 'name AS name_fallback';
+
+        $usersSub = DB::table('users')
+            ->selectRaw('"user" AS source')
+            ->selectRaw('id')
+            ->selectRaw($nameEnExpr)
+            ->selectRaw($nameArExpr)
+            ->selectRaw($nameFallbackExpr)
+            ->selectRaw('email AS email')
+            ->selectRaw('phone AS phone')
+            ->selectRaw('machine_code AS machine_code')
+            ->selectRaw('department_name AS department_name')
+            // Brief (instructor bio) — only instructors carry one.
+            ->selectRaw('NULL AS bio_en')
+            ->selectRaw('NULL AS bio_ar')
+            ->selectRaw($usersHasImage ? 'image AS image' : 'NULL AS image')
+            ->selectRaw('"learner" AS role_key')
+            ->selectRaw('"Learner" AS role_label')
+            ->selectRaw($usersHasStatus ? 'COALESCE(status, "active") AS status' : '"active" AS status')
+            ->selectRaw($usersHasLastActive ? 'last_active_at AS last_active_at' : 'NULL AS last_active_at')
+            ->selectRaw('created_at AS created_at');
+
+        $instructorsSub = DB::table('instructors')
+            ->selectRaw('"instructor" AS source')
+            ->selectRaw('id')
+            // Stored as JSON {"en":"…","ar":"…"} via Spatie HasTranslations.
+            // JSON_VALID guards against a legacy plain-string name (JSON_EXTRACT
+            // would otherwise throw "Invalid JSON text"). When one locale is
+            // missing, fall back to the OTHER locale — never to the raw `name`
+            // column, which is the JSON blob and would render as literal
+            // `{"ar":"…"}` in the UI.
+            ->selectRaw('CASE WHEN JSON_VALID(name) THEN COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(name, "$.en")), "null"), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(name, "$.ar")), "null")) ELSE name END AS name_en')
+            ->selectRaw('CASE WHEN JSON_VALID(name) THEN COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(name, "$.ar")), "null"), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(name, "$.en")), "null")) ELSE name END AS name_ar')
+            ->selectRaw('NULL AS name_fallback')
+            ->selectRaw('email AS email')
+            ->selectRaw('NULL AS phone')
+            ->selectRaw('NULL AS machine_code')
+            ->selectRaw('NULL AS department_name')
+            // Brief — translatable JSON {"en":"…","ar":"…"} on the bio column.
+            ->selectRaw($instHasBio ? 'CASE WHEN JSON_VALID(bio) THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(bio, "$.en")), "null") ELSE bio END AS bio_en' : 'NULL AS bio_en')
+            ->selectRaw($instHasBio ? 'CASE WHEN JSON_VALID(bio) THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(bio, "$.ar")), "null") ELSE bio END AS bio_ar' : 'NULL AS bio_ar')
+            ->selectRaw($instHasImage ? 'image AS image' : 'NULL AS image')
+            ->selectRaw('"instructor" AS role_key')
+            ->selectRaw('"Instructor" AS role_label')
+            ->selectRaw($instHasStatus ? 'COALESCE(status, "active") AS status' : '"active" AS status')
+            ->selectRaw($instHasLastActive ? 'last_active_at AS last_active_at' : 'NULL AS last_active_at')
+            ->selectRaw('created_at AS created_at');
+
+        $adminsSub = DB::table('admins')
+            ->selectRaw('"admin" AS source')
+            ->selectRaw('id')
+            ->selectRaw('name AS name_en')
+            ->selectRaw('NULL AS name_ar')
+            ->selectRaw('NULL AS name_fallback')
+            ->selectRaw('email AS email')
+            ->selectRaw('NULL AS phone')
+            ->selectRaw('NULL AS machine_code')
+            ->selectRaw('NULL AS department_name')
+            ->selectRaw('NULL AS bio_en')
+            ->selectRaw('NULL AS bio_ar')
+            ->selectRaw($adminHasImage ? 'image AS image' : 'NULL AS image')
+            ->selectRaw('"admin" AS role_key')
+            ->selectRaw('"Admin" AS role_label')
+            ->selectRaw($adminHasStatus ? 'COALESCE(status, "active") AS status' : '"active" AS status')
+            ->selectRaw($adminHasLastActive ? 'last_active_at AS last_active_at' : 'NULL AS last_active_at')
+            ->selectRaw('created_at AS created_at')
+            // Hide "shadow" logins: when an admin row only exists to give a
+            // learner/instructor (or other back-office role) dashboard access,
+            // its email also lives in users/instructors. Show the person under
+            // their primary row instead so nobody appears twice.
+            ->whereNotExists(function ($q) {
+                $q->select(DB::raw(1))->from('users')
+                  ->whereColumn('users.email', 'admins.email');
+            })
+            ->whereNotExists(function ($q) {
+                $q->select(DB::raw(1))->from('instructors')
+                  ->whereColumn('instructors.email', 'admins.email');
+            });
+
+        return $usersSub->unionAll($instructorsSub)->unionAll($adminsSub);
+    }
+
+    /**
+     * Compute compliance % for learner rows in a batch.  Instructors and
+     * admins return null (rendered as "—" by the UI).
+     *
+     * @template T of \Illuminate\Support\Collection
+     * @param   T  $rows
+     * @return  T
+     */
+    private function attachCompliance(\Illuminate\Support\Collection $rows): \Illuminate\Support\Collection
+    {
+        $learnerIds = $rows
+            ->filter(fn ($r) => ($r->source ?? null) === 'user')
+            ->pluck('id')
+            ->all();
+
+        if (empty($learnerIds)) {
+            return $rows->map(function ($r) {
+                $r->compliance_pct         = null;
+                $r->enrolled_courses_count = 0;
+                return $r;
+            });
+        }
+
+        $enrolledByUser = DB::table('users_courses')
+            ->whereIn('user_id', $learnerIds)
+            ->select('user_id', DB::raw('COUNT(*) AS c'))
+            ->groupBy('user_id')
+            ->pluck('c', 'user_id');
+
+        $passedByUser = DB::table('user_exams')
+            ->whereIn('user_id', $learnerIds)
+            ->whereRaw('LOWER(COALESCE(status, "")) IN (?, ?)', ['passed', 'completed'])
+            ->select('user_id', DB::raw('COUNT(DISTINCT course_id) AS c'))
+            ->groupBy('user_id')
+            ->pluck('c', 'user_id');
+
+        return $rows->map(function ($r) use ($enrolledByUser, $passedByUser) {
+            if (($r->source ?? null) !== 'user') {
+                $r->compliance_pct         = null;
+                $r->enrolled_courses_count = 0;
+                return $r;
+            }
+
+            $enrolled = (int) ($enrolledByUser[$r->id] ?? 0);
+            $passed   = (int) ($passedByUser[$r->id]   ?? 0);
+
+            $r->enrolled_courses_count = $enrolled;
+            $r->compliance_pct = $enrolled > 0
+                ? (int) round(($passed / $enrolled) * 100)
+                : null;
+
+            return $r;
+        });
+    }
+
+    /**
+     * Resolve each row's *real* role (the Spatie role attached via
+     * `model_has_roles`, falling back to the source's default bucket) and
+     * its colour, so the table can render "Super Admin" / "Reports Viewer"
+     * in their configured colours rather than a flat bucket label.
+     *
+     * @template T of \Illuminate\Support\Collection
+     * @param   T  $rows
+     * @return  T
+     */
+    private function attachRoles(\Illuminate\Support\Collection $rows): \Illuminate\Support\Collection
+    {
+        $locale = app()->getLocale();
+
+        // Every admin-guard role keyed by machine name (label + colour).
+        $roleMeta = DB::table('roles')
+            ->where('guard_name', 'admin')
+            ->get(['name', 'name_en', 'name_ar', 'color'])
+            ->keyBy('name');
+
+        // Group the page's ids by their backing model class so we can batch
+        // the Spatie pivot lookups (one query per source).
+        $idsByClass = [];
+        foreach ($rows as $r) {
+            $cls = $this->modelClassFor((string) $r->source);
+            $idsByClass[$cls][] = (int) $r->id;
+        }
+
+        $assigned = []; // "source:id" => role machine name
+        foreach ($idsByClass as $cls => $ids) {
+            if (empty($ids)) {
+                continue;
+            }
+            $source = $this->sourceForModelClass($cls);
+            $pivot  = DB::table('model_has_roles as mhr')
+                ->join('roles as r', 'r.id', '=', 'mhr.role_id')
+                ->where('mhr.model_type', $cls)
+                ->whereIn('mhr.model_id', $ids)
+                ->where('r.guard_name', 'admin')
+                ->orderByDesc('r.is_system')
+                ->get(['mhr.model_id', 'r.name']);
+
+            foreach ($pivot as $p) {
+                $key = $source . ':' . (int) $p->model_id;
+                // First match wins (system roles sorted first).
+                $assigned[$key] ??= (string) $p->name;
+            }
+        }
+
+        return $rows->map(function ($r) use ($roleMeta, $assigned, $locale) {
+            $key      = $r->source . ':' . (int) $r->id;
+            $roleName = $assigned[$key] ?? $this->defaultRoleNameForSource((string) $r->source);
+            $meta     = $roleMeta[$roleName] ?? null;
+
+            $r->role_machine = $roleName;
+            $r->role_label   = $meta
+                ? $this->labelForRoleRow($meta, $locale)
+                : ($r->role_label ?? ucfirst($roleName));
+            $r->role_color   = $meta->color ?? $this->fallbackColor((string) $r->source);
+
+            return $r;
+        });
+    }
+
+    /** Default role machine name when a row has no explicit Spatie role. */
+    private function defaultRoleNameForSource(string $source): string
+    {
+        return match ($source) {
+            'admin'      => 'admin',
+            'instructor' => 'instructor',
+            default      => 'learner',
+        };
+    }
+
+    /** Reverse of {@see modelClassFor()} — model class → source token. */
+    private function sourceForModelClass(string $class): string
+    {
+        return match ($class) {
+            Admin::class      => 'admin',
+            Instructor::class => 'instructor',
+            default           => 'user',
+        };
+    }
+
+    /** Colour used when a role row has no `roles` table match. */
+    private function fallbackColor(string $source): string
+    {
+        return match ($source) {
+            'admin'      => 'blue',
+            'instructor' => 'green',
+            default      => 'teal',
+        };
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  INTERNAL — Misc helpers                                           |
+     * ------------------------------------------------------------------ */
+
+    private function assertSource(string $source): void
+    {
+        if (!in_array($source, self::SOURCES, true)) {
+            throw new \InvalidArgumentException("Unknown source: {$source}");
+        }
+    }
+
+    private function tableFor(string $source): string
+    {
+        return match ($source) {
+            'user'       => 'users',
+            'instructor' => 'instructors',
+            'admin'      => 'admins',
+        };
+    }
+
+    private function modelClassFor(string $source): string
+    {
+        return match ($source) {
+            'user'       => User::class,
+            'instructor' => Instructor::class,
+            'admin'      => Admin::class,
+        };
+    }
+
+    private function allocateSystemId(): int
+    {
+        do {
+            $candidate = random_int(1, 9_999_999);
+        } while (User::query()->where('system_id', $candidate)->exists());
+
+        return $candidate;
+    }
+
+    /**
+     * Decode the {"en":"…","ar":"…"} JSON name format used by the
+     * `instructors` table (Spatie\Translatable\HasTranslations).
+     */
+    private function translateJsonName(string $raw, string $locale): string
+    {
+        $parts = $this->currentJsonName($raw);
+
+        return $locale === 'ar'
+            ? ($parts['ar'] ?: ($parts['en'] ?: $raw))
+            : ($parts['en'] ?: ($parts['ar'] ?: $raw));
+    }
+
+    /**
+     * @return array{en:string|null,ar:string|null}
+     */
+    private function currentJsonName(string $raw): array
+    {
+        $decoded = json_decode($raw, true);
+
+        if (!is_array($decoded)) {
+            return ['en' => $raw, 'ar' => null];
+        }
+
+        return [
+            'en' => isset($decoded['en']) ? (string) $decoded['en'] : null,
+            'ar' => isset($decoded['ar']) ? (string) $decoded['ar'] : null,
+        ];
+    }
+}

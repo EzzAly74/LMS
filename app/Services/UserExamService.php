@@ -32,32 +32,74 @@ class UserExamService
      */
     public function submit(User $user, Course $course, CourseExam $exam, array $questions): UserExam
     {
+        // B-09 (High): grading used to be driven entirely by the client's
+        // payload. The score was
+        //     ($exam->degree / count($questions)) * $correctAnswers
+        // where $questions came straight from the request, so submitting a
+        // single question you knew the answer to scored 100%. `question_id`
+        // was never checked against this exam, `answer_id` had no `exists`
+        // rule so any answer row in the database was accepted, and
+        // `question_title` was stored verbatim from the client.
+        //
+        // Grading is now driven by the exam's own questions, loaded from the
+        // database. The client payload is only consulted to look up which
+        // answer the learner picked for each of *this exam's* questions.
+
+        /** @var \Illuminate\Database\Eloquent\Collection $examQuestions */
+        $examQuestions = $exam->questions()->with('answers')->get();
+
+        // answer_id chosen by the learner, keyed by question_id. Anything the
+        // client sent for a question that is not part of this exam is ignored.
+        $chosen = [];
+        foreach ($questions as $row) {
+            $qid = (int) ($row['question_id'] ?? 0);
+            if ($qid > 0) {
+                $chosen[$qid] = (int) ($row['answer_id'] ?? 0);
+            }
+        }
+
+        $correctAnswers = 0;
+        $rows           = [];
+
+        foreach ($examQuestions as $question) {
+            $answerId = $chosen[$question->id] ?? null;
+
+            // The chosen answer must belong to this question. An answer id
+            // from another question — or another exam entirely — resolves to
+            // null and is graded as unanswered.
+            $answer = $answerId
+                ? $question->answers->firstWhere('id', $answerId)
+                : null;
+
+            $isCorrect = (bool) ($answer->is_correct ?? false);
+
+            $rows[] = [
+                'question_id' => $question->id,
+                // Question text is read from the database, never echoed back
+                // from the request.
+                'question'    => $question->question,
+                'answer_id'   => $answer->id ?? null,
+                'answer'      => $answer->answer ?? null,
+                'is_correct'  => $isCorrect,
+            ];
+
+            if ($isCorrect) {
+                $correctAnswers++;
+            }
+        }
+
         $userExam = UserExam::create([
             'user_id'   => $user->id,
             'course_id' => $course->id,
             'exam_id'   => $exam->id,
         ]);
 
-        $correctAnswers = 0;
-
-        foreach ($questions as $questionData) {
-            $answer = CourseExamQuestionAnswer::find($questionData['answer_id'] ?? null)
-                ?? new CourseExamQuestionAnswer();
-
-            $userExam->answers()->create([
-                'question_id' => $questionData['question_id'],
-                'question'    => $questionData['question_title'],
-                'answer_id'   => $answer->id ?? null,
-                'answer'      => $answer->answer ?? null,
-                'is_correct'  => (bool) ($answer->is_correct ?? false),
-            ]);
-
-            if ($answer->is_correct ?? false) {
-                $correctAnswers++;
-            }
+        foreach ($rows as $row) {
+            $userExam->answers()->create($row);
         }
 
-        $totalQuestions = count($questions);
+        // Denominator is the exam's real question count, not the client's.
+        $totalQuestions = $examQuestions->count();
         $userDegree     = $totalQuestions > 0
             ? ($exam->degree / $totalQuestions) * $correctAnswers
             : 0;

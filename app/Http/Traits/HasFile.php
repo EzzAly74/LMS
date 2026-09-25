@@ -2,7 +2,9 @@
 
 namespace App\Http\Traits;
 
+use App\Support\UploadedImageOptimizer;
 use Carbon\Carbon;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 
@@ -24,6 +26,41 @@ trait HasFile
             Storage::disk('public')->putFileAs($model, $main_file, $file_name);
             return "{$model}/".$file_name;
         }
+    }
+
+    /**
+     * Store an uploaded *display* image, re-encoded as WebP (IMG-01).
+     *
+     * Use this, not uploadRequestFile(), for any image the site shows: an
+     * avatar, or a course, category, blog, article or testimonial image. See
+     * UploadedImageOptimizer for what the conversion does and when it keeps
+     * the original instead (animated images, GD without WebP support).
+     *
+     * Storage mirrors uploadRequestFile(): the default disk when it is S3,
+     * otherwise the public disk, under a server-generated name. The returned
+     * value is the same disk-relative path the callers already persist.
+     *
+     * @param  string  $field  the request field, named in any validation error
+     */
+    public function uploadImageFile(string $directory, UploadedFile $file, string $field = 'image'): string
+    {
+        $webp = app(UploadedImageOptimizer::class)->toWebp($file, $field);
+
+        if ($webp === null) {
+            return $this->uploadRequestFile($directory, null, null, $file);
+        }
+
+        $path = "{$directory}/".Str::random(20).md5(microtime()).'.webp';
+
+        $stored = config('filesystems.default') == 's3'
+            ? Storage::put($path, $webp)
+            : Storage::disk('public')->put($path, $webp);
+
+        if ($stored === false) {
+            throw new \RuntimeException('Could not store the uploaded image.');
+        }
+
+        return $path;
     }
 
     /**

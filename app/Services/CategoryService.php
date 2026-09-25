@@ -35,7 +35,7 @@ class CategoryService
     public function create(array $data, ?UploadedFile $logo = null): Category
     {
         if ($logo) {
-            $data['logo'] = $this->uploadRequestFile('Category', request(), 'logo');
+            $data['logo'] = $this->uploadImageFile('Category', $logo, 'logo');
         }
         $data['active'] = (bool) ($data['active'] ?? false);
 
@@ -45,7 +45,7 @@ class CategoryService
     public function update(Category $category, array $data, ?UploadedFile $logo = null): Category
     {
         if ($logo) {
-            $data['logo'] = $this->uploadRequestFile('Category', request(), 'logo');
+            $data['logo'] = $this->uploadImageFile('Category', $logo, 'logo');
         }
         $data['active'] = (bool) ($data['active'] ?? false);
 

@@ -60,7 +60,7 @@ class CourseService
     public function create(array $data, ?UploadedFile $image = null): Course
     {
         if ($image) {
-            $data['image'] = $this->uploadRequestFile('Course', request(), 'image');
+            $data['image'] = $this->uploadImageFile('Course', $image);
         } else {
             $data['image'] = null;
         }
@@ -103,7 +103,7 @@ class CourseService
     public function update(Course $course, array $data, ?UploadedFile $image = null): Course
     {
         if ($image) {
-            $data['image'] = $this->uploadRequestFile('Course', request(), 'image');
+            $data['image'] = $this->uploadImageFile('Course', $image);
         }
         $data['active']            = (bool) ($data['active']            ?? false);
         $data['outside_materials'] = (bool) ($data['outside_materials'] ?? false);

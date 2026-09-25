@@ -29,7 +29,7 @@ class ArticleService
     public function create(array $data, $imageFile = null): Article
     {
         if ($imageFile) {
-            $data['image'] = $this->uploadRequestFile('Article', request(), null, $imageFile);
+            $data['image'] = $this->uploadImageFile('Article', $imageFile);
         }
         $data['is_home'] = (bool) ($data['is_home'] ?? false);
         $data['active']  = (bool) ($data['active'] ?? true);
@@ -41,7 +41,7 @@ class ArticleService
     public function update(Article $article, array $data, $imageFile = null): Article
     {
         if ($imageFile) {
-            $data['image'] = $this->uploadRequestFile('Article', request(), null, $imageFile);
+            $data['image'] = $this->uploadImageFile('Article', $imageFile);
         }
         $data['is_home'] = (bool) ($data['is_home'] ?? false);
         $data['active']  = (bool) ($data['active'] ?? $article->active);

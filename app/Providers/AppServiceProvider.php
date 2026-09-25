@@ -106,6 +106,13 @@ class AppServiceProvider extends ServiceProvider
         // instance keeps that to a single settings query per request.
         $this->app->singleton(\App\Services\CertificatePolicy::class);
 
+        // Upload images are re-encoded to WebP (IMG-01). The Intervention
+        // package binds its configured manager under a string key only, so
+        // hand that same instance to the optimizer.
+        $this->app->singleton(\App\Support\UploadedImageOptimizer::class, fn ($app) => new \App\Support\UploadedImageOptimizer(
+            $app->make(\Intervention\Image\Laravel\Facades\Image::BINDING)
+        ));
+
         // Repository bindings — interface → Eloquent implementation
         $this->app->bind(CategoryRepositoryInterface::class,           CategoryRepository::class);
         $this->app->bind(CourseRepositoryInterface::class,             CourseRepository::class);

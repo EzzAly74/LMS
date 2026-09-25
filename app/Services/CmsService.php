@@ -29,7 +29,7 @@ class CmsService
     public function updateAbout(array $data, $imageFile = null): About
     {
         if ($imageFile) {
-            $data['image'] = $this->uploadRequestFile('About', request(), null, $imageFile);
+            $data['image'] = $this->uploadImageFile('About', $imageFile);
         }
         return $this->aboutRepo->updateOrCreate($data);
     }
@@ -55,7 +55,7 @@ class CmsService
     public function createTestimonial(array $data, $imageFile = null): Testimonial
     {
         if ($imageFile) {
-            $data['image'] = $this->uploadRequestFile('Testimonial', request(), null, $imageFile);
+            $data['image'] = $this->uploadImageFile('Testimonial', $imageFile);
         }
         $data['active'] = (bool) ($data['active'] ?? true);
 
@@ -66,7 +66,7 @@ class CmsService
     public function updateTestimonial(Testimonial $testimonial, array $data, $imageFile = null): Testimonial
     {
         if ($imageFile) {
-            $data['image'] = $this->uploadRequestFile('Testimonial', request(), null, $imageFile);
+            $data['image'] = $this->uploadImageFile('Testimonial', $imageFile);
         }
         $data['active'] = (bool) ($data['active'] ?? $testimonial->active);
 

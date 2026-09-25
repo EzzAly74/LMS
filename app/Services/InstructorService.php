@@ -35,7 +35,7 @@ class InstructorService
     public function create(array $data, ?UploadedFile $image = null): Instructor
     {
         if ($image) {
-            $data['image'] = $this->uploadRequestFile('Instructor', request(), 'image');
+            $data['image'] = $this->uploadImageFile('Instructor', $image);
         }
         return $this->instructorRepository->create($data);
     }
@@ -43,7 +43,7 @@ class InstructorService
     public function update(Instructor $instructor, array $data, ?UploadedFile $image = null): Instructor
     {
         if ($image) {
-            $data['image'] = $this->uploadRequestFile('Instructor', request(), 'image');
+            $data['image'] = $this->uploadImageFile('Instructor', $image);
         }
         return $this->instructorRepository->update($instructor, $data);
     }

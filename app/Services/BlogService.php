@@ -120,7 +120,7 @@ class BlogService
             $attributes['slug']               = $this->uniqueSlug($this->titleForSlug($data));
             $attributes['created_by_admin_id'] = $request->user()?->id;
             $attributes['image']              = $request->hasFile('image')
-                ? $this->uploadRequestFile('Blog', request(), 'image')
+                ? $this->uploadImageFile('Blog', $request->file('image'))
                 : null;
 
             /** @var Blog $blog */
@@ -140,7 +140,7 @@ class BlogService
         return DB::transaction(function () use ($blog, $request, $data) {
             $attributes = $this->baseAttributes($data);
             if ($request->hasFile('image')) {
-                $attributes['image'] = $this->uploadRequestFile('Blog', request(), 'image');
+                $attributes['image'] = $this->uploadImageFile('Blog', $request->file('image'));
             }
             // Keep the existing slug stable across edits.
 
@@ -229,7 +229,7 @@ class BlogService
     {
         $file = $request->file("sections.{$index}.image");
         if ($file instanceof UploadedFile) {
-            return $this->uploadRequestFile('Blog', request(), "sections.{$index}.image");
+            return $this->uploadImageFile('Blog', $file, "sections.{$index}.image");
         }
 
         $value = $section['image'] ?? null;

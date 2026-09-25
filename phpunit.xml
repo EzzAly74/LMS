@@ -18,6 +18,11 @@
         </include>
     </source>
     <php>
+        <!-- The suite runs ~370 tests in one process and its memory grows across
+             them; the image-conversion tests (IMG-01) decode real bitmaps and tipped
+             it past the 128M default. A web request starts fresh, so this raises the
+             test runner's ceiling only. Isolated, those tests peak at 62 MB. -->
+        <ini name="memory_limit" value="512M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_DRIVER" value="array"/>

@@ -449,7 +449,7 @@ class AdminUserService
             'learner_type'    => $data['learner_type']    ?? 'online',
             'machine_code'    => Str::upper(Str::random(4)),
             'status'          => 'active',
-            'image'           => $image ? $this->uploadRequestFile('users', null, null, $image) : null,
+            'image'           => $image ? $this->uploadImageFile('users', $image) : null,
         ];
         if (! empty($data['password']) && Schema::hasColumn('users', 'password')) {
             $attributes['password'] = bcrypt($data['password']);
@@ -468,7 +468,7 @@ class AdminUserService
         $attributes = [
             'name'           => ['en' => $data['name_en'], 'ar' => $data['name_ar']],
             'email'          => $data['email'],
-            'image'          => $image ? $this->uploadRequestFile('instructors', null, null, $image) : null,
+            'image'          => $image ? $this->uploadImageFile('instructors', $image) : null,
             // "Brief on the instructor" — bilingual, stored on the translatable
             // bio column (the same field the Instructors catalogue uses).
             'bio'            => ['en' => $data['brief_en'] ?? '', 'ar' => $data['brief_ar'] ?? ''],
@@ -499,7 +499,7 @@ class AdminUserService
         $admin->password          = bcrypt(! empty($data['password']) ? $data['password'] : Str::random(24));
         if (Schema::hasColumn('admins', 'status')) { $admin->status = 'active'; }
         if (Schema::hasColumn('admins', 'image') && $image) {
-            $admin->image = $this->uploadRequestFile('admins', null, null, $image);
+            $admin->image = $this->uploadImageFile('admins', $image);
         }
         $admin->save();
 
@@ -632,7 +632,7 @@ class AdminUserService
         }
 
         if ($image) {
-            $payload['image'] = $this->uploadRequestFile('users', null, null, $image);
+            $payload['image'] = $this->uploadImageFile('users', $image);
         }
 
         if (!empty($payload)) {
@@ -677,7 +677,7 @@ class AdminUserService
         }
 
         if ($image) {
-            $instructor->image = $this->uploadRequestFile('instructors', null, null, $image);
+            $instructor->image = $this->uploadImageFile('instructors', $image);
         }
 
         if (! empty($data['password']) && Schema::hasColumn('instructors', 'password')) {
@@ -704,7 +704,7 @@ class AdminUserService
             $admin->password = bcrypt($data['password']);
         }
         if ($image && Schema::hasColumn('admins', 'image')) {
-            $admin->image = $this->uploadRequestFile('admins', null, null, $image);
+            $admin->image = $this->uploadImageFile('admins', $image);
         }
 
         $admin->save();

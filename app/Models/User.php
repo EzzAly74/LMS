@@ -101,6 +101,28 @@ class User extends Authenticatable
     }
 
     /**
+     * Qualifications granted to this learner DIRECTLY (D-045).
+     *
+     * This is the manual-override path: an externally-obtained certificate, a
+     * legacy award, recognition of prior learning. It is additive to the
+     * qualifications a learner earns by completing the courses their job title
+     * requires, and it does NOT imply any course completion.
+     *
+     * Do not use this alone to answer "does this learner hold X?" — the
+     * derived route matters too. JobTitleService::attachQualificationBreakdown
+     * combines both.
+     */
+    public function qualificationSkills(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(
+            QualificationSkill::class,
+            'user_qualification_skill',
+            'user_id',
+            'qualification_skill_id',
+        )->withPivot(['assigned_by', 'assigned_at', 'note'])->withTimestamps();
+    }
+
+    /**
      * Return the display name resolved for the current application locale.
      *
      * Priority (AR): name_ar → name_en → name

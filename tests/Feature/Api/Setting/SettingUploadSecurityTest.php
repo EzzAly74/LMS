@@ -20,8 +20,12 @@ class SettingUploadSecurityTest extends ApiTestCase
 {
     private function seedSettings(): void
     {
+        // The real file setting the product still uses. This was `footer_logo`
+        // until 2026-09-25, when the footer/header/banner/about settings were
+        // removed as read by nothing (I18N-03) - a test named "a real file
+        // setting" should exercise one that actually exists.
         Setting::query()->create([
-            'key' => 'footer_logo', 'label' => 'Footer logo', 'value' => null,
+            'key' => 'certificate', 'label' => 'Certificate', 'value' => null,
             'type' => 'file', 'module' => 'home',
         ]);
         Setting::query()->create([
@@ -74,11 +78,11 @@ class SettingUploadSecurityTest extends ApiTestCase
         ['headers' => $headers] = $this->adminToken();
 
         $this->post(self::BASE.'/admin/settings/upload', [
-            'key'  => 'footer_logo',
+            'key'  => 'certificate',
             'file' => $this->png(),
         ], $headers + ['Accept' => 'application/json'])->assertOk();
 
-        $this->assertNotNull(Setting::query()->where('key', 'footer_logo')->value('value'));
+        $this->assertNotNull(Setting::query()->where('key', 'certificate')->value('value'));
     }
 
     public function test_svg_is_rejected(): void
@@ -93,7 +97,7 @@ class SettingUploadSecurityTest extends ApiTestCase
         );
 
         $this->post(self::BASE.'/admin/settings/upload', [
-            'key'  => 'footer_logo',
+            'key'  => 'certificate',
             'file' => $svg,
         ], $headers + ['Accept' => 'application/json'])->assertStatus(422);
 
@@ -107,7 +111,7 @@ class SettingUploadSecurityTest extends ApiTestCase
         ['headers' => $headers] = $this->userToken();
 
         $this->post(self::BASE.'/admin/settings/upload', [
-            'key'  => 'footer_logo',
+            'key'  => 'certificate',
             'file' => $this->png(),
         ], $headers + ['Accept' => 'application/json'])->assertForbidden();
     }

@@ -15,13 +15,21 @@ use Tests\Feature\Api\ApiTestCase;
  *
  * The endpoint is now deny-by-default: it returns only the keys named in
  * SettingService::PUBLIC_KEYS.
+ *
+ * Since 2026-09-25 that list is EMPTY (I18N-03). Its 14 keys - platform
+ * identity, contact details, social links, why_us - were read by no client:
+ * the Website never calls this endpoint, the Dashboard edits through
+ * admin/settings, and the human confirmed the mobile app does not use it. The
+ * seed data below still creates those rows, so an empty response proves the
+ * endpoint FILTERS them rather than merely finding an empty table.
  */
 class PublicSettingsTest extends ApiTestCase
 {
     private function seedSettings(): void
     {
         $rows = [
-            // Public
+            // Formerly public, now private (I18N-03). They exist in the table
+            // and must still NOT be returned.
             ['key' => 'platform_name', 'label' => 'platform_name', 'value' => '2B Academy', 'type' => 'text',   'module' => 'platform'],
             ['key' => 'email1', 'label' => 'email1',        'value' => 'info@2b.test', 'type' => 'text', 'module' => 'contact'],
             ['key' => 'facebook', 'label' => 'facebook',      'value' => 'https://fb.test/2b', 'type' => 'url', 'module' => 'social'],
@@ -50,16 +58,16 @@ class PublicSettingsTest extends ApiTestCase
         $this->assertStringNotContainsString('super-secret-token-value', $response->getContent());
     }
 
-    public function test_public_settings_return_only_allow_listed_keys(): void
+    public function test_public_settings_expose_nothing_now_the_allow_list_is_empty(): void
     {
         $this->seedSettings();
 
         $result = $this->getJson(self::BASE.'/settings')->assertOk()->json('result');
 
-        $this->assertSame(
-            ['email1', 'facebook', 'platform_name'],
-            collect(array_keys($result))->sort()->values()->all(),
-        );
+        // Rows exist for platform_name, email1 and facebook (see seedSettings),
+        // so this is the filter at work, not an empty table.
+        $this->assertSame([], $result);
+        $this->assertGreaterThan(0, Setting::query()->count());
     }
 
     public function test_internal_tuning_settings_are_not_public(): void

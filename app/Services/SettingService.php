@@ -18,34 +18,26 @@ class SettingService
      * any employee using only their machine code (B-01, Critical, confirmed
      * by exploit on 2026-09-24).
      *
-     * Only public-brochure data belongs here: platform identity, contact
-     * details, social links and the "why us" blurb. Operational tuning
-     * (`mobile_*`, `min_passing_*`, `yearly_hours`) is not public even though
-     * it is not secret — it is not the public site's business, and keeping the
-     * list tight is what makes the next secret safe by default.
+     * ── Why the list is now EMPTY (2026-09-25, I18N-03) ──────────────────────
+     * It held 14 keys: platform identity, contact details, social links and the
+     * "why us" blurb. An audit across all three repos found that nothing reads
+     * any of them from this endpoint - the Angular Website never calls it, the
+     * Dashboard edits settings through `GET/PUT admin/settings` (unfiltered by
+     * this list), and the human confirmed the mobile app does not use
+     * `/settings` at all.
+     *
+     * So the endpoint was publishing configuration that no client consumed -
+     * which is precisely the shape of B-01: public, unauthenticated, and the
+     * place a secret leaked from. An empty list exposes nothing.
+     *
+     * The route is kept rather than deleted: removing it is an API-contract
+     * change, and an empty map is already zero exposure. Before adding a key
+     * here, confirm a real client reads it from THIS endpoint - an unused public
+     * key is attack surface with no benefit.
      *
      * @var list<string>
      */
-    private const PUBLIC_KEYS = [
-        // Platform identity
-        'platform_name',
-        'default_language',
-        // Contact
-        'email1',
-        'email2',
-        'phone1',
-        'phone2',
-        'whatsapp',
-        // Social
-        'facebook',
-        'instagram',
-        'linkedin',
-        'snapchat',
-        'twitter',
-        'youtube',
-        // About
-        'why_us',
-    ];
+    private const PUBLIC_KEYS = [];
 
     public function __construct(
         private readonly SettingRepositoryInterface $settingRepository,

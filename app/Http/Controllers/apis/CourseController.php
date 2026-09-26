@@ -69,7 +69,11 @@ class CourseController extends ApiController
             : null;
 
         $courses = $this->courseService->list(
-            perPage:    (int) $request->get('per_page', 15),
+            // B-21: per_page was unbounded, so a caller could fetch the whole
+            // catalogue in one response. Clamped, not rejected: six Dashboard
+            // screens ask for 200 to fill a course dropdown, and a 422 or a lower
+            // ceiling would silently break them.
+            perPage:    min(max((int) $request->get('per_page', 15), 1), 200),
             search:     $request->get('search'),
             categoryId: $request->integer('category_id') ?: null,
             active:     $active,

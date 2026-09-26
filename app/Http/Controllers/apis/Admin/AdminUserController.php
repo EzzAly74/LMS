@@ -59,6 +59,7 @@ class AdminUserController extends ApiController
             status:        $status,
             search:        $request->string('search')->toString() ?: null,
             instructorIds: $instructorIds,
+            learnerFilters: $request->learnerFilters(),
             // B-21: per_page was read unvalidated, so a caller could request
             // the whole people table. Bounded to 1..100 by the FormRequest.
             perPage:       $request->perPage(),

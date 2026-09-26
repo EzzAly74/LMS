@@ -46,7 +46,61 @@ class AdminUserIndexRequest extends FormRequest
             // the element rule is applied only when an array is sent.
             'instructor_ids'    => ['sometimes', 'nullable'],
             'instructor_ids.*'  => ['sometimes', 'integer', 'min:1'],
+
+            // Learners-list filters (D3, Figma 1986:74701; D-053). New, so they
+            // take arrays only - the Dashboard sends `key[]=v`. Each matches ANY
+            // of its values; different filters combine with AND. Bounded so a
+            // query string cannot build an arbitrarily large IN list.
+            'course_ids'              => ['sometimes', 'array', 'max:100'],
+            'course_ids.*'            => ['integer', 'min:1'],
+            // Learners enrolled in a course taught by one of these instructors.
+            // Distinct from `instructor_ids`, which selects the instructors
+            // THEMSELVES on the Users page - reusing that name would have
+            // changed an existing contract.
+            'course_instructor_ids'   => ['sometimes', 'array', 'max:100'],
+            'course_instructor_ids.*' => ['integer', 'min:1'],
+            'qualification_ids'       => ['sometimes', 'array', 'max:100'],
+            'qualification_ids.*'     => ['integer', 'min:1'],
+            'learner_types'           => ['sometimes', 'array', 'max:3'],
+            'learner_types.*'         => [Rule::in(self::LEARNER_TYPES)],
+            // Last activity (users.last_active_at), inclusive calendar days.
+            'active_from'             => ['sometimes', 'nullable', 'date_format:Y-m-d'],
+            // after_or_equal only when a start was sent: against an absent field
+            // Laravel would compare with the literal string "active_from".
+            'active_to'               => array_values(array_filter(['sometimes', 'nullable', 'date_format:Y-m-d',
+                $this->filled('active_from') ? 'after_or_equal:active_from' : null])),
         ];
+    }
+
+    /** Values of users.learner_type (see AdminUserStoreRequest). */
+    public const LEARNER_TYPES = ['online', 'offline', 'hybrid'];
+
+    /**
+     * The learner filters that were sent, typed. Empty arrays and blank dates
+     * are dropped, so "no filter" and "filter on nothing" cannot be confused.
+     *
+     * @return array{course_ids?: list<int>, course_instructor_ids?: list<int>, qualification_ids?: list<int>, learner_types?: list<string>, active_from?: string, active_to?: string}
+     */
+    public function learnerFilters(): array
+    {
+        $out = [];
+        foreach (['course_ids', 'course_instructor_ids', 'qualification_ids'] as $key) {
+            $ids = array_values(array_unique(array_map('intval', (array) $this->input($key, []))));
+            if ($ids !== []) {
+                $out[$key] = $ids;
+            }
+        }
+        $types = array_values(array_unique((array) $this->input('learner_types', [])));
+        if ($types !== []) {
+            $out['learner_types'] = $types;
+        }
+        foreach (['active_from', 'active_to'] as $key) {
+            if ($this->filled($key)) {
+                $out[$key] = (string) $this->input($key);
+            }
+        }
+
+        return $out;
     }
 
     public function perPage(): int

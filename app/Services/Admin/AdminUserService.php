@@ -65,6 +65,8 @@ class AdminUserService
      * @param  string|null         $search         Free-text filter on name / email.
      * @param  array<int,int>|null $instructorIds  Optional instructor-ids filter
      *                                             (sub-filter on the Instructors pill).
+     * @param  array<string,mixed>  $learnerFilters From AdminUserIndexRequest::learnerFilters();
+     *                                             any of them restricts the list to learners.
      */
     public function paginate(
         ?string $role          = null,
@@ -72,6 +74,7 @@ class AdminUserService
         ?string $search        = null,
         ?array  $instructorIds = null,
         int     $perPage       = 15,
+        array   $learnerFilters = [],
     ): LengthAwarePaginator {
         $sub = $this->unifiedQuery();
 
@@ -103,6 +106,10 @@ class AdminUserService
         if (!empty($instructorIds)) {
             $query->where('p.source', 'instructor')
                   ->whereIn('p.id', $instructorIds);
+        }
+
+        if ($learnerFilters !== []) {
+            $this->applyLearnerFilters($query, $learnerFilters);
         }
 
         if ($search) {
@@ -764,6 +771,69 @@ class AdminUserService
     /* ------------------------------------------------------------------ *
      |  INTERNAL — Unified query builder                                  |
      * ------------------------------------------------------------------ */
+
+    /**
+     * The Learners-list filters (D3, Figma 1986:74701; D-053).
+     *
+     * Each is an `id IN (subquery)` against the base tables rather than a
+     * column of the UNION, so the UNION's projection stays unchanged for every
+     * other caller. Within one filter any value matches; filters AND together.
+     * Every one of them only makes sense for a learner, so the first thing
+     * they do is restrict the list to the users table.
+     *
+     *   course_ids             enrolled in any of these courses
+     *   course_instructor_ids  enrolled in a course taught by any of these instructors
+     *   qualification_ids      the qualification applies to them: their job title
+     *                          requires it, or it was granted to them directly (D-045)
+     *   learner_types          users.learner_type
+     *   active_from/active_to  users.last_active_at, inclusive calendar days, as a
+     *                          half-open range so the column's index stays usable
+     *
+     * @param  array<string,mixed>  $f
+     */
+    private function applyLearnerFilters(QueryBuilder $query, array $f): void
+    {
+        $query->where('p.source', 'user');
+
+        if (! empty($f['course_ids'])) {
+            $query->whereIn('p.id', fn ($q) => $q->select('user_id')->from('users_courses')
+                ->whereIn('course_id', $f['course_ids']));
+        }
+
+        if (! empty($f['course_instructor_ids'])) {
+            $query->whereIn('p.id', fn ($q) => $q->select('uc.user_id')->from('users_courses as uc')
+                ->join('courses_instructors as ci', 'ci.course_id', '=', 'uc.course_id')
+                ->whereIn('ci.instructor_id', $f['course_instructor_ids']));
+        }
+
+        if (! empty($f['qualification_ids'])) {
+            $ids = $f['qualification_ids'];
+            $query->where(function ($w) use ($ids) {
+                $w->whereIn('p.id', fn ($q) => $q->select('u.id')->from('users as u')
+                    ->join('job_title_qualification_skill as jq', 'jq.job_title_id', '=', 'u.job_title_id')
+                    ->whereIn('jq.qualification_skill_id', $ids))
+                  ->orWhereIn('p.id', fn ($q) => $q->select('user_id')->from('user_qualification_skill')
+                    ->whereIn('qualification_skill_id', $ids));
+            });
+        }
+
+        if (! empty($f['learner_types'])) {
+            $query->whereIn('p.id', fn ($q) => $q->select('id')->from('users')
+                ->whereIn('learner_type', $f['learner_types']));
+        }
+
+        if (! empty($f['active_from']) || ! empty($f['active_to'])) {
+            $query->whereIn('p.id', function ($q) use ($f) {
+                $q->select('id')->from('users');
+                if (! empty($f['active_from'])) {
+                    $q->where('last_active_at', '>=', $f['active_from'].' 00:00:00');
+                }
+                if (! empty($f['active_to'])) {
+                    $q->where('last_active_at', '<', \Carbon\Carbon::parse($f['active_to'])->addDay()->toDateString().' 00:00:00');
+                }
+            });
+        }
+    }
 
     /**
      * Build the UNION ALL subquery that projects each table onto a

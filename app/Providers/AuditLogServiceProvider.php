@@ -12,6 +12,7 @@ use App\Models\CourseExam;
 use App\Models\CourseRating;
 use App\Models\CourseSession;
 use App\Models\Evaluation;
+use App\Models\ExternalTrainingRequest;
 use App\Models\Form;
 use App\Models\Instructor;
 use App\Models\JobTitle;
@@ -83,6 +84,7 @@ class AuditLogServiceProvider extends ServiceProvider
         Category::class              => 'category',
         JobTitle::class              => 'job_title',
         QualificationSkill::class    => 'qualification',
+        ExternalTrainingRequest::class => 'external_training',
         Article::class               => 'article',
         LmsResource::class           => 'resource',
         PublicNotification::class    => 'notification',

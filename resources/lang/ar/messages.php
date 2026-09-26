@@ -66,6 +66,11 @@ return [
     'import_ambiguous_job_title' => 'يوجد أكثر من مسمى وظيفي باسم ":name".',
     'import_unknown_employee' => 'لا يوجد متعلم بالرقم الوظيفي ":id".',
     'import_ambiguous_employee' => 'يوجد أكثر من متعلم بالرقم الوظيفي ":id".',
+    'external_training_not_pending' => 'تم البت في هذا الطلب بالفعل، لذا لم يعد تعديله ممكنًا.',
+    'external_training_not_decided' => 'يمكن إعادة فتح الطلب المقبول أو المرفوض فقط.',
+    'external_training_grant_note' => 'طلب تدريب خارجي مقبول رقم :id.',
+    'external_training_hours_step' => 'أدخل عدد الساعات بخطوات مقدارها 0.5.',
+    'external_training_reason_required' => 'اكتب سبب رفض هذا الطلب.',
 
     // Certificates (first-class entity)
     'certificate_issued'      => 'تم إصدار الشهادة بنجاح.',
@@ -152,6 +157,12 @@ return [
 
     // إشعارات النظام التلقائية (المدرب / المشرف)
     'notifications' => [
+        'external_training_submitted_title' => 'طلب تدريب خارجي جديد',
+        'external_training_submitted_body' => 'قدّم :learner طلب ":title" للمراجعة.',
+        'external_training_approved_title' => 'تم قبول التدريب الخارجي',
+        'external_training_approved_body' => 'تم قبول تدريبك الخارجي ":title" وإضافته إلى سجل تدريبك.',
+        'external_training_rejected_title' => 'لم يُقبل التدريب الخارجي',
+        'external_training_rejected_body' => 'لم يُقبل تدريبك الخارجي ":title". السبب: :reason',
         'evaluation_dropped_instructor_title'    => 'تحديث تقييم الدورة',
         'evaluation_dropped_instructor_body'     => 'انخفض تقييم دورتك ":course" إلى :score.',
         'evaluation_dropped_admin_title'         => 'تحديث تقييم الدورة',

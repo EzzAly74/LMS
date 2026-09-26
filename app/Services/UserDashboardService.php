@@ -30,9 +30,12 @@ class UserDashboardService
         $questions   = CourseLectureQuestion::where('user_id', $userId)->count();
         $certificates = $this->getCertificates($user)->count();
         $ratings     = CourseRating::where('user_id', $userId)->count();
-        $yearHours   = Attendance::where('user_id', $userId)
+        // Approved external training counts as training hours in the year it
+        // ended (D-057) - "approval credits the hours".
+        $yearHours   = (float) Attendance::where('user_id', $userId)
             ->whereYear('created_at', date('Y'))
-            ->sum('attendance_hours');
+            ->sum('attendance_hours')
+            + app(ExternalTrainingService::class)->approvedHours($userId, (int) date('Y'));
 
         return [
             'courses'      => $courses,

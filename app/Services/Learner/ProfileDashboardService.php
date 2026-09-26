@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Learner;
 
 use App\Models\Course;
+use App\Models\ExternalTrainingRequest;
 use App\Models\User;
 use App\Services\Mobile\QualificationProgressService;
 use Illuminate\Support\Carbon;
@@ -172,8 +173,9 @@ final class ProfileDashboardService
         // the same set the "Current" tab excludes, so a course can never
         // appear in both tabs at once.
         $completedIds = $this->qualificationProgress->finishedCourseIdsForUser((int) $user->id);
+        $external     = $this->approvedExternalTraining($user);
         if ($completedIds->isEmpty()) {
-            return collect();
+            return $external;
         }
 
         $certificates   = $this->certificatesByCourse($user, $completedIds);
@@ -186,6 +188,7 @@ final class ProfileDashboardService
                 $cid = (int) $c->id;
 
                 return [
+                    'kind'               => 'course',
                     'course_id'          => $cid,
                     'title'              => (string) $c->getTranslation('title', $locale),
                     'image'              => $c->image ? $c->getFileUrl($c->image) : null,
@@ -201,6 +204,40 @@ final class ProfileDashboardService
                     'certificate_offered' => (bool) $c->certificate,
                 ];
             })
+            ->concat($external)
+            ->sortByDesc(fn (array $row) => (string) ($row['completed_at'] ?? ''))
+            ->values();
+    }
+
+    /**
+     * Approved external training, as entries of the Completed list (Figma
+     * 2201:86051, the "External Training" card; D-057). `kind` tells the
+     * Website which card to draw; the certificate is the learner's own upload,
+     * downloaded through learner/external-training/{id}/certificate.
+     */
+    private function approvedExternalTraining(User $user): Collection
+    {
+        return ExternalTrainingRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', ExternalTrainingRequest::APPROVED)
+            ->orderByDesc('end_date')
+            ->limit(200)
+            ->get()
+            ->map(fn (ExternalTrainingRequest $r) => [
+                'kind'                => 'external',
+                'external_id'         => $r->id,
+                'course_id'           => null,
+                'title'               => $r->title,
+                'provider'            => $r->provider,
+                'image'               => null,
+                'course_type'         => null,
+                'completed_at'        => $r->end_date?->toDateString(),
+                'hours'               => (float) $r->hours,
+                'score_percent'       => null,
+                'certificate_id'      => null,
+                'certificate_earned'  => false,
+                'certificate_offered' => false,
+            ])
             ->values();
     }
 

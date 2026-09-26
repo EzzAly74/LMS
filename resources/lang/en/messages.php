@@ -66,6 +66,11 @@ return [
     'import_ambiguous_job_title' => 'More than one job title is called ":name".',
     'import_unknown_employee' => 'No learner has employee ID ":id".',
     'import_ambiguous_employee' => 'More than one learner has employee ID ":id".',
+    'external_training_not_pending' => 'This request has already been decided, so it can no longer be changed.',
+    'external_training_not_decided' => 'Only an approved or rejected request can be reopened.',
+    'external_training_grant_note' => 'Approved external training request #:id.',
+    'external_training_hours_step' => 'Enter the hours in steps of 0.5.',
+    'external_training_reason_required' => 'Write the reason for rejecting this request.',
 
     // Certificates (first-class entity)
     'certificate_issued'      => 'Certificate issued successfully.',
@@ -153,6 +158,12 @@ return [
 
     // Event-driven system notifications (Instructor / Admin)
     'notifications' => [
+        'external_training_submitted_title' => 'New external training request',
+        'external_training_submitted_body' => ':learner submitted ":title" for review.',
+        'external_training_approved_title' => 'External training accepted',
+        'external_training_approved_body' => 'Your external training ":title" has been accepted and added to your training history.',
+        'external_training_rejected_title' => 'External training not accepted',
+        'external_training_rejected_body' => 'Your external training ":title" was not accepted. Reason: :reason',
         'evaluation_dropped_instructor_title'    => 'Updated course Evaluation',
         'evaluation_dropped_instructor_body'     => 'The evaluation for your course ":course" has dropped to :score.',
         'evaluation_dropped_admin_title'         => 'Updated course Evaluation',

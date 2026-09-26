@@ -3,6 +3,7 @@
 namespace App\Services\Admin;
 
 use App\Models\Course;
+use App\Models\Evaluation;
 use App\Models\EvaluationCategory;
 use App\Support\LocalizedJson;
 use Carbon\Carbon;
@@ -45,7 +46,7 @@ use Illuminate\Support\Facades\DB;
 class AdminEvaluationReportService
 {
     /** Scale maximum per question type, keyed by the stored `evaluations.type`. */
-    private const SCALE_MAX = ['five' => 5, 'ten' => 10];
+    private const SCALE_MAX = Evaluation::SCALE_MAX;
 
     public const RESULTS = ['passed', 'failed', 'unscored'];
 
@@ -179,6 +180,8 @@ class AdminEvaluationReportService
         $query = DB::table('evaluation_categories as t')
             ->leftJoinSub($responses, 'r', 'r.evaluation_category_id', '=', 't.id')
             ->leftJoinSub($questions, 'q', 'q.evaluation_category_id', '=', 't.id')
+            ->leftJoin('courses as tc', 'tc.id', '=', 't.course_id')
+            ->leftJoin('course_sections as ts', 'ts.id', '=', 't.section_id')
             ->when($narrowed, fn ($q) => $q->whereNotNull('r.evaluation_category_id'))
             ->when($f['search'] ?? null, fn ($q, $s) => $q->where('t.name', 'like', $this->like($s)))
             ->when($f['results'] ?? null, fn ($q, $results) => $this->whereResult($q, 'r.score', $results))
@@ -191,7 +194,16 @@ class AdminEvaluationReportService
                 DB::raw('COALESCE(r.submissions, 0) as submissions'),
                 'r.last_scored_at',
                 'r.score',
-            ]);
+                't.course_id',
+                't.section_id',
+                'tc.title as course_title',
+                'ts.name as section_name',
+            ])
+            ->tap(fn (Builder $q) => $this->selectEligible($q, $f))
+            // Across ALL responses, not the filtered ones: a template answered on
+            // another course is read-only too.
+            ->selectSub(fn ($x) => $x->from('user_course_evaluations as ul')
+                ->whereColumn('ul.evaluation_category_id', 't.id')->selectRaw('1')->limit(1), 'has_responses');
 
         $dir = ($f['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
         match ($f['sort'] ?? 'created_at') {
@@ -201,13 +213,14 @@ class AdminEvaluationReportService
         };
         $query->orderBy('t.id', $dir);
 
-        $page     = $query->paginate($perPage);
-        $eligible = $this->eligibleLearners($f);
+        $page = $query->paginate($perPage);
 
-        $page->getCollection()->transform(function ($row) use ($eligible) {
+        $page->getCollection()->transform(function ($row) {
             $row->name              = LocalizedJson::pick($row->name);
             $row->score             = $row->score !== null ? (float) $row->score : null;
-            $row->learners_eligible = $eligible;
+            $row->learners_eligible = (int) $row->eligible_enrolled + (int) $row->eligible_answered_only;
+            $row->course_name       = LocalizedJson::pick($row->course_title);
+            $row->section_name      = LocalizedJson::pick($row->section_name);
 
             return $row;
         });
@@ -224,7 +237,7 @@ class AdminEvaluationReportService
         $questions = DB::table('evaluations')
             ->where('evaluation_category_id', $template->id)
             ->orderBy('id')
-            ->get(['id', 'title', 'type', 'is_required']);
+            ->get(['id', 'title', 'type', 'is_required', 'scale_label_min', 'scale_label_max']);
 
         // One grouped query for every question in the template, rather than a
         // query per question.
@@ -248,6 +261,9 @@ class AdminEvaluationReportService
                 'type'      => $question->type,
                 'required'  => (bool) $question->is_required,
                 'scale_max' => $scaleMax,
+                // The worded ends of a scale question ("1 - Poor ... 5 - Excellent").
+                'scale_label_min' => LocalizedJson::pick($question->scale_label_min),
+                'scale_label_max' => LocalizedJson::pick($question->scale_label_max),
                 'responses' => $responses,
                 'average'   => $this->averageOf($rows, $scaleMax),
                 // Null for free-text questions: a distribution over prose is
@@ -269,12 +285,24 @@ class AdminEvaluationReportService
 
         $score = $summary->score !== null ? (float) $summary->score : null;
 
+        $eligible = DB::table('evaluation_categories as t')->where('t.id', $template->id)
+            ->select('t.id')
+            ->tap(fn (Builder $q) => $this->selectEligible($q, []))
+            ->first();
+
+        $template->loadMissing(['course:id,title', 'section:id,name']);
+
         return [
             'template' => [
                 'id'         => $template->id,
                 'name'       => $template->name,
                 'questions'  => $questions->count(),
                 'created_at' => $template->created_at?->toIso8601String(),
+                // null = all evaluable courses / all cohorts.
+                'course'     => $template->course ? ['id' => $template->course->id, 'name' => $template->course->title] : null,
+                'cohort'     => $template->section ? ['id' => $template->section->id, 'name' => $template->section->name] : null,
+                // Read-only once answered (2026-09-26).
+                'locked'     => (int) $summary->submissions > 0,
             ],
             'summary' => [
                 'score'             => $score,
@@ -282,7 +310,7 @@ class AdminEvaluationReportService
                 'pass_threshold'    => $this->passThreshold(),
                 'passed'            => $this->passed($score),
                 'learners_scored'   => (int) $summary->learners_scored,
-                'learners_eligible' => $this->eligibleLearners([]),
+                'learners_eligible' => (int) $eligible->eligible_enrolled + (int) $eligible->eligible_answered_only,
                 'submissions'       => (int) $summary->submissions,
                 'last_scored_at'    => $summary->last_scored_at,
             ],
@@ -487,6 +515,12 @@ class AdminEvaluationReportService
 
     // ── Internals ─────────────────────────────────────────────────────────
 
+    /** scoreSql() for other services that must score exactly as the reports do. */
+    public function scoreExpression(string $alias): string
+    {
+        return $this->scoreSql($alias);
+    }
+
     /**
      * The /5 score of a set of response rows, rounded to one decimal in SQL.
      * DECIMAL throughout, so ROUND is half-away-from-zero like PHP's round().
@@ -500,10 +534,10 @@ class AdminEvaluationReportService
     }
 
     /** Course and instructor filters on user_course_evaluations rows. */
-    private function applyResponseFilters(Builder $q, array $f): void
+    private function applyResponseFilters(Builder $q, array $f, string $alias = 'uce'): void
     {
-        $q->when($f['course_ids'] ?? null, fn ($q, $ids) => $q->whereIn('uce.course_id', $ids))
-            ->when($f['instructor_ids'] ?? null, fn ($q, $ids) => $q->whereIn('uce.instructor_id', $ids));
+        $q->when($f['course_ids'] ?? null, fn ($q, $ids) => $q->whereIn("{$alias}.course_id", $ids))
+            ->when($f['instructor_ids'] ?? null, fn ($q, $ids) => $q->whereIn("{$alias}.instructor_id", $ids));
     }
 
     /** WHERE on an already-aggregated score column (a joined subquery). */
@@ -541,26 +575,40 @@ class AdminEvaluationReportService
     }
 
     /**
-     * Distinct learners a template is put to: enrolled in an evaluable course,
-     * plus anyone who has already answered (a course can stop being evaluable
-     * after responses exist), under the same course / instructor filters.
+     * Adds the learners a template (alias `t`) is put to, as two correlated
+     * counts summed by the caller: those enrolled in an evaluable course the
+     * template covers (its course, or every course; its cohort, or every
+     * cohort), plus those who answered it without such an enrolment (a course
+     * can stop being evaluable after answers exist). Correlated subqueries, so
+     * a page of templates is still one query. The chip filters narrow both.
      */
-    private function eligibleLearners(array $f): int
+    private function selectEligible(Builder $q, array $f): void
     {
+        $inScope = fn (Builder $w, string $uc) => $w
+            ->where(fn ($x) => $x->whereNull('t.course_id')->orWhereColumn("{$uc}.course_id", 't.course_id'))
+            ->where(fn ($x) => $x->whereNull('t.section_id')->orWhereColumn("{$uc}.group_id", 't.section_id'))
+            ->when($f['course_ids'] ?? null, fn ($x, $ids) => $x->whereIn("{$uc}.course_id", $ids))
+            ->when($f['instructor_ids'] ?? null, fn ($x, $ids) => $x->whereIn("{$uc}.course_id",
+                fn ($s) => $s->select('course_id')->from('courses_instructors')->whereIn('instructor_id', $ids)));
+
         $enrolled = DB::table('users_courses as uc')
             ->join('courses as c', 'c.id', '=', 'uc.course_id')
             ->where('c.is_evaluate', 1)
-            ->when($f['course_ids'] ?? null, fn ($q, $ids) => $q->whereIn('uc.course_id', $ids))
-            ->when($f['instructor_ids'] ?? null, fn ($q, $ids) => $q->whereIn('uc.course_id',
-                fn ($s) => $s->select('course_id')->from('courses_instructors')->whereIn('instructor_id', $ids)))
-            ->select('uc.user_id');
+            ->tap(fn (Builder $w) => $inScope($w, 'uc'))
+            ->selectRaw('COUNT(DISTINCT uc.user_id)');
 
-        $answered = DB::table('user_course_evaluations as uce')
-            ->tap(fn (Builder $q) => $this->applyResponseFilters($q, $f))
-            ->select('uce.user_id');
+        $answeredOnly = DB::table('user_course_evaluations as ua')
+            ->whereColumn('ua.evaluation_category_id', 't.id')
+            ->tap(fn (Builder $w) => $this->applyResponseFilters($w, $f, 'ua'))
+            ->whereNotExists(fn ($x) => $x->from('users_courses as uc2')
+                ->join('courses as c2', 'c2.id', '=', 'uc2.course_id')
+                ->where('c2.is_evaluate', 1)
+                ->whereColumn('uc2.user_id', 'ua.user_id')
+                ->tap(fn (Builder $w) => $inScope($w, 'uc2'))
+                ->selectRaw('1'))
+            ->selectRaw('COUNT(DISTINCT ua.user_id)');
 
-        // UNION (not UNION ALL) de-duplicates the ids.
-        return (int) DB::query()->fromSub($enrolled->union($answered), 'e')->count();
+        $q->selectSub($enrolled, 'eligible_enrolled')->selectSub($answeredOnly, 'eligible_answered_only');
     }
 
     /** ORDER BY a Spatie JSON column in the request locale; plain strings sort as they are. */

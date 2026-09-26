@@ -1,32 +1,38 @@
 <?php
 
 use App\Http\Controllers\apis\Admin\AdminEvaluationReportController;
-use App\Http\Controllers\apis\EvaluationCategoryController;
-use App\Http\Controllers\apis\EvaluationController;
+use App\Http\Controllers\apis\Admin\AdminEvaluationTemplateController;
+use App\Http\Controllers\apis\Admin\AdminEvaluationTransferController;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Evaluation Routes — /api/v1/evaluation-categories & /api/v1/evaluations
+| Evaluation template builder, import and export (D4, D-054)
 |--------------------------------------------------------------------------
+| Figma 2409:132793 / 2409:133222 (builder) and the Import / Export menus of
+| 2009:88432. These replace the legacy evaluation-categories / evaluations
+| CRUD, which no frontend called and which could edit a template after
+| learners had answered it (retired per Q-060).
+|
+| Import and export are expensive, so they carry the same tighter limiter as
+| the qualifications import (B-06). Static segments come before {template}.
 */
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-evaluations'])->prefix('admin')->group(function () {
+    Route::get('evaluations/templates/export', [AdminEvaluationTransferController::class, 'export'])
+        ->middleware('throttle:10,1')->name('admin.evaluations.export');
+    Route::get('evaluations/templates/import-template', [AdminEvaluationTransferController::class, 'template'])
+        ->middleware('throttle:10,1')->name('admin.evaluations.import-template');
+    Route::post('evaluations/templates/import', [AdminEvaluationTransferController::class, 'import'])
+        ->middleware('throttle:10,1')->name('admin.evaluations.import');
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-evaluations'])->group(function () {
-
-    // Evaluation categories
-    Route::get('evaluation-categories/all',                    [EvaluationCategoryController::class, 'all']);
-    Route::get('evaluation-categories',                        [EvaluationCategoryController::class, 'index']);
-    Route::get('evaluation-categories/{evaluationCategory}',   [EvaluationCategoryController::class, 'show']);
-    Route::post('evaluation-categories',                       [EvaluationCategoryController::class, 'store']);
-    Route::put('evaluation-categories/{evaluationCategory}',   [EvaluationCategoryController::class, 'update']);
-    Route::delete('evaluation-categories/{evaluationCategory}',[EvaluationCategoryController::class, 'destroy']);
-
-    // Evaluations
-    Route::get('evaluations',              [EvaluationController::class, 'index']);
-    Route::get('evaluations/{evaluation}', [EvaluationController::class, 'show']);
-    Route::post('evaluations',             [EvaluationController::class, 'store']);
-    Route::put('evaluations/{evaluation}', [EvaluationController::class, 'update']);
-    Route::delete('evaluations/{evaluation}', [EvaluationController::class, 'destroy']);
+    Route::get('evaluations/templates/options', [AdminEvaluationTemplateController::class, 'options'])
+        ->name('admin.evaluations.templates.options');
+    Route::post('evaluations/templates', [AdminEvaluationTemplateController::class, 'store'])
+        ->name('admin.evaluations.templates.store');
+    Route::get('evaluations/templates/{template}', [AdminEvaluationTemplateController::class, 'show'])
+        ->whereNumber('template')->name('admin.evaluations.templates.show');
+    Route::put('evaluations/templates/{template}', [AdminEvaluationTemplateController::class, 'update'])
+        ->whereNumber('template')->name('admin.evaluations.templates.update');
 });
 
 /*

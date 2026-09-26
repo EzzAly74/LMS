@@ -51,9 +51,17 @@ class UserCourseEvaluationController extends ApiController
     {
         abort_if(!$course->is_evaluate, 404);
 
+        // Only an enrolled learner is asked, and only the templates put to
+        // their course and cohort (D-054).
+        $enrolment = $this->evalService->enrolment($request->user()->id, $course->id);
+        abort_if($enrolment === null, 403);
+
         return $this->success(__('messages.retrieved'), [
             'already_evaluated'    => $this->evalService->hasEvaluated($request->user()->id, $course->id),
-            'evaluation_categories' => EvaluationCategoryResource::collection($this->evalService->getForm()),
+            'evaluation_categories' => EvaluationCategoryResource::collection($this->evalService->getForm(
+                $course,
+                $enrolment->group_id !== null ? (int) $enrolment->group_id : null,
+            )),
         ]);
     }
 

@@ -11,9 +11,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * "Recently Created" cards.
  *
  * `score` is null for a template nobody has answered ("Unscored"), never 0.
- * The legacy schema has no publish state, course scope or cohort scope for a
- * template (every template is put to every evaluable course), so none is
- * returned rather than one being invented (D-054).
+ * A template is live as soon as it is published from the builder (Figma draws
+ * no draft state), so there is no status field.
  */
 class AdminEvaluationTemplateRowResource extends JsonResource
 {
@@ -24,6 +23,11 @@ class AdminEvaluationTemplateRowResource extends JsonResource
         return [
             'id'                => (int) $this->id,
             'name'              => $this->name,
+            // null = all evaluable courses / all cohorts (D-054).
+            'course'            => $this->course_id !== null ? ['id' => (int) $this->course_id, 'name' => $this->course_name] : null,
+            'cohort'            => $this->section_id !== null ? ['id' => (int) $this->section_id, 'name' => $this->section_name] : null,
+            // Read-only once answered (decided 2026-09-26).
+            'locked'            => $this->has_responses !== null,
             'questions'         => (int) $this->questions,
             'submissions'       => (int) $this->submissions,
             'learners_scored'   => (int) $this->learners_scored,

@@ -35,7 +35,6 @@ class PlatformConfigSeeder extends Seeder
             ['key' => 'passcode_reset_seconds',  'value' => '30', 'type' => 'number',  'label' => 'Passcode Reset (seconds)','module' => $module],
 
             // ── Grading & Certificates ────────────────────────────────
-            ['key' => 'abnormal_rating_threshold',  'value' => '30', 'type' => 'number',  'label' => 'Abnormal Rating Threshold', 'module' => $module],
             // The certificate rule — read back by App\Services\CertificatePolicy,
             // which is the single source of truth for certificate eligibility.
             // attendance | score | both

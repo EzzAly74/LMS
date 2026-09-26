@@ -393,6 +393,92 @@ class AdminEvaluationListsTest extends ApiTestCase
         $this->assertNotNull($result['template']['created_at']);
     }
 
+    // ─────────────────────────────── courses: evaluation score, no ratings
+
+    public function test_the_course_list_and_detail_carry_the_evaluation_score(): void
+    {
+        $t      = $this->template('T');
+        $q      = $this->question($t, 'five');
+        $scored = $this->course('Scored');
+        $never  = $this->course('Never Evaluated');
+        $this->answer(User::factory()->create(), $scored, $q, '4');
+        $this->answer(User::factory()->create(), $scored, $q, '5');
+
+        ['headers' => $headers] = $this->adminToken();
+        $rows = collect($this->fetch('/courses?per_page=50', $headers)['result'])->keyBy('id');
+
+        $this->assertEqualsWithDelta(4.5, $rows[$scored->id]['evaluation_score'], 0.001);
+        // Never evaluated is null, not 0.
+        $this->assertArrayHasKey('evaluation_score', $rows[$never->id]);
+        $this->assertNull($rows[$never->id]['evaluation_score']);
+        // The star rating left the admin payloads (2026-09-26).
+        $this->assertArrayNotHasKey('rating', $rows[$scored->id]);
+
+        $detail = $this->fetch("/courses/{$scored->id}", $headers)['result'];
+        $this->assertEqualsWithDelta(4.5, $detail['evaluation_score'], 0.001);
+        $this->assertSame(2, $detail['evaluation_submissions']);
+        foreach (['rating', 'rating_count', 'rating_distribution', 'reviews', 'comments_count'] as $gone) {
+            $this->assertArrayNotHasKey($gone, $detail);
+        }
+    }
+
+    public function test_the_course_list_scores_every_row_in_one_query(): void
+    {
+        $t = $this->template('T');
+        $q = $this->question($t, 'five');
+        ['headers' => $headers] = $this->adminToken();
+
+        $measure = function () use ($headers): int {
+            DB::enableQueryLog();
+            DB::flushQueryLog();
+            $this->fetch('/courses?per_page=50', $headers);
+            $n = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $n;
+        };
+
+        $this->answer(User::factory()->create(), $this->course('One'), $q, '4');
+        $measure(); // warm: the first request also loads the permission cache
+        $withOne = $measure();
+        for ($i = 0; $i < 5; $i++) {
+            $this->answer(User::factory()->create(), $this->course("More {$i}"), $q, '3');
+        }
+        $withSix = $measure();
+
+        $this->assertSame($withOne, $withSix, "Query count grew from {$withOne} to {$withSix} with five more scored courses.");
+    }
+
+    public function test_the_admin_rating_endpoints_are_gone(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+        $course = $this->course();
+
+        foreach ([
+            ['GET', '/admin/ratings'],
+            ['GET', '/admin/ratings/summary'],
+            ['GET', '/admin/ratings/filter-options'],
+            ['GET', '/ratings'],
+            ['GET', "/courses/{$course->id}/ratings"],
+            ['DELETE', "/courses/{$course->id}/ratings/1"],
+        ] as [$method, $path]) {
+            $status = $this->json($method, self::BASE.$path, [], $headers)->status();
+            $this->assertContains($status, [404, 405], "{$method} {$path} answered {$status}");
+        }
+    }
+
+    public function test_the_roles_editor_offers_view_evaluations_not_view_ratings(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+        $groups = collect($this->fetch('/admin/roles/sections', $headers)['result']['groups'] ?? []);
+        $keys   = $groups->flatMap(fn ($g) => array_column($g['items'], 'key'))->all();
+
+        $this->assertContains('view-evaluations', $keys);
+        $this->assertNotContains('view-ratings', $keys);
+        $learning = $groups->firstWhere('key', 'learning_operation');
+        $this->assertContains('view-evaluations', array_column($learning['items'] ?? [], 'key'));
+    }
+
     // ─────────────────────────────────────────────────────── filter choices
 
     public function test_filter_options_offer_only_values_found_in_responses(): void

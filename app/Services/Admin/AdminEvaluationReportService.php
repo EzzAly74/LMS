@@ -116,6 +116,36 @@ class AdminEvaluationReportService
     }
 
     /**
+     * The /5 score and submission count of each course, in one grouped query,
+     * for the course list's Evaluation column and the course header card
+     * (Figma 2430:135164, 2266:128869). A course nobody evaluated is absent,
+     * which callers render as unscored - never as 0.
+     *
+     * @param  list<int>  $courseIds
+     * @return array<int, array{score: float|null, submissions: int}>
+     */
+    public function courseScores(array $courseIds): array
+    {
+        if ($courseIds === []) {
+            return [];
+        }
+
+        return DB::table('user_course_evaluations as uce')
+            ->whereIn('uce.course_id', $courseIds)
+            ->groupBy('uce.course_id')
+            ->get([
+                'uce.course_id',
+                DB::raw("COUNT(DISTINCT CONCAT(uce.user_id, '-', COALESCE(uce.evaluation_category_id, 0))) as submissions"),
+                DB::raw($this->scoreSql('uce').' as score'),
+            ])
+            ->mapWithKeys(fn ($r) => [(int) $r->course_id => [
+                'score'       => $r->score !== null ? (float) $r->score : null,
+                'submissions' => (int) $r->submissions,
+            ]])
+            ->all();
+    }
+
+    /**
      * Evaluation Templates list (Figma 2009:88432): one row per template with
      * its question count and the aggregate of its responses.
      *

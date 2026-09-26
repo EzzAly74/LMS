@@ -6,14 +6,19 @@ use App\Http\Requests\Api\CourseRequest;
 use App\Http\Resources\CourseDetailResource;
 use App\Http\Resources\CourseResource;
 use App\Models\Course;
+use App\Services\Admin\AdminEvaluationReportService;
 use App\Services\CourseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use OpenApi\Annotations as OA;
 
 class CourseController extends ApiController
 {
-    public function __construct(private readonly CourseService $courseService) {}
+    public function __construct(
+        private readonly CourseService $courseService,
+        private readonly AdminEvaluationReportService $evaluations,
+    ) {}
 
     /**
      * @OA\Get(
@@ -80,6 +85,8 @@ class CourseController extends ApiController
             courseType: $request->get('course_type'),
             status:     $status,
         );
+
+        $this->attachEvaluationScores($courses->getCollection());
 
         return $this->paginated(__('messages.retrieved'), CourseResource::collection($courses));
     }
@@ -148,11 +155,29 @@ class CourseController extends ApiController
     public function show(Course $course): JsonResponse
     {
         $course = $this->courseService->findOrFail($course->id);
+        $this->attachEvaluationScores(collect([$course]));
 
         return $this->success(
             __('messages.retrieved'),
             new CourseDetailResource($course),
         );
+    }
+
+    /**
+     * The evaluation score replaces the course star rating in the admin UI
+     * (ratings were removed from the admin side, 2026-09-26). One grouped
+     * query for the whole page.
+     *
+     * @param  Collection<int, Course>  $courses
+     */
+    private function attachEvaluationScores(Collection $courses): void
+    {
+        $scores = $this->evaluations->courseScores($courses->pluck('id')->map(fn ($id) => (int) $id)->all());
+
+        foreach ($courses as $course) {
+            $course->setAttribute('evaluation_score', $scores[$course->id]['score'] ?? null);
+            $course->setAttribute('evaluation_submissions', $scores[$course->id]['submissions'] ?? 0);
+        }
     }
 
     /**

@@ -52,9 +52,7 @@ class CourseRepository extends BaseRepository implements CourseRepositoryInterfa
                 // individual class meetings (course_sessions). Count the
                 // `sections` relation so the column is accurate.
                 'sections as cohorts_count',
-                'ratings as rating_count',
             ])
-            ->withAvg('ratings as rating_avg', 'rating')
             ->when($search, fn ($q) => $q->where(function ($inner) use ($search, $locale) {
                 // Translatable columns are stored as JSON. Match BOTH the
                 // active locale and English so admins can search either.
@@ -151,27 +149,13 @@ class CourseRepository extends BaseRepository implements CourseRepositoryInterfa
                     'sessions as held_sessions_count' => fn ($s) => $s->ended(),
                 ]),
                 'exams:id,course_id,title,degree,is_final',
-                // Latest 20 reviews so the Ratings tab can render without an
-                // extra round-trip. Includes machine_code so the reviewer
-                // row shows the same `NAS-####` subline as in Figma.
-                'ratings' => fn ($q) => $q
-                    ->with('user:id,name,machine_code')
-                    ->latest()
-                    ->limit(20),
             ])
             ->withCount([
                 'users as users_count',
                 'sessions as sessions_count',
                 // Cohorts = course_sections (not the per-cohort meetings).
                 'sections as cohorts_count',
-                'ratings as rating_count',
-                // Only count ratings that actually carry a comment so the
-                // "X reviews · Y with comments" header is accurate.
-                'ratings as comments_count' => fn ($q) => $q
-                    ->whereNotNull('comment')
-                    ->where('comment', '!=', ''),
             ])
-            ->withAvg('ratings as rating_avg', 'rating')
             ->findOrFail($id);
     }
 

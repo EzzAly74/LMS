@@ -23,7 +23,7 @@ class AdminMessageService
         'view-courses',
         'view-assignments',
         'view-quizzes',
-        'view-ratings',
+        'view-evaluations',
         'view-resources',
     ];
 

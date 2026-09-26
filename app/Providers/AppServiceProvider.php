@@ -80,7 +80,6 @@ use App\Repositories\Eloquents\UserRepository;
 use App\Models\Category;
 use App\Models\CourseRating;
 use App\Models\User;
-use App\Observers\CourseRatingObserver;
 use App\Observers\UserObserver;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
@@ -215,10 +214,6 @@ class AppServiceProvider extends ServiceProvider
         // (users.department_name is the source of truth — see
         // App\Services\JobTitleSyncService for the full rationale).
         User::observe(UserObserver::class);
-
-        // Fire the abnormal-rating check from the model layer so it runs for
-        // every rating path (learner API, mobile app, public website).
-        CourseRating::observe(CourseRatingObserver::class);
 
         $this->shareGlobalFrontData();
     }

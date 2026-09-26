@@ -58,13 +58,23 @@ class CourseResource extends JsonResource
             'status'             => $effectiveStatus,
             'users_count'        => $this->users_count ?? null,
             'cohorts_count'      => $this->cohorts_count ?? null,
-            // Aggregated by the list query (withAvg/withCount). We round to
-            // one decimal so the table cell can format with `number:'1.1-1'`
-            // without re-doing the math client-side.
-            'rating'             => $this->rating_avg !== null
-                ? round((float) $this->rating_avg, 1)
-                : 0,
-            'rating_count'       => (int) ($this->rating_count ?? 0),
+            // Only where a query aggregated them (the learner dashboard). The
+            // admin list no longer does: ratings left the admin side
+            // (2026-09-26) and the Evaluation score below replaced them.
+            'rating'             => $this->when(
+                array_key_exists('rating_avg', $this->resource->getAttributes()),
+                fn () => $this->rating_avg !== null ? round((float) $this->rating_avg, 1) : 0,
+            ),
+            'rating_count'       => $this->when(
+                array_key_exists('rating_count', $this->resource->getAttributes()),
+                fn () => (int) $this->rating_count,
+            ),
+            // The /5 evaluation score (D-054); null = never evaluated. Set by
+            // CourseController on the admin list and detail only.
+            'evaluation_score'   => $this->when(
+                array_key_exists('evaluation_score', $this->resource->getAttributes()),
+                fn () => $this->evaluation_score,
+            ),
             'instructor'         => $this->whenLoaded('instructors', function () {
                 $first = $this->instructors->first();
                 return $first ? [

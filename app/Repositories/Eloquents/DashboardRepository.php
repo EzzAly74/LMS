@@ -52,7 +52,6 @@ class DashboardRepository implements DashboardRepositoryInterface
                 {$offlineLearnersSql}                                                     AS active_learners_offline,
                 (SELECT COUNT(*) FROM instructors)                                        AS instructors,
                 (SELECT COUNT(*) FROM articles WHERE active = 1)                         AS articles,
-                (SELECT COUNT(*) FROM course_ratings)                                    AS ratings,
                 (SELECT COUNT(*) FROM course_lecture_questions)                          AS lecture_questions,
                 (SELECT COUNT(*) FROM course_lecture_questions WHERE answer IS NULL)     AS unanswered_questions,
                 (SELECT COUNT(*) FROM user_course_assignments)                           AS user_assignments

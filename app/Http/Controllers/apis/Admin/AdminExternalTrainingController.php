@@ -43,6 +43,12 @@ class AdminExternalTrainingController extends ApiController
         return $this->success(__('messages.retrieved'), $this->service->stats());
     }
 
+    /** GET admin/external-training/options - qualifications and courses for the review pickers. */
+    public function options(): JsonResponse
+    {
+        return $this->success(__('messages.retrieved'), $this->service->options());
+    }
+
     /** GET admin/external-training/{externalTraining} */
     public function show(ExternalTrainingRequest $externalTraining): JsonResponse
     {

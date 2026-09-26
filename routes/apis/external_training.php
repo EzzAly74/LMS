@@ -34,6 +34,7 @@ Route::middleware(['auth.user', 'role:User'])->prefix('learner/external-training
 Route::middleware(['auth.user', 'role:Admin', 'permission:view-external-training'])->prefix('admin/external-training')->group(function () {
     Route::get('/', [AdminExternalTrainingController::class, 'index'])->name('admin.external-training.index');
     Route::get('stats', [AdminExternalTrainingController::class, 'stats'])->name('admin.external-training.stats');
+    Route::get('options', [AdminExternalTrainingController::class, 'options'])->name('admin.external-training.options');
     Route::get('{externalTraining}', [AdminExternalTrainingController::class, 'show'])
         ->whereNumber('externalTraining')->name('admin.external-training.show');
     Route::post('{externalTraining}/approve', [AdminExternalTrainingController::class, 'approve'])

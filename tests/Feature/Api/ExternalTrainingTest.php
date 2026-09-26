@@ -334,6 +334,18 @@ class ExternalTrainingTest extends ApiTestCase
         $this->getJson(self::ADMIN.'/999999', $h)->assertNotFound();
     }
 
+    public function test_the_review_pickers_and_tiles_are_available_on_their_own(): void
+    {
+        QualificationSkill::query()->create(['name' => ['en' => 'Workplace Safety', 'ar' => 'السلامة']]);
+        $this->request(User::factory()->create());
+        ['headers' => $h] = $this->reviewer();
+
+        $options = $this->getJson(self::ADMIN.'/options', $h + ['Accept-Language' => 'ar'])->assertOk()->json('result');
+        $this->assertSame('السلامة', $options['qualifications'][0]['name']);
+        $this->assertArrayHasKey('courses', $options);
+        $this->getJson(self::ADMIN.'/stats', $h)->assertOk()->assertJsonPath('result.pending', 1);
+    }
+
     // ─────────────────────────────────────────────────────────────── access
 
     public function test_access_is_refused_to_everyone_else(): void
@@ -346,6 +358,7 @@ class ExternalTrainingTest extends ApiTestCase
         foreach ([$blind, $learner] as $h) {
             $this->getJson(self::ADMIN, $h)->assertForbidden();
             $this->getJson(self::ADMIN.'/'.$r->id, $h)->assertForbidden();
+            $this->getJson(self::ADMIN.'/options', $h)->assertForbidden();
             $this->postJson(self::ADMIN.'/'.$r->id.'/approve', [], $h)->assertForbidden();
             $this->get(self::ADMIN.'/'.$r->id.'/certificate', $h + ['Accept' => 'application/json'])->assertForbidden();
         }

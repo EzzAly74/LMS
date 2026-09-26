@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Http\Traits\HasFile;
 use App\Models\Admin;
+use App\Models\Course;
 use App\Models\ExternalTrainingRequest;
+use App\Models\QualificationSkill;
 use App\Models\User;
 use App\Notifications\ExternalTrainingDecidedNotification;
 use App\Notifications\ExternalTrainingSubmittedNotification;
@@ -260,6 +262,27 @@ class ExternalTrainingService
 
             return $locked;
         });
+    }
+
+    /**
+     * The review screen's pickers: every qualification, and the courses a
+     * request can be recorded against (Q-042), names in the request locale.
+     * Bounded - these are small reference tables.
+     *
+     * @return array{qualifications:list<array{id:int,name:string}>, courses:list<array{id:int,title:string}>}
+     */
+    public function options(): array
+    {
+        $locale = app()->getLocale();
+
+        return [
+            'qualifications' => QualificationSkill::query()->orderBy('id')->limit(1000)->get(['id', 'name'])
+                ->map(fn (QualificationSkill $q) => ['id' => $q->id, 'name' => $q->getTranslation('name', $locale)])
+                ->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)->values()->all(),
+            'courses' => Course::query()->orderBy('id')->limit(1000)->get(['id', 'title'])
+                ->map(fn (Course $c) => ['id' => $c->id, 'title' => (string) $c->getTranslation('title', $locale)])
+                ->sortBy('title', SORT_NATURAL | SORT_FLAG_CASE)->values()->all(),
+        ];
     }
 
     /** Approved external hours in a calendar year (by end date) - credited to the learner's training hours. */

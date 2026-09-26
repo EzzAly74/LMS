@@ -45,7 +45,16 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-evaluations'])->p
     Route::get('courses/{course}/evaluation-summary', [AdminEvaluationReportController::class, 'courseSummary'])
         ->name('admin.evaluations.course-summary');
 
-    // Static segment first, so "scores" is never captured as {template}.
+    // Static segments first, so none is ever captured as {template}.
+    Route::get('evaluations/templates', [AdminEvaluationReportController::class, 'templates'])
+        ->name('admin.evaluations.templates');
+
+    Route::get('evaluations/filter-options', [AdminEvaluationReportController::class, 'filterOptions'])
+        ->name('admin.evaluations.filter-options');
+
+    Route::get('evaluations/learner-options', [AdminEvaluationReportController::class, 'learnerOptions'])
+        ->name('admin.evaluations.learner-options');
+
     Route::get('evaluations/scores', [AdminEvaluationReportController::class, 'scores'])
         ->name('admin.evaluations.scores');
 

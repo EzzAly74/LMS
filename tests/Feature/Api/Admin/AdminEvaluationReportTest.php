@@ -373,6 +373,9 @@ class AdminEvaluationReportTest extends ApiTestCase
             self::BASE."/admin/evaluations/{$this->template->id}/results",
             self::BASE.'/admin/evaluations/scores',
             self::BASE."/admin/evaluations/scores/{$this->someLearner->id}/{$this->course->id}",
+            self::BASE.'/admin/evaluations/templates',
+            self::BASE.'/admin/evaluations/filter-options',
+            self::BASE.'/admin/evaluations/learner-options',
         ];
     }
 

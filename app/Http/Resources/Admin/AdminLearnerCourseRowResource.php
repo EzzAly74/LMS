@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Admin;
 
+use App\Support\LocalizedJson;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -21,8 +22,13 @@ class AdminLearnerCourseRowResource extends JsonResource
 
         return [
             'course_id'   => (int) $this->course_id,
-            'course'      => $this->course_title,
-            'cohort'      => $this->cohort_name,
+            // Translatable columns read with the query builder arrive as the
+            // stored JSON; without this the table showed {"ar":...,"en":...}.
+            'course'      => LocalizedJson::pick($this->course_title),
+            'cohort'      => LocalizedJson::pick($this->cohort_name),
+            // The qualifications this course counts towards (Figma column
+            // "Qualification"), attached per page by the service.
+            'qualifications' => $this->qualifications ?? [],
             'cohort_id'   => $this->cohort_id !== null ? (int) $this->cohort_id : null,
             'attended'    => $attended,
             // Never negative: a learner can attend a session that was later

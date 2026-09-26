@@ -74,6 +74,77 @@ class AdminLearnerDetailTest extends ApiTestCase
         return self::BASE.'/admin/learners/'.$u->id.$suffix;
     }
 
+    // ------------------------------------------- translatable titles (D3)
+
+    /**
+     * The tables are built with the query builder, which returns a Spatie
+     * translatable column as its stored JSON. Factories write plain strings,
+     * so the original tests never saw it - these use real bilingual titles.
+     */
+    public function test_course_and_cohort_names_are_localised_not_raw_json(): void
+    {
+        $learner = $this->learner();
+        $course  = Course::factory()->create(['title' => ['en' => 'Excel Basics', 'ar' => 'أساسيات إكسل']]);
+        $cohort  = CourseSection::factory()->create(['course_id' => $course->id, 'name' => ['en' => 'Cohort C', 'ar' => 'المجموعة ج']]);
+        $this->enrol($learner, $cohort);
+        ['headers' => $headers] = $this->adminToken();
+
+        $en = $this->getJson($this->url($learner, '/courses'), $headers + ['Accept-Language' => 'en'])->assertOk()->json('result.0');
+        $ar = $this->getJson($this->url($learner, '/courses'), $headers + ['Accept-Language' => 'ar'])->assertOk()->json('result.0');
+
+        $this->assertSame(['Excel Basics', 'Cohort C'], [$en['course'], $en['cohort']]);
+        $this->assertSame(['أساسيات إكسل', 'المجموعة ج'], [$ar['course'], $ar['cohort']]);
+    }
+
+    public function test_each_course_row_lists_the_qualifications_it_counts_towards(): void
+    {
+        $learner = $this->learner();
+        $course  = $this->enrol($learner);
+        $skill   = \App\Models\QualificationSkill::factory()->create(['name' => ['en' => 'Data Literacy', 'ar' => 'الثقافة البيانية']]);
+        DB::table('course_qualification_skills')->insert(['course_id' => $course->id, 'qualification_skill_id' => $skill->id]);
+        ['headers' => $headers] = $this->adminToken();
+
+        $row = $this->getJson($this->url($learner, '/courses'), $headers + ['Accept-Language' => 'en'])->assertOk()->json('result.0');
+
+        $this->assertSame([['id' => $skill->id, 'name' => 'Data Literacy']], $row['qualifications']);
+    }
+
+    public function test_quiz_and_course_names_in_the_performance_table_are_localised(): void
+    {
+        $learner = $this->learner();
+        // A real bilingual title. CourseFactory's default passes json_encode()
+        // output to a translatable attribute, which Spatie stores double-
+        // encoded - a shape production never has (B-108).
+        $course  = Course::factory()->create(['title' => ['en' => 'Advanced Excel', 'ar' => 'إكسل المتقدم']]);
+        DB::table('users_courses')->insert(['user_id' => $learner->id, 'course_id' => $course->id, 'created_at' => now(), 'updated_at' => now()]);
+        $exam    = CourseExam::factory()->create(['course_id' => $course->id, 'title' => ['en' => 'Final Quiz', 'ar' => 'الاختبار النهائي']]);
+        DB::table('user_exams')->insert([
+            'user_id' => $learner->id, 'course_id' => $course->id, 'exam_id' => $exam->id,
+            'user_degree' => 90, 'max_score' => 100, 'status' => 'passed',
+            'submitted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        ['headers' => $headers] = $this->adminToken();
+
+        $ar = collect($this->getJson($this->url($learner, '/performance'), $headers + ['Accept-Language' => 'ar'])->assertOk()->json('result'))
+            ->firstWhere('kind', 'quiz');
+
+        $this->assertSame('الاختبار النهائي', $ar['name']);
+        $this->assertSame('إكسل المتقدم', $ar['course']);
+    }
+
+    public function test_localized_json_pick_handles_every_stored_shape(): void
+    {
+        $pick = [\App\Support\LocalizedJson::class, 'pick'];
+
+        $this->assertSame('Hello', $pick('{"en":"Hello","ar":"مرحبا"}', 'en'));
+        $this->assertSame('مرحبا', $pick('{"en":"Hello","ar":"مرحبا"}', 'ar'));
+        $this->assertSame('Hello', $pick('{"en":"Hello","ar":""}', 'ar'));   // falls back
+        $this->assertSame('plain title', $pick('plain title', 'ar'));        // legacy plain text
+        $this->assertNull($pick(null, 'en'));
+        $this->assertSame('', $pick('', 'en'));
+        $this->assertSame('Bonjour', $pick('{"fr":"Bonjour"}', 'en'));       // other locale key
+    }
+
     // -------------------------------------------------------- profile + tiles
 
     public function test_the_profile_card_returns_the_designed_fields(): void
@@ -89,6 +160,27 @@ class AdminLearnerDetailTest extends ApiTestCase
         $this->assertArrayHasKey('employee_id', $profile);
         $this->assertArrayHasKey('email', $profile);
         $this->assertArrayHasKey('last_active_course', $profile);
+    }
+
+    public function test_the_profile_photo_is_a_loadable_url_not_a_disk_path(): void
+    {
+        $learner = $this->learner();
+        $learner->forceFill(['image' => 'users/photo.webp'])->save();
+        ['headers' => $headers] = $this->adminToken();
+
+        $profile = $this->getJson($this->url($learner), $headers)->assertOk()->json('result.profile');
+
+        $this->assertArrayNotHasKey('image', $profile);
+        $this->assertStringStartsWith('http', (string) $profile['image_url']);
+        $this->assertStringEndsWith('users/photo.webp', (string) $profile['image_url']);
+    }
+
+    public function test_a_learner_without_a_photo_has_a_null_image_url(): void
+    {
+        $learner = $this->learner();
+        ['headers' => $headers] = $this->adminToken();
+
+        $this->assertNull($this->getJson($this->url($learner), $headers)->assertOk()->json('result.profile.image_url'));
     }
 
     public function test_the_five_summary_tiles_are_present_and_computed(): void

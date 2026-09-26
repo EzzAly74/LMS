@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Admin;
 
+use App\Support\LocalizedJson;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,8 +21,10 @@ class AdminLearnerPerformanceRowResource extends JsonResource
         return [
             'id'           => (int) $this->id,
             'kind'         => $this->kind,          // quiz | assignment
-            'name'         => $this->name,
-            'course'       => $this->course_title,
+            // Quiz titles and course titles are translatable JSON; assignment
+            // titles are plain text. pick() handles both.
+            'name'         => LocalizedJson::pick($this->name),
+            'course'       => LocalizedJson::pick($this->course_title),
             'type'         => $this->type,          // pre | mid | post | assignment
             'score'        => $score,
             'max_score'    => $max,

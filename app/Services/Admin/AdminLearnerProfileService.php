@@ -2,8 +2,10 @@
 
 namespace App\Services\Admin;
 
+use App\Http\Traits\HasFile;
 use App\Models\User;
 use App\Support\CourseCompletion;
+use App\Support\LocalizedJson;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -25,6 +27,8 @@ use Illuminate\Support\Facades\DB;
  */
 class AdminLearnerProfileService
 {
+    use HasFile;
+
     /** Profile card + the five summary tiles. */
     public function profile(User $learner): array
     {
@@ -62,7 +66,9 @@ class AdminLearnerProfileService
                 'employee_id' => $learner->machine_code,
                 'email'       => $learner->email,
                 'department'  => $learner->department_name,
-                'image'       => $learner->image,
+                // A URL the Dashboard can load, like every other resource. This
+                // returned the raw disk path, which no <img> can resolve.
+                'image_url'   => $learner->image ? $this->getFileUrl($learner->image) : null,
                 'status'      => $learner->status ?? 'active',
                 'last_active_at'     => $learner->last_active_at,
                 'last_active_course' => $lastActiveCourse?->title,
@@ -147,7 +153,7 @@ class AdminLearnerProfileService
             ->whereColumn('attendances.user_id', 'users_courses.user_id')
             ->whereColumn('attendances.course_id', 'users_courses.course_id');
 
-        return DB::table('users_courses')
+        $page = DB::table('users_courses')
             ->join('courses', 'users_courses.course_id', '=', 'courses.id')
             ->leftJoin('course_sections', 'users_courses.group_id', '=', 'course_sections.id')
             ->where('users_courses.user_id', $learner->id)
@@ -169,6 +175,38 @@ class AdminLearnerProfileService
             )
             ->orderByDesc('users_courses.created_at')
             ->paginate($perPage);
+
+        $this->attachCourseQualifications($page->getCollection());
+
+        return $page;
+    }
+
+    /**
+     * The qualifications each course on the page counts towards, in one query
+     * for the whole page rather than one per row.
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $rows
+     */
+    private function attachCourseQualifications(\Illuminate\Support\Collection $rows): void
+    {
+        $courseIds = $rows->pluck('course_id')->unique()->values()->all();
+        if ($courseIds === []) {
+            return;
+        }
+
+        $byCourse = DB::table('course_qualification_skills as cqs')
+            ->join('qualification_skills as qs', 'qs.id', '=', 'cqs.qualification_skill_id')
+            ->whereIn('cqs.course_id', $courseIds)
+            ->orderBy('qs.id')
+            ->get(['cqs.course_id', 'qs.id', 'qs.name'])
+            ->groupBy('course_id');
+
+        foreach ($rows as $row) {
+            $row->qualifications = ($byCourse->get($row->course_id) ?? collect())
+                ->map(fn ($q) => ['id' => (int) $q->id, 'name' => LocalizedJson::pick($q->name)])
+                ->values()
+                ->all();
+        }
     }
 
     /**

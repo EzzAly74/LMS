@@ -132,6 +132,35 @@ class AdminLearnerDetailTest extends ApiTestCase
         $this->assertSame('إكسل المتقدم', $ar['course']);
     }
 
+    public function test_the_last_active_course_is_a_localised_title(): void
+    {
+        $learner = $this->learner();
+        $course  = Course::factory()->create(['title' => ['en' => 'First Course', 'ar' => 'الكورس الأول']]);
+        DB::table('users_courses')->insert(['user_id' => $learner->id, 'course_id' => $course->id, 'created_at' => now(), 'updated_at' => now()]);
+        ['headers' => $headers] = $this->adminToken();
+
+        $this->assertSame('First Course', $this->getJson($this->url($learner), $headers + ['Accept-Language' => 'en'])->json('result.profile.last_active_course'));
+        $this->assertSame('الكورس الأول', $this->getJson($this->url($learner), $headers + ['Accept-Language' => 'ar'])->json('result.profile.last_active_course'));
+    }
+
+    public function test_a_graded_assignment_without_a_maximum_shows_its_score(): void
+    {
+        $learner    = $this->learner();
+        $course     = $this->enrol($learner);
+        $assignment = \App\Models\CourseAssignment::factory()->create(['course_id' => $course->id]);
+        DB::table('user_course_assignments')->insert([
+            'user_id' => $learner->id, 'course_assignment_id' => $assignment->id,
+            'score' => 60, 'max_score' => null, 'total_score' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        ['headers' => $headers] = $this->adminToken();
+
+        $row = collect($this->getJson($this->url($learner, '/performance'), $headers)->assertOk()->json('result'))->firstWhere('kind', 'assignment');
+
+        $this->assertSame('60', $row['grade_label']);
+        $this->assertSame('pass', $row['status']);
+    }
+
     public function test_localized_json_pick_handles_every_stored_shape(): void
     {
         $pick = [\App\Support\LocalizedJson::class, 'pick'];

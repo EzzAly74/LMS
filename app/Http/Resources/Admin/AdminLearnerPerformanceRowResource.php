@@ -29,8 +29,11 @@ class AdminLearnerPerformanceRowResource extends JsonResource
             'score'        => $score,
             'max_score'    => $max,
             // "100/105" in the design; null when not yet graded so the UI can
-            // show the "Needs Review" state rather than a fabricated 0.
-            'grade_label'  => $score !== null && $max !== null ? "{$score}/{$max}" : null,
+            // show the "Needs Review" state rather than a fabricated 0. A
+            // graded submission whose assignment defines no maximum shows the
+            // bare score: legacy assignments have none, and hiding a real grade
+            // behind "---" next to "Pass" read as missing data.
+            'grade_label'  => $score === null ? null : ($max !== null ? "{$score}/{$max}" : (string) $score),
             'status'       => $this->normaliseStatus(),
             'last_updated' => $this->last_updated,
         ];

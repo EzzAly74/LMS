@@ -71,7 +71,9 @@ class AdminLearnerProfileService
                 'image_url'   => $learner->image ? $this->getFileUrl($learner->image) : null,
                 'status'      => $learner->status ?? 'active',
                 'last_active_at'     => $learner->last_active_at,
-                'last_active_course' => $lastActiveCourse?->title,
+                // Read with the query builder, so the stored JSON must be
+                // resolved here; it reached the card as {"ar":...,"en":...}.
+                'last_active_course' => LocalizedJson::pick($lastActiveCourse?->title),
             ],
 
             // The five tiles named in the Figma capture: "Completed Courses 1,

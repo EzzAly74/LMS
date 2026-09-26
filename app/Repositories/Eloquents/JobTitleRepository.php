@@ -8,6 +8,7 @@ use App\Repositories\Contracts\JobTitleRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use App\Support\CourseCompletion;
+use App\Support\QualificationHolding;
 use Illuminate\Support\Facades\DB;
 
 class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInterface
@@ -25,14 +26,10 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
      * Powers the job-title detail table (Figma 2325:117118): learner + ID,
      * assigned qualifications, completion % and "N of M courses".
      *
-     * "Completed" reuses the project-wide heuristic already used by list()
-     * and the dashboard repo: a `users_courses` row whose `updated_at` is
-     * later than its `created_at`. Keeping the same definition matters - the
-     * per-learner numbers here must add up to the compliance bar shown on the
-     * card in list(), and a second definition would make them disagree.
-     *
+     * "Completed" is App\Support\CourseCompletion (a passing exam, B-104).
      * Only courses that grant one of THIS job title's required qualifications
-     * are counted, so an unrelated enrolment does not dilute the percentage.
+     * are counted, so an unrelated enrolment does not dilute the percentage,
+     * and all of them are counted, enrolled or not (D-056).
      *
      * @param  string  $sort  one of name|completion|employee_id (allow-listed
      *                        by JobTitleLearnersRequest, never raw input)
@@ -45,27 +42,21 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
         string $sort = 'name',
         string $dir = 'asc',
     ): LengthAwarePaginator {
-        $relevantCourses = DB::table('course_qualification_skills')
-            ->select('course_qualification_skills.course_id')
-            ->join(
-                'job_title_qualification_skill',
-                'course_qualification_skills.qualification_skill_id',
-                '=',
-                'job_title_qualification_skill.qualification_skill_id',
-            )
-            ->where('job_title_qualification_skill.job_title_id', $jobTitle->id);
+        // Every course linked to one of this job title's qualifications - the
+        // "M" in "N of M courses" (D-056). This used to count only the ones
+        // the learner was enrolled in, so an unenrolled course simply vanished
+        // from what they still had to do.
+        $totalCourses = DB::table('course_qualification_skills as tc')
+            ->selectRaw('COUNT(DISTINCT tc.course_id)')
+            ->join('job_title_qualification_skill as tj', 'tc.qualification_skill_id', '=', 'tj.qualification_skill_id')
+            ->where('tj.job_title_id', $jobTitle->id);
 
-        $totalCourses = DB::table('users_courses')
-            ->selectRaw('COUNT(DISTINCT users_courses.course_id)')
-            ->whereColumn('users_courses.user_id', 'users.id')
-            ->whereIn('users_courses.course_id', $relevantCourses);
-
-        $completedCourses = DB::table('users_courses')
-            ->selectRaw('COUNT(DISTINCT users_courses.course_id)')
-            ->whereColumn('users_courses.user_id', 'users.id')
-            ->whereIn('users_courses.course_id', $relevantCourses)
+        $completedCourses = DB::table('course_qualification_skills as tc')
+            ->selectRaw('COUNT(DISTINCT tc.course_id)')
+            ->join('job_title_qualification_skill as tj', 'tc.qualification_skill_id', '=', 'tj.qualification_skill_id')
+            ->where('tj.job_title_id', $jobTitle->id)
             // B-104: a passing exam, not "the row was touched".
-            ->whereRaw(CourseCompletion::existsSql('users_courses.user_id', 'users_courses.course_id'));
+            ->whereRaw(CourseCompletion::existsSql('users.id', 'tc.course_id'));
 
         $query = User::query()
             ->where('users.job_title_id', $jobTitle->id)
@@ -104,28 +95,21 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
             ->whereColumn('users.job_title_id', 'job_titles.id');
 
         /**
-         * Completed (learner, required-qualification) pairs — scoped to
-         * employees of this job title only (same join as $learnersSubQuery).
+         * Held (employee, required-qualification) pairs, by the one project
+         * rule (App\Support\QualificationHolding, D-056): granted directly,
+         * or every linked course completed.
          *
-         * For every required qualification of this job title, count once
-         * per learner who has finished any course that grants it.
-         * "Finished" is App\Support\CourseCompletion: a passing exam
-         * record. This used to be `updated_at > created_at`, which is
-         * true as soon as anything touches the enrolment row and so
-         * inflated every compliance bar on this screen (B-104).
+         * This counted a pair as soon as the learner finished ANY one course
+         * granting the qualification, and ignored direct grants entirely.
          *
-         * Divided by (learners_count × qualifications_count) in the
-         * resource, this becomes the compliance percentage the 2026
-         * Figma renders inline on every job-title card.
+         * Divided by (employees x required qualifications) in the resource,
+         * this is the compliance percentage on every job-title card.
          */
-        $completedQualsSubQuery = DB::table('users_courses')
-            ->selectRaw('COUNT(DISTINCT CONCAT(users_courses.user_id, "-", job_title_qualification_skill.qualification_skill_id))')
-            ->join('users', 'users_courses.user_id', '=', 'users.id')
-            ->join('course_qualification_skills', 'users_courses.course_id', '=', 'course_qualification_skills.course_id')
-            ->join('job_title_qualification_skill', 'course_qualification_skills.qualification_skill_id', '=', 'job_title_qualification_skill.qualification_skill_id')
-            ->whereColumn('job_title_qualification_skill.job_title_id', 'job_titles.id')
-            ->whereColumn('users.job_title_id', 'job_titles.id')
-            ->whereRaw(CourseCompletion::existsSql('users_courses.user_id', 'users_courses.course_id'));
+        $completedQualsSubQuery = DB::table('users as hu')
+            ->selectRaw('COUNT(*)')
+            ->join('job_title_qualification_skill as hq', 'hq.job_title_id', '=', 'hu.job_title_id')
+            ->whereColumn('hu.job_title_id', 'job_titles.id')
+            ->whereRaw(QualificationHolding::holdsSql('hu.id', 'hq.qualification_skill_id'));
 
         return $this->model->newQuery()
             ->when($search, fn ($q) => $q->where(function ($q2) use ($search) {

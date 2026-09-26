@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\apis;
 
-use App\Http\Requests\Api\QualificationSkillRequest;
 use App\Http\Resources\QualificationSkillResource;
 use App\Models\QualificationSkill;
 use App\Services\QualificationSkillService;
@@ -109,108 +108,5 @@ class QualificationSkillController extends ApiController
             __('messages.retrieved'),
             new QualificationSkillResource($qualification_skill->loadCount('courses')),
         );
-    }
-
-    /**
-     * @OA\Post(
-     *     path="/qualification-skills",
-     *     tags={"Qualification Skills"},
-     *     summary="Create a qualification skill (admin only).",
-     *     security={{"BearerAuth": {}}},
-     *     @OA\RequestBody(
-     *         required=true,
-     *         @OA\JsonContent(
-     *             required={"name"},
-     *             @OA\Property(property="name", ref="#/components/schemas/TranslatedString")
-     *         )
-     *     ),
-     *     @OA\Response(
-     *         response=201,
-     *         description="Created",
-     *         @OA\JsonContent(
-     *             allOf={
-     *                 @OA\Schema(ref="#/components/schemas/SuccessResponse"),
-     *                 @OA\Schema(@OA\Property(property="result", ref="#/components/schemas/QualificationSkill"))
-     *             }
-     *         )
-     *     ),
-     *     @OA\Response(response=401, ref="#/components/responses/Unauthorized"),
-     *     @OA\Response(response=403, ref="#/components/responses/Forbidden"),
-     *     @OA\Response(response=422, ref="#/components/responses/ValidationError")
-     * )
-     */
-    public function store(QualificationSkillRequest $request): JsonResponse
-    {
-        $data  = $request->validated();
-        $skill = $this->service->create($data);
-
-        // One-step job-title assignment (Figma 2066:100876).
-        if (! empty($data['job_title_ids'])) {
-            $skill->jobTitles()->sync($data['job_title_ids']);
-            $skill->load('jobTitles');
-        }
-
-        return $this->created(
-            __('messages.created'),
-            new QualificationSkillResource($skill),
-        );
-    }
-
-    /**
-     * @OA\Put(
-     *     path="/qualification-skills/{qualification_skill}",
-     *     tags={"Qualification Skills"},
-     *     summary="Update a qualification skill (admin only).",
-     *     security={{"BearerAuth": {}}},
-     *     @OA\Parameter(name="qualification_skill", in="path", required=true, @OA\Schema(type="integer", minimum=1)),
-     *     @OA\RequestBody(
-     *         required=true,
-     *         @OA\JsonContent(
-     *             @OA\Property(property="name", ref="#/components/schemas/TranslatedString")
-     *         )
-     *     ),
-     *     @OA\Response(
-     *         response=200,
-     *         description="Updated",
-     *         @OA\JsonContent(
-     *             allOf={
-     *                 @OA\Schema(ref="#/components/schemas/SuccessResponse"),
-     *                 @OA\Schema(@OA\Property(property="result", ref="#/components/schemas/QualificationSkill"))
-     *             }
-     *         )
-     *     ),
-     *     @OA\Response(response=401, ref="#/components/responses/Unauthorized"),
-     *     @OA\Response(response=403, ref="#/components/responses/Forbidden"),
-     *     @OA\Response(response=404, ref="#/components/responses/NotFound"),
-     *     @OA\Response(response=422, ref="#/components/responses/ValidationError")
-     * )
-     */
-    public function update(QualificationSkillRequest $request, QualificationSkill $qualification_skill): JsonResponse
-    {
-        $skill = $this->service->update($qualification_skill, $request->validated());
-
-        return $this->success(
-            __('messages.updated'),
-            new QualificationSkillResource($skill),
-        );
-    }
-
-    /**
-     * @OA\Delete(
-     *     path="/qualification-skills/{qualification_skill}",
-     *     tags={"Qualification Skills"},
-     *     summary="Delete a qualification skill (admin only).",
-     *     security={{"BearerAuth": {}}},
-     *     @OA\Parameter(name="qualification_skill", in="path", required=true, @OA\Schema(type="integer", minimum=1)),
-     *     @OA\Response(response=200, description="Deleted", @OA\JsonContent(ref="#/components/schemas/EmptyResponse")),
-     *     @OA\Response(response=401, ref="#/components/responses/Unauthorized"),
-     *     @OA\Response(response=403, ref="#/components/responses/Forbidden"),
-     *     @OA\Response(response=404, ref="#/components/responses/NotFound")
-     * )
-     */
-    public function destroy(QualificationSkill $qualification_skill): JsonResponse
-    {
-        $this->service->delete($qualification_skill);
-        return $this->deleted();
     }
 }

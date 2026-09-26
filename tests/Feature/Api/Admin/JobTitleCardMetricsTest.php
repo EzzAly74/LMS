@@ -70,8 +70,10 @@ class JobTitleCardMetricsTest extends ApiTestCase
         $this->assertSame(1, $row['learners_count']);
         $this->assertSame(1, $row['qualifications_count']);
 
-        // 1 completed (learner, qualification) pair / (1 learner x 1 qual) = 100%.
-        $this->assertSame(100, $row['compliance_percent']);
+        // 1 held (employee, qualification) pair / (2 employees x 1 qual) = 50%.
+        // Every employee with the job title must hold it (D-056); this read
+        // 100% while the denominator was only the employees already enrolled.
+        $this->assertSame(50, $row['compliance_percent']);
     }
 
     public function test_compliance_is_zero_when_there_is_nothing_to_comply_with(): void

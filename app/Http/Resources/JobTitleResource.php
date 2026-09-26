@@ -36,16 +36,20 @@ class JobTitleResource extends JsonResource
      * Compute the job-title compliance percentage from the
      * repository-provided counts.
      *
-     *   compliance = completed (learner, required-qual) pairs
-     *              ÷ (learners × required-qualifications)
+     *   compliance = held (employee, required-qual) pairs
+     *              ÷ (employees × required-qualifications)
      *
-     * Falls back to 0 whenever either denominator is zero — i.e. a job
-     * title with no enrolled learners or no required qualifications has
-     * no meaningful compliance score and renders an empty bar.
+     * Every employee with the job title must hold its qualifications (D-056,
+     * "the people the qualification applies to"). The denominator used to be
+     * `learners_count` - only employees already enrolled in a relevant course
+     * - so one enrolled, finished employee out of fifty read as 100%.
+     *
+     * Falls back to 0 whenever either denominator is zero — a job title with
+     * no employees or no required qualifications has no meaningful score.
      */
     private function resolveCompliancePercent(): int
     {
-        $learners = (int) ($this->learners_count ?? 0);
+        $learners = (int) ($this->employees_count ?? 0);
 
         /**
          * `withCount('qualificationSkills')` lands on the model as

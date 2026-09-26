@@ -5,190 +5,180 @@ namespace Tests\Feature\Api\Admin;
 use App\Models\Admin;
 use App\Models\JobTitle;
 use App\Models\QualificationSkill;
+use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Maatwebsite\Excel\Facades\Excel;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\Feature\Api\ApiTestCase;
 
 /**
- * Stage B / B4 — qualification import, export and one-step assignment.
+ * Qualifications import / export (D-034; Figma 2066:99852 export menu,
+ * 1983:44634 import menu).
  *
- * Figma 2066:99852 (export menu), 1983:44634 (import menu), 2066:100876 (New
- * Qualification modal). None of it had a backend.
- *
- * The learner half of the modal's assignment is NOT covered here because it is
- * not implemented — there is no learner-qualification table and adding one
- * changes the compliance figures elsewhere. See D-045.
+ * B4 built the import as "apply good rows, report bad ones" and overwrote a
+ * qualification whose English name matched. D5 brought it in line with D-034:
+ * all or nothing, a name in use is an error, problems by (row, column).
  */
 class QualificationTransferTest extends ApiTestCase
 {
-    private function csv(string $body, string $name = 'quals.csv'): UploadedFile
+    private const URL = self::BASE.'/admin/qualification-skills';
+
+    private function csv(string $body): UploadedFile
     {
-        return UploadedFile::fake()->createWithContent($name, $body);
+        return UploadedFile::fake()->createWithContent('quals.csv', $body);
     }
 
-    private function importUrl(): string
+    private function import(string $body, array $headers): array
     {
-        return self::BASE.'/admin/qualification-skills/import';
+        return $this->post(self::URL.'/import', ['file' => $this->csv($body)], $headers + ['Accept' => 'application/json'])
+            ->assertOk()->json();
     }
 
     // ------------------------------------------------------------------ export
 
-    public function test_export_returns_a_spreadsheet_with_the_template_columns(): void
+    public function test_export_follows_the_search_and_carries_assignments_and_figures(): void
     {
-        $skill = QualificationSkill::query()->create(['name' => ['en' => 'Welding', 'ar' => 'لحام']]);
-        $jt    = JobTitle::query()->create(['name' => 'Technician '.uniqid()]);
-        $skill->jobTitles()->attach($jt->id);
-
+        Excel::fake();
+        $welding = QualificationSkill::query()->create(['name' => ['en' => 'Welding', 'ar' => 'لحام']]);
+        QualificationSkill::query()->create(['name' => ['en' => 'First Aid', 'ar' => 'إسعاف']]);
+        $jt = JobTitle::query()->create(['name' => 'فني', 'name_en' => 'Technician', 'name_ar' => 'فني']);
+        $welding->jobTitles()->attach($jt->id);
+        $u = User::factory()->create(['machine_code' => 'EMP42']);
+        DB::table('user_qualification_skill')->insert(['user_id' => $u->id, 'qualification_skill_id' => $welding->id, 'created_at' => now(), 'updated_at' => now()]);
         ['headers' => $headers] = $this->adminToken();
 
-        $response = $this->get(self::BASE.'/admin/qualification-skills/export?format=csv', $headers);
+        $this->get(self::URL.'/export?format=csv&search=weld', $headers + ['Accept-Language' => 'en'])->assertOk();
 
-        $response->assertOk();
-        // Excel::download returns a BinaryFileResponse - the bytes are in the
-        // temp file it points at, not in a streamed callback.
-        $body = file_get_contents($response->getFile()->getPathname());
+        Excel::assertDownloaded('qualifications-'.now()->format('Y-m-d').'.csv', function ($export) {
+            $this->assertSame([
+                'name_en', 'name_ar', 'job_titles', 'learner_employee_ids',
+                'linked_courses', 'enrolled', 'job_titles_count', 'learners', 'certified', 'completion_percent',
+            ], $export->headings());
+            $rows = $export->collection();
+            $this->assertCount(1, $rows);
+            $this->assertSame(['Welding', 'لحام', 'Technician', 'EMP42', 0, 0, 1, 1, 1, 100], $export->map($rows->first()));
 
-        $this->assertStringContainsString('name_en', $body);
-        $this->assertStringContainsString('name_ar', $body);
-        $this->assertStringContainsString('job_titles', $body);
-        $this->assertStringContainsString('Welding', $body);
+            return true;
+        });
     }
 
-    public function test_the_import_template_has_headers_and_no_rows(): void
+    public function test_the_template_is_the_importable_columns_and_no_rows(): void
     {
+        Excel::fake();
         QualificationSkill::query()->create(['name' => ['en' => 'Should Not Appear', 'ar' => 'س']]);
         ['headers' => $headers] = $this->adminToken();
 
-        $response = $this->get(self::BASE.'/admin/qualification-skills/import-template?format=csv', $headers)
-            ->assertOk();
-        $body = file_get_contents($response->getFile()->getPathname());
+        $this->get(self::URL.'/import-template', $headers)->assertOk();
 
-        $this->assertStringContainsString('name_en', $body);
-        // A template is a blank form; existing data must not leak into it.
-        $this->assertStringNotContainsString('Should Not Appear', $body);
+        Excel::assertDownloaded('qualifications-template.xlsx', function ($export) {
+            $this->assertSame(['name_en', 'name_ar', 'job_titles', 'learner_employee_ids'], $export->headings());
+            $this->assertCount(0, $export->collection());
+
+            return true;
+        });
     }
 
-    public function test_an_unknown_export_format_falls_back_rather_than_erroring(): void
+    public function test_an_unknown_format_is_refused(): void
     {
         ['headers' => $headers] = $this->adminToken();
 
-        $this->get(self::BASE.'/admin/qualification-skills/export?format=exe', $headers)->assertOk();
+        $this->getJson(self::URL.'/export?format=exe', $headers)->assertStatus(422);
+        $this->getJson(self::URL.'/import-template?format=exe', $headers)->assertStatus(422);
     }
 
     // ------------------------------------------------------------------ import
 
-    public function test_import_creates_new_qualifications(): void
+    public function test_import_creates_qualifications_with_job_titles_and_learners(): void
+    {
+        $jt = JobTitle::query()->create(['name' => 'فني', 'name_en' => 'Technician', 'name_ar' => 'فني']);
+        $driver = JobTitle::query()->create(['name' => 'Driver']);
+        $u = User::factory()->create(['machine_code' => 'EMP42']);
+        ['model' => $admin, 'headers' => $headers] = $this->adminToken();
+
+        $body = $this->import(
+            "name_en,name_ar,job_titles,learner_employee_ids,enrolled\n"
+            ."Welding,لحام,technician | DRIVER,emp42,99\n"
+            ."First Aid,إسعاف,فني,,\n",
+            $headers,
+        );
+
+        $this->assertSame(['created' => 2, 'errors' => []], $body['result']);
+        $welding = QualificationSkill::query()->get()->first(fn ($q) => $q->getTranslation('name', 'en') === 'Welding');
+        $this->assertEqualsCanonicalizing([$jt->id, $driver->id], $welding->jobTitles()->pluck('job_titles.id')->all());
+        $this->assertDatabaseHas('user_qualification_skill', ['user_id' => $u->id, 'qualification_skill_id' => $welding->id, 'assigned_by' => $admin->id]);
+    }
+
+    public function test_one_bad_row_means_nothing_is_written(): void
     {
         ['headers' => $headers] = $this->adminToken();
 
-        $report = $this->post($this->importUrl(), [
-            'file' => $this->csv("name_en,name_ar,job_titles\nWelding,لحام,\nFirst Aid,إسعاف,\n"),
-        ], $headers + ['Accept' => 'application/json'])->assertOk()->json('result');
+        $body = $this->import("name_en,name_ar\nGood One,جيد\nBroken,\nGood Two,جيد٢\n", $headers);
 
-        $this->assertSame(2, $report['created']);
-        $this->assertSame(0, $report['updated']);
-        $this->assertSame([], $report['errors']);
-        $this->assertSame(2, QualificationSkill::query()->count());
+        $this->assertSame(0, $body['result']['created']);
+        $this->assertSame([['row' => 3, 'column' => 'name_ar', 'message' => __('messages.import_cell_required')]], $body['result']['errors']);
+        $this->assertSame(__('messages.import_rejected'), $body['message']);
+        $this->assertSame(0, QualificationSkill::query()->count());
     }
 
-    public function test_import_updates_an_existing_qualification_rather_than_duplicating(): void
+    public function test_a_name_in_use_is_an_error_never_an_overwrite(): void
     {
         QualificationSkill::query()->create(['name' => ['en' => 'Welding', 'ar' => 'قديم']]);
         ['headers' => $headers] = $this->adminToken();
 
-        $report = $this->post($this->importUrl(), [
-            'file' => $this->csv("name_en,name_ar\nWelding,لحام\n"),
-        ], $headers + ['Accept' => 'application/json'])->assertOk()->json('result');
+        $errors = $this->import("name_en,name_ar\nWELDING,لحام\nNew,قديم\nTwice,مرتين\ntwice,مرة\n", $headers)['result']['errors'];
 
-        $this->assertSame(0, $report['created']);
-        $this->assertSame(1, $report['updated']);
+        $this->assertSame([
+            ['row' => 2, 'column' => 'name_en'],
+            ['row' => 3, 'column' => 'name_ar'],
+            ['row' => 5, 'column' => 'name_en'],
+        ], array_map(fn ($e) => ['row' => $e['row'], 'column' => $e['column']], $errors));
         $this->assertSame(1, QualificationSkill::query()->count());
-        $this->assertSame('لحام', QualificationSkill::query()->first()->getTranslation('name', 'ar'));
+        $this->assertSame('قديم', QualificationSkill::query()->first()->getTranslation('name', 'ar'));
     }
 
-    public function test_import_links_job_titles_by_name(): void
+    public function test_unknown_or_ambiguous_references_are_reported_never_invented(): void
     {
-        $jt = JobTitle::query()->create(['name' => 'Technician']);
+        JobTitle::query()->create(['name' => 'Clerk']);
+        JobTitle::query()->create(['name' => 'Other', 'name_en' => 'Clerk']);
+        User::factory()->create(['machine_code' => 'DUP1']);
+        User::factory()->create(['machine_code' => 'DUP1']);
         ['headers' => $headers] = $this->adminToken();
 
-        $this->post($this->importUrl(), [
-            'file' => $this->csv("name_en,name_ar,job_titles\nWelding,لحام,Technician\n"),
-        ], $headers + ['Accept' => 'application/json'])->assertOk();
+        $errors = $this->import("name_en,name_ar,job_titles,learner_employee_ids\nA,أ,Ghost Role|Clerk,NOPE|DUP1\n", $headers)['result']['errors'];
 
-        $this->assertSame(1, QualificationSkill::query()->first()->jobTitles()->count());
-        $this->assertTrue($jt->qualificationSkills()->exists());
-    }
-
-    public function test_an_unknown_job_title_is_reported_and_never_invented(): void
-    {
-        ['headers' => $headers] = $this->adminToken();
-
-        $report = $this->post($this->importUrl(), [
-            'file' => $this->csv("name_en,name_ar,job_titles\nWelding,لحام,Ghost Role\n"),
-        ], $headers + ['Accept' => 'application/json'])->assertOk()->json('result');
-
-        // The qualification is still created; only the bad link is reported.
-        $this->assertSame(1, $report['created']);
-        $this->assertNotEmpty($report['errors']);
-        $this->assertSame(2, $report['errors'][0]['row']);
-        // A typo must not silently create a job title.
+        $this->assertSame([
+            ['row' => 2, 'column' => 'job_titles', 'message' => __('messages.import_unknown_job_title', ['name' => 'Ghost Role'])],
+            ['row' => 2, 'column' => 'job_titles', 'message' => __('messages.import_ambiguous_job_title', ['name' => 'Clerk'])],
+            ['row' => 2, 'column' => 'learner_employee_ids', 'message' => __('messages.import_unknown_employee', ['id' => 'NOPE'])],
+            ['row' => 2, 'column' => 'learner_employee_ids', 'message' => __('messages.import_ambiguous_employee', ['id' => 'DUP1'])],
+        ], $errors);
+        $this->assertSame(0, QualificationSkill::query()->count());
         $this->assertSame(0, JobTitle::query()->where('name', 'Ghost Role')->count());
-    }
-
-    public function test_a_partially_valid_file_applies_good_rows_and_reports_bad_ones(): void
-    {
-        ['headers' => $headers] = $this->adminToken();
-
-        // Row 2 valid, row 3 missing the Arabic name, row 4 valid.
-        $report = $this->post($this->importUrl(), [
-            'file' => $this->csv("name_en,name_ar\nGood One,جيد\nBroken,\nGood Two,جيد٢\n"),
-        ], $headers + ['Accept' => 'application/json'])->assertOk()->json('result');
-
-        $this->assertSame(2, $report['created']);
-        $this->assertSame(1, $report['skipped']);
-        $this->assertCount(1, $report['errors']);
-        // Row numbers match what the admin sees in Excel (header is row 1).
-        $this->assertSame(3, $report['errors'][0]['row']);
-        $this->assertSame(2, QualificationSkill::query()->count());
     }
 
     public function test_a_file_missing_required_columns_is_rejected_whole(): void
     {
         ['headers' => $headers] = $this->adminToken();
 
-        $report = $this->post($this->importUrl(), [
-            'file' => $this->csv("wrong_column\nvalue\n"),
-        ], $headers + ['Accept' => 'application/json'])->assertOk()->json('result');
+        $body = $this->import("wrong_column\nvalue\n", $headers);
 
-        $this->assertSame(0, $report['created']);
-        $this->assertNotEmpty($report['errors']);
+        $this->assertSame(1, $body['result']['errors'][0]['row']);
         $this->assertSame(0, QualificationSkill::query()->count());
     }
 
-    /**
-     * A script renamed to .xlsx never reaches the database.
-     *
-     * Harness limitation, same as the B-02 upload tests: UploadedFile::fake()
-     * reports the MIME type derived from the filename, not the bytes, so
-     * `mimetypes:` cannot fire here the way it does in production (finfo sees
-     * text/x-php and rejects with 422).
-     *
-     * What this asserts is the defence that holds either way: the request does
-     * not 500, and nothing is written. Before the parse-failure handling was
-     * added this returned a 500 with a stack trace from PhpSpreadsheet - which
-     * is a real defect for any malformed upload, not only a hostile one.
-     */
-    public function test_a_disguised_script_never_reaches_the_database(): void
+    public function test_a_file_that_is_not_a_spreadsheet_is_refused_by_its_content(): void
     {
         ['headers' => $headers] = $this->adminToken();
+        // A real file, not UploadedFile::fake(): a fake reports the MIME type of
+        // its extension, so it cannot show that the content is what is checked.
+        $path = tempnam(sys_get_temp_dir(), 'qual');
+        file_put_contents($path, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
+        $file = new UploadedFile($path, 'quals.csv', null, null, true);
 
-        $response = $this->post($this->importUrl(), [
-            'file' => UploadedFile::fake()->createWithContent('payload.xlsx', '<?php echo shell_exec($_GET["c"]); ?>'),
-        ], $headers + ['Accept' => 'application/json']);
-
-        $this->assertContains($response->getStatusCode(), [200, 422]);
-        $this->assertNotSame(500, $response->getStatusCode(), 'A bad upload must not surface as a server error.');
+        $this->post(self::URL.'/import', ['file' => $file], $headers + ['Accept' => 'application/json'])
+            ->assertStatus(422)->assertJsonValidationErrors('file', 'errors');
         $this->assertSame(0, QualificationSkill::query()->count());
     }
 
@@ -196,8 +186,8 @@ class QualificationTransferTest extends ApiTestCase
     {
         ['headers' => $headers] = $this->adminToken();
 
-        $response = $this->post($this->importUrl(), [
-            'file' => UploadedFile::fake()->createWithContent('broken.xlsx', "PK truncated rubbish"),
+        $response = $this->post(self::URL.'/import', [
+            'file' => UploadedFile::fake()->createWithContent('broken.xlsx', 'PK truncated rubbish'),
         ], $headers + ['Accept' => 'application/json']);
 
         $this->assertNotSame(500, $response->getStatusCode());
@@ -208,76 +198,30 @@ class QualificationTransferTest extends ApiTestCase
     {
         ['headers' => $headers] = $this->adminToken();
 
-        $this->post($this->importUrl(), [], $headers + ['Accept' => 'application/json'])->assertStatus(422);
-    }
-
-    // ------------------------------------------- one-step assignment (2066:100876)
-
-    public function test_a_qualification_can_be_created_and_assigned_in_one_request(): void
-    {
-        $a = JobTitle::query()->create(['name' => 'Technician '.uniqid()]);
-        $b = JobTitle::query()->create(['name' => 'Driver '.uniqid()]);
-        ['headers' => $headers] = $this->adminToken();
-
-        $this->postJson(self::BASE.'/qualification-skills', [
-            'name'          => ['en' => 'Forklift', 'ar' => 'رافعة'],
-            'job_title_ids' => [$a->id, $b->id],
-        ], $headers)->assertCreated();
-
-        $skill = QualificationSkill::query()->first();
-        $this->assertSame(2, $skill->jobTitles()->count());
-    }
-
-    public function test_creating_without_assignment_still_works(): void
-    {
-        ['headers' => $headers] = $this->adminToken();
-
-        $this->postJson(self::BASE.'/qualification-skills', [
-            'name' => ['en' => 'Standalone', 'ar' => 'مستقل'],
-        ], $headers)->assertCreated();
-
-        $this->assertSame(0, QualificationSkill::query()->first()->jobTitles()->count());
-    }
-
-    public function test_an_unknown_job_title_id_is_a_422_not_a_silent_drop(): void
-    {
-        ['headers' => $headers] = $this->adminToken();
-
-        $this->postJson(self::BASE.'/qualification-skills', [
-            'name'          => ['en' => 'Bad', 'ar' => 'سيئ'],
-            'job_title_ids' => [999999],
-        ], $headers)->assertStatus(422);
-
-        $this->assertSame(0, QualificationSkill::query()->count());
+        $this->post(self::URL.'/import', [], $headers + ['Accept' => 'application/json'])->assertStatus(422);
     }
 
     // ------------------------------------------------------------------- authz
 
     public function test_an_admin_without_view_qualifications_is_refused(): void
     {
-        $role = Role::findOrCreate('qual-restricted', 'admin');
-        $role->givePermissionTo(Permission::findOrCreate('view-dashboard', 'admin'));
         $admin = Admin::factory()->create();
-        $admin->assignRole($role);
+        $admin->assignRole(tap(Role::findOrCreate('qual-restricted', 'admin'))->givePermissionTo(Permission::findOrCreate('view-dashboard', 'admin')));
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
-        $headers = ['Authorization' => 'Bearer '.$admin->createToken('t')->plainTextToken];
+        ['headers' => $headers] = $this->adminToken($admin);
 
-        $this->getJson(self::BASE.'/admin/qualification-skills/export', $headers)->assertStatus(403);
-        $this->getJson(self::BASE.'/admin/qualification-skills/import-template', $headers)->assertStatus(403);
-        $this->postJson($this->importUrl(), [], $headers)->assertStatus(403);
+        $this->getJson(self::URL.'/export', $headers)->assertForbidden();
+        $this->getJson(self::URL.'/import-template', $headers)->assertForbidden();
+        $this->postJson(self::URL.'/import', [], $headers)->assertForbidden();
     }
 
-    public function test_a_learner_cannot_import_or_export(): void
+    public function test_a_learner_and_a_guest_cannot_import_or_export(): void
     {
         ['headers' => $headers] = $this->userToken();
 
-        $this->getJson(self::BASE.'/admin/qualification-skills/export', $headers)->assertStatus(403);
-        $this->postJson($this->importUrl(), [], $headers)->assertStatus(403);
-    }
-
-    public function test_a_guest_is_unauthenticated(): void
-    {
-        $this->getJson(self::BASE.'/admin/qualification-skills/export')->assertStatus(401);
-        $this->postJson($this->importUrl(), [])->assertStatus(401);
+        $this->getJson(self::URL.'/export', $headers)->assertForbidden();
+        $this->postJson(self::URL.'/import', [], $headers)->assertForbidden();
+        $this->getJson(self::URL.'/export')->assertUnauthorized();
+        $this->postJson(self::URL.'/import', [])->assertUnauthorized();
     }
 }

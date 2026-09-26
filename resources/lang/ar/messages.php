@@ -59,8 +59,13 @@ return [
     'import_empty'            => 'الملف المرفوع لا يحتوي على صفوف.',
     'import_missing_columns'  => 'الملف تنقصه أعمدة مطلوبة: :columns.',
     'import_too_many_rows'    => 'عدد الصفوف كبير جدًا. استورد :max صف على الأكثر في المرة الواحدة.',
-    'import_name_required'    => 'الاسم بالإنجليزية والعربية مطلوبان معًا.',
-    'import_unknown_job_titles' => 'مسميات وظيفية غير معروفة، لم يتم ربطها: :names.',
+    'qualification_name_taken' => 'يوجد مؤهل آخر بهذا الاسم.',
+    'import_qualification_duplicate_in_file' => 'يوجد صف آخر في هذا الملف بنفس اسم المؤهل.',
+    'import_too_many_learners' => 'يمكن منح المؤهل لـ :max متعلم كحد أقصى في الصف الواحد.',
+    'import_unknown_job_title' => 'لا يوجد مسمى وظيفي باسم ":name".',
+    'import_ambiguous_job_title' => 'يوجد أكثر من مسمى وظيفي باسم ":name".',
+    'import_unknown_employee' => 'لا يوجد متعلم بالرقم الوظيفي ":id".',
+    'import_ambiguous_employee' => 'يوجد أكثر من متعلم بالرقم الوظيفي ":id".',
 
     // Certificates (first-class entity)
     'certificate_issued'      => 'تم إصدار الشهادة بنجاح.',

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\apis\Admin\AdminQualificationController;
 use App\Http\Controllers\apis\Admin\LearnerQualificationController;
 use App\Http\Controllers\apis\Admin\QualificationSkillTransferController;
 use App\Http\Controllers\apis\QualificationSkillController;
@@ -20,7 +21,6 @@ Route::middleware('auth.user')->group(function () {
     Route::get('qualification-skills/{qualification_skill}',   [QualificationSkillController::class, 'show']);
 });
 
-// Admin only
 /*
 |--------------------------------------------------------------------------
 | Import / export (Stage B / B4)
@@ -41,10 +41,28 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])
         ->middleware('throttle:10,1')->name('admin.qualifications.import');
 });
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])->group(function () {
-    Route::post('qualification-skills',                          [QualificationSkillController::class, 'store']);
-    Route::put('qualification-skills/{qualification_skill}',     [QualificationSkillController::class, 'update']);
-    Route::delete('qualification-skills/{qualification_skill}',  [QualificationSkillController::class, 'destroy']);
+/*
+|--------------------------------------------------------------------------
+| Dashboard Qualifications page (D5) - Figma 2066:100159 list, 2066:100876
+| New / Edit modal: names, job titles and learners in one submit.
+|--------------------------------------------------------------------------
+| These replace the generic POST / PUT / DELETE qualification-skills routes,
+| whose only caller was this page: they allowed duplicate names and could not
+| assign learners (D-056). Static segments come before {qualification_skill}.
+*/
+Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])->prefix('admin')->group(function () {
+    Route::get('qualification-skills', [AdminQualificationController::class, 'index'])
+        ->name('admin.qualifications.index');
+    Route::get('qualification-skills/assignees', [AdminQualificationController::class, 'assignees'])
+        ->name('admin.qualifications.assignees');
+    Route::post('qualification-skills', [AdminQualificationController::class, 'store'])
+        ->name('admin.qualifications.store');
+    Route::get('qualification-skills/{qualification_skill}', [AdminQualificationController::class, 'show'])
+        ->whereNumber('qualification_skill')->name('admin.qualifications.show');
+    Route::put('qualification-skills/{qualification_skill}', [AdminQualificationController::class, 'update'])
+        ->whereNumber('qualification_skill')->name('admin.qualifications.update');
+    Route::delete('qualification-skills/{qualification_skill}', [AdminQualificationController::class, 'destroy'])
+        ->whereNumber('qualification_skill')->name('admin.qualifications.destroy');
 });
 
 /*

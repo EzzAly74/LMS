@@ -6,8 +6,10 @@ use App\Http\Traits\HasFile;
 use App\Models\User;
 use App\Support\CourseCompletion;
 use App\Support\LocalizedJson;
+use App\Support\QualificationHolding;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+
 
 /**
  * Admin-side view of a single learner (Figma 2181:115043).
@@ -51,10 +53,15 @@ class AdminLearnerProfileService
             ->orderByDesc('users_courses.updated_at')
             ->first(['courses.id', 'courses.title']);
 
-        $earnedQualifications = DB::table('course_qualification_skills')
-            ->whereIn('course_id', $passedCourseIds)
-            ->distinct()
-            ->count('qualification_skill_id');
+        // Qualifications this learner holds, by the one project rule
+        // (App\Support\QualificationHolding, D-056). This counted any
+        // qualification linked to ANY one passed course, and missed direct
+        // grants - so the tile disagreed with the job-title detail.
+        $earnedQualifications = DB::table('users')
+            ->crossJoin('qualification_skills as eq')
+            ->where('users.id', $learner->id)
+            ->whereRaw(QualificationHolding::holdsSql('users.id', 'eq.id'))
+            ->count();
 
         $learner->loadMissing('jobTitle');
 

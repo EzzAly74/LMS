@@ -4,36 +4,40 @@ namespace App\Http\Controllers\apis\Admin;
 
 use App\Exports\QualificationSkillsExport;
 use App\Http\Controllers\apis\ApiController;
+use App\Http\Requests\Api\Admin\AdminQualificationListRequest;
 use App\Http\Requests\Api\Admin\QualificationSkillImportRequest;
-use App\Models\QualificationSkill;
+use App\Models\Admin;
+use App\Services\Admin\AdminQualificationService;
 use App\Services\Admin\QualificationSkillImportService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Maatwebsite\Excel\Excel as ExcelFormat;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Qualifications import / export (Figma 2066:99852 export menu,
- * 1983:44634 import menu). Neither existed.
+ * 1983:44634 import menu; D-034).
  */
 class QualificationSkillTransferController extends ApiController
 {
-    public function __construct(private readonly QualificationSkillImportService $importer) {}
+    /** An export is synchronous; this bounds the work one request can do (B-21). */
+    public const MAX_EXPORT = 5000;
 
-    /** Allowed download formats, mapped to Maatwebsite writer types. */
     private const FORMATS = [
         'xlsx' => ExcelFormat::XLSX,
         'csv'  => ExcelFormat::CSV,
     ];
 
-    /** GET admin/qualification-skills/export?format=xlsx|csv */
-    public function export(Request $request): BinaryFileResponse
-    {
-        $format = $this->resolveFormat($request);
+    public function __construct(
+        private readonly QualificationSkillImportService $importer,
+        private readonly AdminQualificationService $qualifications,
+    ) {}
 
-        // Eager-load so the export does not query per row.
-        $rows = QualificationSkill::query()->with('jobTitles')->orderBy('id')->get();
+    /** GET admin/qualification-skills/export?format=xlsx|csv&search= - the list as filtered. */
+    public function export(AdminQualificationListRequest $request): BinaryFileResponse
+    {
+        $format = $request->fileFormat();
+        $rows   = $this->qualifications->forExport($request->search(), self::MAX_EXPORT);
 
         return Excel::download(
             new QualificationSkillsExport($rows),
@@ -42,39 +46,33 @@ class QualificationSkillTransferController extends ApiController
         );
     }
 
-    /**
-     * GET admin/qualification-skills/import-template?format=xlsx|csv
-     *
-     * The same columns as the export, with no rows — the "template" entry in
-     * the import menu. Built from one source of truth so the template can never
-     * drift from what the importer accepts.
-     */
-    public function template(Request $request): BinaryFileResponse
+    /** GET admin/qualification-skills/import-template?format=xlsx|csv - "Download empty template". */
+    public function template(AdminQualificationListRequest $request): BinaryFileResponse
     {
-        $format = $this->resolveFormat($request);
+        $format = $request->fileFormat();
 
         return Excel::download(
-            new QualificationSkillsExport(collect()),
+            new QualificationSkillsExport(collect(), template: true),
             'qualifications-template.'.$format,
             self::FORMATS[$format],
         );
     }
 
-    /** POST admin/qualification-skills/import */
+    /**
+     * POST admin/qualification-skills/import
+     *
+     * 200 with a report either way: a rejected file is an outcome to show row
+     * by row, not an error to throw away. Nothing is written unless `errors`
+     * is empty.
+     */
     public function import(QualificationSkillImportRequest $request): JsonResponse
     {
-        $report = $this->importer->import($request->file('file'));
+        $by     = $request->user() instanceof Admin ? $request->user() : null;
+        $report = $this->importer->import($request->file('file'), $by);
 
-        // Always 200 with a per-row report: the Figma flow has an explicit
-        // partial-failure state, so "some rows applied, some rejected" is a
-        // successful outcome to be rendered, not an error to be thrown away.
-        return $this->success(__('messages.updated'), $report);
-    }
-
-    private function resolveFormat(Request $request): string
-    {
-        $format = strtolower((string) $request->query('format', 'xlsx'));
-
-        return array_key_exists($format, self::FORMATS) ? $format : 'xlsx';
+        return $this->success(
+            $report['errors'] === [] ? __('messages.created') : __('messages.import_rejected'),
+            $report,
+        );
     }
 }

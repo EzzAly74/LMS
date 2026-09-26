@@ -27,40 +27,4 @@ class QualificationSkillService
     {
         return $this->repository->findOrFail($id);
     }
-
-    public function create(array $data): QualificationSkill
-    {
-        return $this->repository->create($this->normaliseName($data));
-    }
-
-    public function update(QualificationSkill $skill, array $data): QualificationSkill
-    {
-        return $this->repository->update($skill, $this->normaliseName($data));
-    }
-
-    public function delete(QualificationSkill $skill): bool
-    {
-        return $this->repository->delete($skill);
-    }
-
-    /**
-     * The model stores `name` as a Spatie translatable JSON column.
-     * Requests may arrive with either:
-     *   - name => ['en' => '...', 'ar' => '...']   (canonical, multi-locale)
-     *   - name => 'value'                          (single locale, current request)
-     *
-     * Normalise to an array so HasTranslations writes every locale we received.
-     */
-    private function normaliseName(array $data): array
-    {
-        if (! array_key_exists('name', $data)) {
-            return $data;
-        }
-
-        if (is_string($data['name'])) {
-            $data['name'] = [app()->getLocale() => $data['name']];
-        }
-
-        return $data;
-    }
 }

@@ -13,7 +13,7 @@ class QualificationSkill extends Model
 
     public array $translatable = ['name'];
 
-    protected $guarded = ['id'];
+    protected $fillable = ['name'];
 
     /**
      * Job titles that require this qualification.

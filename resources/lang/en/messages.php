@@ -59,8 +59,13 @@ return [
     'import_empty'            => 'The uploaded file has no rows.',
     'import_missing_columns'  => 'The file is missing required columns: :columns.',
     'import_too_many_rows'    => 'Too many rows. Import at most :max at a time.',
-    'import_name_required'    => 'Both name_en and name_ar are required.',
-    'import_unknown_job_titles' => 'Unknown job titles, left unassigned: :names.',
+    'qualification_name_taken' => 'Another qualification already has this name.',
+    'import_qualification_duplicate_in_file' => 'Another row in this file has the same qualification name.',
+    'import_too_many_learners' => 'A qualification can be granted to at most :max learners in one row.',
+    'import_unknown_job_title' => 'No job title is called ":name".',
+    'import_ambiguous_job_title' => 'More than one job title is called ":name".',
+    'import_unknown_employee' => 'No learner has employee ID ":id".',
+    'import_ambiguous_employee' => 'More than one learner has employee ID ":id".',
 
     // Certificates (first-class entity)
     'certificate_issued'      => 'Certificate issued successfully.',

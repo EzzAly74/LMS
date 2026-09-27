@@ -27,6 +27,12 @@ trait SubmissionListParams
         ]);
     }
 
+    /** `course_id` for the Course Details filter options: required, a real course. */
+    protected function validatedCourseId(Request $request): int
+    {
+        return (int) $request->validate(['course_id' => ['required', 'integer', 'exists:courses,id']])['course_id'];
+    }
+
     /**
      * Bounded page size (B-21). The cap is 200, not 100: the Quizzes and
      * Assignments list pages still read up to 200 rows to build their learner

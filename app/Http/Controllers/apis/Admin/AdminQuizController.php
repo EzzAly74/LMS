@@ -151,6 +151,12 @@ class AdminQuizController extends ApiController
         );
     }
 
+    /** GET admin/quizzes/submissions/filter-options?course_id= - Course Details filter (2295:52815). */
+    public function submissionFilterOptions(Request $request): JsonResponse
+    {
+        return $this->success(__('messages.retrieved'), $this->service->filterOptions($this->validatedCourseId($request)));
+    }
+
     public function showSubmission(int $id): JsonResponse
     {
         $submission = $this->service->showSubmission($id);

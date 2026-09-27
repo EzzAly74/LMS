@@ -23,6 +23,8 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-assignments'])->p
     Route::get('assignments/cohorts',         [AdminAssignmentController::class, 'cohorts']);
     Route::get('assignments/instructors',     [AdminAssignmentController::class, 'instructors']);
     Route::get('assignments/submissions',     [AdminAssignmentController::class, 'submissions']);
+    // Static segment before {submission}, so it is never captured as an id.
+    Route::get('assignments/submissions/filter-options', [AdminAssignmentController::class, 'submissionFilterOptions']);
     Route::get('assignments/submissions/{submission}', [AdminAssignmentController::class, 'showSubmission']);
     Route::put('assignments/submissions/{submission}/answers/{answer}/grade',
         [AdminAssignmentController::class, 'gradeAnswer']);

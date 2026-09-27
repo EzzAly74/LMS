@@ -35,7 +35,12 @@ class AdminAssignmentSubmissionResource extends JsonResource
                 'title'     => $this->assignment->title,
                 'course_id' => $this->assignment->course_id,
             ]),
-            'assignment_title' => $assignment ? $this->assignment->title : null,
+            // In the request locale; assignments store EN and AR as two columns.
+            'assignment_title' => $assignment
+                ? (app()->getLocale() === 'ar'
+                    ? ($this->assignment->title_ar ?: $this->assignment->title)
+                    : ($this->assignment->title ?: $this->assignment->title_ar))
+                : null,
             'course_title'     => $course ? $course->title : null,
             'instructor_name'  => $instructor && isset($instructor->name) ? $instructor->name : null,
             'cohort_titles'    => $cohortTitles,

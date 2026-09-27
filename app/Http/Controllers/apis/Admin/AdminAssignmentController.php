@@ -153,6 +153,12 @@ class AdminAssignmentController extends ApiController
         );
     }
 
+    /** GET admin/assignments/submissions/filter-options?course_id= - Course Details filter (2294:51575). */
+    public function submissionFilterOptions(Request $request): JsonResponse
+    {
+        return $this->success(__('messages.retrieved'), $this->service->filterOptions($this->validatedCourseId($request)));
+    }
+
     public function showSubmission(int $id): JsonResponse
     {
         $submission = $this->service->showSubmission($id);

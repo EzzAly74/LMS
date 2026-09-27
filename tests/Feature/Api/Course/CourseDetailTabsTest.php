@@ -257,6 +257,51 @@ class CourseDetailTabsTest extends ApiTestCase
         $this->assertNull($rows[$wait->id]['passed']);
     }
 
+    public function test_filter_options_list_only_values_in_this_courses_submissions(): void
+    {
+        $creator = User::factory()->create(['name_en' => 'Nora Instructor']);
+        $quiz    = $this->quiz();
+        $quiz->update(['created_by' => $creator->id]);
+        $unused  = $this->quiz(); // no submissions: not offered
+        $learner = $this->learner($this->cohortA, 0, ['name_en' => 'Layla Learner']);
+        UserExam::factory()->create(['user_id' => $learner->id, 'course_id' => $this->course->id, 'exam_id' => $quiz->id]);
+
+        // Another course's submission must not appear.
+        $elsewhere = UserExam::factory()->create();
+
+        $headers = $this->adminToken()['headers'];
+        $options = $this->getJson(self::BASE.'/admin/quizzes/submissions/filter-options?course_id='.$this->course->id, $headers)
+            ->assertOk()->json('result');
+
+        $this->assertSame([$learner->id], array_column($options['learners'], 'id'));
+        $this->assertSame('Layla Learner', $options['learners'][0]['name']);
+        $this->assertSame([$creator->id], array_column($options['instructors'], 'id'));
+        $this->assertSame([$quiz->id], array_column($options['items'], 'id'));
+        $this->assertNotContains($unused->id, array_column($options['items'], 'id'));
+        $this->assertNotContains($elsewhere->user_id, array_column($options['learners'], 'id'));
+
+        $this->getJson(self::BASE.'/admin/quizzes/submissions/filter-options', $headers)->assertStatus(422);
+        $this->getJson(self::BASE.'/admin/assignments/submissions/filter-options?course_id=999999', $headers)->assertStatus(422);
+        $this->getJson(self::BASE.'/admin/quizzes/submissions/filter-options?course_id='.$this->course->id, $this->adminWith('view-courses'))
+            ->assertStatus(403);
+    }
+
+    public function test_assignment_titles_follow_the_request_language(): void
+    {
+        $assignment = CourseAssignment::factory()->create(['course_id' => $this->course->id, 'title' => 'Practical', 'title_ar' => 'تطبيق عملي']);
+        $learner    = $this->learner($this->cohortA, 0);
+        DB::table('user_course_assignments')->insert(['user_id' => $learner->id, 'course_assignment_id' => $assignment->id,
+            'created_at' => now(), 'updated_at' => now()]);
+
+        $headers = $this->adminToken()['headers'];
+        $url     = self::BASE.'/admin/assignments/submissions?course_id='.$this->course->id;
+
+        $this->assertSame('Practical', $this->getJson($url, $headers + ['Accept-Language' => 'en'])->json('result.0.assignment_title'));
+        $this->assertSame('تطبيق عملي', $this->getJson($url, $headers + ['Accept-Language' => 'ar'])->json('result.0.assignment_title'));
+        $this->assertSame('تطبيق عملي', $this->getJson(self::BASE.'/admin/assignments/submissions/filter-options?course_id='.$this->course->id,
+            $headers + ['Accept-Language' => 'ar'])->json('result.items.0.name'));
+    }
+
     public function test_submission_lists_bound_the_page_size(): void
     {
         $this->assertSame(200, $this->getJson(self::BASE.'/admin/quizzes/submissions?per_page=100000', $this->adminToken()['headers'])

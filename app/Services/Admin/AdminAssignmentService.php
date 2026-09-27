@@ -185,6 +185,38 @@ class AdminAssignmentService
         return $page;
     }
 
+    /**
+     * Choices for the Course Details Assignments filter (Figma 2294:51575:
+     * Learner, Instructor, Assignment): only values that occur in this
+     * course's submissions, so no choice can return nothing.
+     *
+     * @return array{learners: list<array{id:int,name:string}>, instructors: list<array{id:int,name:string}>, items: list<array{id:int,name:?string}>}
+     */
+    public function filterOptions(int $courseId): array
+    {
+        $assignmentIds = fn () => $this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->select('course_assignment_id');
+        $ar = app()->getLocale() === 'ar';
+
+        return [
+            'learners'    => $this->people($this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->select('user_id')),
+            'instructors' => $this->people(CourseAssignment::query()->whereIn('id', $assignmentIds())->whereNotNull('created_by')->select('created_by')),
+            'items'       => CourseAssignment::query()->whereIn('id', $assignmentIds())->orderBy('id')->limit(self::OPTIONS_LIMIT)
+                ->get(['id', 'title', 'title_ar'])
+                ->map(fn (CourseAssignment $a) => ['id' => $a->id, 'name' => ($ar ? ($a->title_ar ?: $a->title) : ($a->title ?: $a->title_ar))])
+                ->values()->all(),
+        ];
+    }
+
+    private const OPTIONS_LIMIT = 500;
+
+    /** @return list<array{id:int,name:string}> */
+    private function people(Builder $ids): array
+    {
+        return User::query()->whereIn('id', $ids)->orderBy('name')->limit(self::OPTIONS_LIMIT)
+            ->get(['id', 'name', 'name_en', 'name_ar'])
+            ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->getLocalizedName()])->values()->all();
+    }
+
     /** Submissions of one course: the Course Details Assignments tab count, equal to its list total. */
     public function countForCourse(int $courseId): int
     {

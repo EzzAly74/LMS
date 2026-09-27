@@ -23,6 +23,8 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-quizzes'])->prefi
     Route::get('quizzes/cohorts',     [AdminQuizController::class, 'cohorts']);
     Route::get('quizzes/instructors', [AdminQuizController::class, 'instructors']);
     Route::get('quizzes/submissions', [AdminQuizController::class, 'submissions']);
+    // Static segment before {submission}, so it is never captured as an id.
+    Route::get('quizzes/submissions/filter-options', [AdminQuizController::class, 'submissionFilterOptions']);
     Route::get('quizzes/submissions/{submission}', [AdminQuizController::class, 'showSubmission']);
     Route::put('quizzes/submissions/{submission}/answers/{answer}/grade',
         [AdminQuizController::class, 'gradeAnswer']);

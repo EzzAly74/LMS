@@ -215,6 +215,35 @@ class AdminQuizService
         return $page;
     }
 
+    /**
+     * Choices for the Course Details Quizzes filter (Figma 2295:52815: Learner,
+     * Instructor, Quiz): only values that occur in this course's submissions,
+     * so no choice can return nothing. Bounded like the evaluation options.
+     *
+     * @return array{learners: list<array{id:int,name:string}>, instructors: list<array{id:int,name:string}>, items: list<array{id:int,name:?string}>}
+     */
+    public function filterOptions(int $courseId): array
+    {
+        $examIds = fn () => $this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->select('exam_id');
+
+        return [
+            'learners'    => $this->people($this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->select('user_id')),
+            'instructors' => $this->people(CourseExam::query()->whereIn('id', $examIds())->whereNotNull('created_by')->select('created_by')),
+            'items'       => CourseExam::query()->whereIn('id', $examIds())->orderBy('id')->limit(self::OPTIONS_LIMIT)->get(['id', 'title'])
+                ->map(fn (CourseExam $e) => ['id' => $e->id, 'name' => $e->title])->values()->all(),
+        ];
+    }
+
+    private const OPTIONS_LIMIT = 500;
+
+    /** @return list<array{id:int,name:string}> */
+    private function people(Builder $ids): array
+    {
+        return User::query()->whereIn('id', $ids)->orderBy('name')->limit(self::OPTIONS_LIMIT)
+            ->get(['id', 'name', 'name_en', 'name_ar'])
+            ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->getLocalizedName()])->values()->all();
+    }
+
     /** Submissions of one course: the Course Details Quizzes tab count, equal to its list total. */
     public function countForCourse(int $courseId): int
     {

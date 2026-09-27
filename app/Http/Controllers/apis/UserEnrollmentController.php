@@ -3,11 +3,12 @@
 namespace App\Http\Controllers\apis;
 
 use App\Http\Requests\Api\CourseEnrollmentRequest;
+use App\Http\Requests\Api\CourseLearnersRequest;
+use App\Http\Resources\CourseLearnerResource;
 use App\Models\Course;
 use App\Models\UsersCourse;
 use App\Services\UserEnrollmentService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use OpenApi\Annotations as OA;
 
 class UserEnrollmentController extends ApiController
@@ -56,14 +57,11 @@ class UserEnrollmentController extends ApiController
      *     @OA\Response(response=404, ref="#/components/responses/NotFound")
      * )
      */
-    public function index(Course $course, Request $request): JsonResponse
+    public function index(Course $course, CourseLearnersRequest $request): JsonResponse
     {
-        $enrollments = $this->service->paginate(
-            $course,
-            (int) $request->get('per_page', 20),
-            $request->get('group_id') ? (int) $request->get('group_id') : null
-        );
-        return $this->paginated(__('messages.retrieved'), $enrollments);
+        $enrollments = $this->service->paginate($course, $request->perPage(), $request->filters());
+
+        return $this->paginated(__('messages.retrieved'), CourseLearnerResource::collection($enrollments));
     }
 
     /**

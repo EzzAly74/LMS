@@ -6,8 +6,11 @@ use App\Http\Requests\Api\CourseRequest;
 use App\Http\Resources\CourseDetailResource;
 use App\Http\Resources\CourseResource;
 use App\Models\Course;
+use App\Services\Admin\AdminAssignmentService;
 use App\Services\Admin\AdminEvaluationReportService;
+use App\Services\Admin\AdminQuizService;
 use App\Services\CourseService;
+use App\Services\UserEnrollmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -152,10 +155,20 @@ class CourseController extends ApiController
      *     @OA\Response(response=404, ref="#/components/responses/NotFound")
      * )
      */
-    public function show(Course $course): JsonResponse
-    {
+    public function show(
+        Course $course,
+        UserEnrollmentService $enrollments,
+        AdminQuizService $quizzes,
+        AdminAssignmentService $assignments,
+    ): JsonResponse {
         $course = $this->courseService->findOrFail($course->id);
         $this->attachEvaluationScores(collect([$course]));
+
+        // Header "N Active" (D-059) and the tab counts (Figma 2266:128869).
+        $course->setAttribute('in_progress_count', $enrollments->countInProgress($course));
+        $course->setAttribute('modules_count', $course->lectures()->count());
+        $course->setAttribute('quiz_submissions_count', $quizzes->countForCourse($course->id));
+        $course->setAttribute('assignment_submissions_count', $assignments->countForCourse($course->id));
 
         return $this->success(
             __('messages.retrieved'),

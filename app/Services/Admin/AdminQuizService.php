@@ -10,6 +10,7 @@ use App\Models\UserExam;
 use App\Models\UserExamAnswer;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\DB;
  */
 class AdminQuizService
 {
+    public function __construct(private readonly LearnerCohorts $cohorts) {}
+
     /* ------------------------------------------------------------------ *
      |  QUIZ CRUD                                                         |
      * ------------------------------------------------------------------ */
@@ -194,15 +197,47 @@ class AdminQuizService
         ?array $courseIds,
         ?string $status,
         ?string $search,
-        int $perPage = 20
+        int $perPage = 20,
+        ?int $sectionId = null,
     ): LengthAwarePaginator {
-        return UserExam::query()
+        $page = $this->submissionsQuery($quizId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId)
             ->with([
                 'user:id,name',
                 'exam.course:id,title',
                 'exam.creator:id,name',
                 'exam.cohorts.session:id,title',
             ])
+            ->latest('id')
+            ->paginate($perPage);
+
+        $this->cohorts->attach($page->getCollection(), fn (UserExam $e) => $e->course_id !== null ? (int) $e->course_id : null);
+
+        return $page;
+    }
+
+    /** Submissions of one course: the Course Details Quizzes tab count, equal to its list total. */
+    public function countForCourse(int $courseId): int
+    {
+        return $this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->count();
+    }
+
+    /**
+     * The submissions list query without eager loads or order, shared by the
+     * list and its count. `$sectionId` narrows to learners enrolled in that
+     * cohort of `$courseId` (Course Details cohort filter).
+     */
+    private function submissionsQuery(
+        ?int $quizId,
+        ?int $courseId,
+        ?int $userId,
+        ?array $instructorIds,
+        ?array $learnerIds,
+        ?array $courseIds,
+        ?string $status,
+        ?string $search,
+        ?int $sectionId,
+    ): Builder {
+        return UserExam::query()
             ->whereHas('exam', function ($q) {
                 // Any exam that has questions (legacy or rich) — mirrors the
                 // relaxed quiz list gate so a legacy quiz's submissions are
@@ -221,9 +256,8 @@ class AdminQuizService
             ->when(!empty($courseIds), fn ($q) => $q->whereIn('course_id', $courseIds))
             ->when($status === 'graded', fn ($q) => $q->whereNotNull('total_score'))
             ->when($status === 'pending', fn ($q) => $q->whereNull('total_score'))
-            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', "%{$search}%")))
-            ->latest('id')
-            ->paginate($perPage);
+            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
+            ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_exams.user_id', $courseId, $sectionId));
     }
 
     public function showSubmission(int $id): UserExam

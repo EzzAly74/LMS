@@ -10,6 +10,7 @@ use App\Http\Resources\Admin\AdminQuizListResource;
 use App\Http\Resources\Admin\AdminQuizResource;
 use App\Http\Resources\Admin\AdminQuizSubmissionDetailResource;
 use App\Http\Resources\Admin\AdminQuizSubmissionResource;
+use App\Http\Traits\SubmissionListParams;
 use App\Models\CourseExam;
 use App\Models\CourseSession;
 use App\Models\User;
@@ -26,6 +27,8 @@ use Illuminate\Http\Request;
  */
 class AdminQuizController extends ApiController
 {
+    use SubmissionListParams;
+
     public function __construct(private readonly AdminQuizService $service) {}
 
     /* ------------------------------------------------------------------ *
@@ -127,6 +130,8 @@ class AdminQuizController extends ApiController
         $learners    = $request->input('learner_ids');
         $courses     = $request->input('course_ids');
 
+        $this->validateCohortFilter($request);
+
         $submissions = $this->service->paginateSubmissions(
             $request->integer('quiz_id') ?: null,
             $request->integer('course_id') ?: null,
@@ -136,7 +141,8 @@ class AdminQuizController extends ApiController
             is_array($courses)     ? array_map('intval', $courses)     : null,
             $request->get('status'),
             $request->get('search'),
-            (int) $request->get('per_page', 20),
+            $this->submissionsPerPage($request),
+            $request->integer('section_id') ?: null,
         );
 
         return $this->paginated(

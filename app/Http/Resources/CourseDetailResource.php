@@ -153,6 +153,13 @@ class CourseDetailResource extends JsonResource
             'evaluation_score'       => $this->evaluation_score,
             'evaluation_submissions' => (int) ($this->evaluation_submissions ?? 0),
             'completion_percent'     => $this->resolveCompletionPercent(),
+            // Course Details header and tab counts (Figma 2266:128869), set
+            // by CourseController::show. "Active" = learners in progress (D-059);
+            // the submission counts equal the Quizzes / Assignments tab totals.
+            'in_progress_count'            => $this->in_progress_count,
+            'modules_count'                => $this->modules_count,
+            'quiz_submissions_count'       => $this->quiz_submissions_count,
+            'assignment_submissions_count' => $this->assignment_submissions_count,
         ];
     }
 

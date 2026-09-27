@@ -10,6 +10,7 @@ use App\Models\UserCourseAssignment;
 use App\Models\UserCourseAssignmentAnswer;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,6 +21,8 @@ use Illuminate\Support\Facades\DB;
  */
 class AdminAssignmentService
 {
+    public function __construct(private readonly LearnerCohorts $cohorts) {}
+
     /* ------------------------------------------------------------------ *
      |  ASSIGNMENT CRUD                                                   |
      * ------------------------------------------------------------------ */
@@ -161,15 +164,50 @@ class AdminAssignmentService
         ?array $courseIds,
         ?string $status,
         ?string $search,
-        int $perPage = 20
+        int $perPage = 20,
+        ?int $sectionId = null,
     ): LengthAwarePaginator {
-        return UserCourseAssignment::query()
+        $page = $this->submissionsQuery($assignmentId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId)
             ->with([
                 'user:id,name,machine_code,department_name',
                 'assignment.course:id,title',
                 'assignment.creator:id,name',
                 'assignment.cohorts.session:id,title',
             ])
+            ->latest('id')
+            ->paginate($perPage);
+
+        $this->cohorts->attach(
+            $page->getCollection(),
+            fn (UserCourseAssignment $s) => $s->assignment?->course_id !== null ? (int) $s->assignment->course_id : null,
+        );
+
+        return $page;
+    }
+
+    /** Submissions of one course: the Course Details Assignments tab count, equal to its list total. */
+    public function countForCourse(int $courseId): int
+    {
+        return $this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->count();
+    }
+
+    /**
+     * The submissions list query without eager loads or order, shared by the
+     * list and its count. `$sectionId` narrows to learners enrolled in that
+     * cohort of `$courseId` (Course Details cohort filter).
+     */
+    private function submissionsQuery(
+        ?int $assignmentId,
+        ?int $courseId,
+        ?int $userId,
+        ?array $instructorIds,
+        ?array $learnerIds,
+        ?array $courseIds,
+        ?string $status,
+        ?string $search,
+        ?int $sectionId,
+    ): Builder {
+        return UserCourseAssignment::query()
             ->when($assignmentId, fn ($q) => $q->where('course_assignment_id', $assignmentId))
             ->when($userId, fn ($q) => $q->where('user_id', $userId))
             ->when($courseId, fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->where('course_id', $courseId)))
@@ -178,9 +216,8 @@ class AdminAssignmentService
             ->when(!empty($courseIds), fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->whereIn('course_id', $courseIds)))
             ->when($status === 'graded', fn ($q) => $q->whereNotNull('total_score'))
             ->when($status === 'pending', fn ($q) => $q->whereNull('total_score'))
-            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', "%{$search}%")))
-            ->latest('id')
-            ->paginate($perPage);
+            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
+            ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_course_assignments.user_id', $courseId, $sectionId));
     }
 
     public function showSubmission(int $id): UserCourseAssignment

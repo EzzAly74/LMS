@@ -8,7 +8,9 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 interface UserEnrollmentRepositoryInterface
 {
-    public function paginateForCourse(Course $course, int $perPage, ?int $groupId): LengthAwarePaginator;
+    /** @param  array{search?:string, status?:string, group_id?:int}  $filters */
+    public function paginateForCourse(Course $course, int $perPage, array $filters = []): LengthAwarePaginator;
+    public function countInProgress(Course $course): int;
     public function syncUsers(Course $course, array $userIds, ?int $groupId): void;
     public function delete(UsersCourse $enrollment): void;
 }

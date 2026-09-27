@@ -35,6 +35,8 @@ class AdminQuizSubmissionResource extends JsonResource
             'course_title'    => $course ? $course->title : null,
             'instructor_name' => $instructor && isset($instructor->name) ? $instructor->name : null,
             'cohort_titles'   => $cohortTitles,
+            // The submitting learner's own cohort in the course (Course Details tab).
+            'learner_cohort'  => $this->resource->getAttribute('learner_cohort'),
             'user'            => $this->whenLoaded('user', fn () => [
                 'id'              => $this->user->id,
                 'name'            => $this->user->getLocalizedName(),

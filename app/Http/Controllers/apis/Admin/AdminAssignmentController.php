@@ -10,6 +10,7 @@ use App\Http\Resources\Admin\AdminAssignmentListResource;
 use App\Http\Resources\Admin\AdminAssignmentResource;
 use App\Http\Resources\Admin\AdminAssignmentSubmissionDetailResource;
 use App\Http\Resources\Admin\AdminAssignmentSubmissionResource;
+use App\Http\Traits\SubmissionListParams;
 use App\Models\CourseAssignment;
 use App\Models\CourseSession;
 use App\Models\User;
@@ -27,6 +28,8 @@ use Illuminate\Http\Request;
  */
 class AdminAssignmentController extends ApiController
 {
+    use SubmissionListParams;
+
     public function __construct(private readonly AdminAssignmentService $service) {}
 
     /* ------------------------------------------------------------------ *
@@ -129,6 +132,8 @@ class AdminAssignmentController extends ApiController
         $learners    = $request->input('learner_ids');
         $courses     = $request->input('course_ids');
 
+        $this->validateCohortFilter($request);
+
         $submissions = $this->service->paginateSubmissions(
             $request->integer('assignment_id') ?: null,
             $request->integer('course_id') ?: null,
@@ -138,7 +143,8 @@ class AdminAssignmentController extends ApiController
             is_array($courses)     ? array_map('intval', $courses)     : null,
             $request->get('status'),
             $request->get('search'),
-            (int) $request->get('per_page', 20),
+            $this->submissionsPerPage($request),
+            $request->integer('section_id') ?: null,
         );
 
         return $this->paginated(

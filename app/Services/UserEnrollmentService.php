@@ -13,9 +13,15 @@ class UserEnrollmentService
         private readonly UserEnrollmentRepositoryInterface $repo
     ) {}
 
-    public function paginate(Course $course, int $perPage, ?int $groupId): LengthAwarePaginator
+    /** @param  array{search?:string, status?:string, group_id?:int}  $filters */
+    public function paginate(Course $course, int $perPage, array $filters = []): LengthAwarePaginator
     {
-        return $this->repo->paginateForCourse($course, $perPage, $groupId);
+        return $this->repo->paginateForCourse($course, $perPage, $filters);
+    }
+
+    public function countInProgress(Course $course): int
+    {
+        return $this->repo->countInProgress($course);
     }
 
     public function enroll(Course $course, array $userIds, ?int $groupId): int

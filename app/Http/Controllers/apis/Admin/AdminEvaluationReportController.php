@@ -13,6 +13,7 @@ use App\Models\EvaluationCategory;
 use App\Models\User;
 use App\Services\Admin\AdminEvaluationReportService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
@@ -59,10 +60,18 @@ class AdminEvaluationReportController extends ApiController
         return $this->success(__('messages.retrieved'), $this->service->courseSummary($course));
     }
 
-    /** GET admin/evaluations/{template}/results - Figma 2169:108198. */
-    public function templateResults(EvaluationCategory $template): JsonResponse
+    /**
+     * GET admin/evaluations/{template}/results - Figma 2169:108198; with
+     * `course_id`, one course's answers only (Course Details, 2266:130142).
+     */
+    public function templateResults(EvaluationCategory $template, Request $request): JsonResponse
     {
-        return $this->success(__('messages.retrieved'), $this->service->templateResults($template));
+        $request->validate(['course_id' => ['sometimes', 'nullable', 'integer', 'exists:courses,id']]);
+
+        return $this->success(
+            __('messages.retrieved'),
+            $this->service->templateResults($template, $request->integer('course_id') ?: null),
+        );
     }
 
     /** GET admin/evaluations/scores - Figma 2017:52260. */

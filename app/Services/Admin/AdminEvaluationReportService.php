@@ -70,50 +70,90 @@ class AdminEvaluationReportService
     }
 
     /**
-     * Course overview histogram (Figma 2266:128869 / 2266:130142).
+     * Course evaluation summary: the Overview "Learner Evaluations" card and
+     * the Evaluations tab header (Figma 2266:128869 / 2266:130142).
      *
-     * "58 reviews · 3 with comments", average score, learners scored, question
-     * count, and the star histogram.
+     * Built on the evaluation responses (user_course_evaluations), not the
+     * legacy course_ratings table: Evaluations replace Ratings (Q-050, D-055).
+     *
+     * - `reviews`       submissions on this course - (learner, template) pairs
+     * - `with_comments` submissions with a non-empty free-text answer
+     * - `average`       the /5 score over every scaled answer, the exact
+     *                   expression of the course list and header (courseScores)
+     * - `distribution`  submissions by their own /5 score rounded to a whole
+     *                   star, 5 down to 1; unscored (text-only) submissions are
+     *                   not placed in any bucket
+     * - `templates`     every template with answers here, plus the templates
+     *                   scoped to this course that have none yet
      */
     public function courseSummary(Course $course): array
     {
-        $ratings = DB::table('course_ratings')->where('course_id', $course->id);
+        $base = fn () => DB::table('user_course_evaluations as uce')->where('uce.course_id', $course->id);
 
-        $histogram = (clone $ratings)
-            ->select('rating', DB::raw('COUNT(*) as c'))
-            ->groupBy('rating')
-            ->pluck('c', 'rating');
+        $submissions = $base()
+            ->groupBy('uce.user_id', 'uce.evaluation_category_id')
+            ->get([
+                'uce.user_id',
+                'uce.evaluation_category_id',
+                DB::raw($this->scoreSql('uce').' as score'),
+                DB::raw("MAX(CASE WHEN uce.evaluation_type = 0 AND TRIM(COALESCE(uce.answer, '')) <> '' THEN 1 ELSE 0 END) as has_comment"),
+            ]);
 
-        // 5 down to 1, so the UI never has to fill gaps itself.
-        $stars = [];
-        for ($star = 5; $star >= 1; $star--) {
-            $stars[] = ['value' => $star, 'count' => (int) ($histogram[$star] ?? 0)];
+        $max     = $this->scoreMax();
+        $buckets = array_fill(1, $max, 0);
+        foreach ($submissions as $row) {
+            if ($row->score !== null) {
+                $buckets[max(1, min($max, (int) round((float) $row->score)))]++;
+            }
         }
 
-        $reviewCount = (clone $ratings)->count();
+        $distribution = [];
+        for ($star = $max; $star >= 1; $star--) {
+            $distribution[] = ['value' => $star, 'count' => $buckets[$star]];
+        }
+
+        $average = $base()->value(DB::raw($this->scoreSql('uce')));
 
         return [
-            'course_id'     => $course->id,
-            'reviews'       => $reviewCount,
-            'with_comments' => (clone $ratings)->whereNotNull('comment')->where('comment', '!=', '')->count(),
-            'average'       => $reviewCount > 0
-                ? round((float) (clone $ratings)->avg('rating'), 1)
-                : null,
-            'scale_max'     => 5,
-            'distribution'  => $stars,
-            'learners_scored' => DB::table('user_course_evaluations')
-                ->where('course_id', $course->id)
-                ->distinct()
-                ->count('user_id'),
-            'learners_enrolled' => DB::table('users_courses')
-                ->where('course_id', $course->id)
-                ->distinct()
-                ->count('user_id'),
-            'questions_answered' => DB::table('user_course_evaluations')
-                ->where('course_id', $course->id)
-                ->distinct()
-                ->count('evaluation_id'),
+            'course_id'         => $course->id,
+            'reviews'           => $submissions->count(),
+            'with_comments'     => $submissions->where('has_comment', 1)->count(),
+            'average'           => $average !== null ? (float) $average : null,
+            'scale_max'         => $max,
+            'distribution'      => $distribution,
+            'learners_scored'   => $submissions->pluck('user_id')->unique()->count(),
+            'learners_enrolled' => DB::table('users_courses')->where('course_id', $course->id)->distinct()->count('user_id'),
+            'templates'         => $this->courseTemplates($course, $submissions->countBy('evaluation_category_id')->all()),
         ];
+    }
+
+    /**
+     * Templates to offer on a course's Evaluations tab, most answered first.
+     *
+     * @param  array<int|string, int>  $answered  submissions per template id on this course
+     * @return list<array{id:int, name:?string, questions:int, submissions:int, all_courses:bool, cohort:?array{id:int, name:?string}}>
+     */
+    private function courseTemplates(Course $course, array $answered): array
+    {
+        $ids = array_values(array_filter(array_map('intval', array_keys($answered))));
+
+        return EvaluationCategory::query()
+            ->withCount('evaluations')
+            ->with('section:id,name')
+            ->where(fn ($q) => $q->whereIn('id', $ids)->orWhere('course_id', $course->id))
+            ->get()
+            ->map(fn (EvaluationCategory $t) => [
+                'id'          => $t->id,
+                'name'        => $t->name,
+                'questions'   => (int) $t->evaluations_count,
+                'submissions' => (int) ($answered[$t->id] ?? 0),
+                // null course_id = the template runs on every evaluable course.
+                'all_courses' => $t->course_id === null,
+                'cohort'      => $t->section ? ['id' => $t->section->id, 'name' => $t->section->name] : null,
+            ])
+            ->sortBy([['submissions', 'desc'], ['id', 'desc']])
+            ->values()
+            ->all();
     }
 
     /**
@@ -231,8 +271,12 @@ class AdminEvaluationReportService
     /**
      * Per-question distribution for one template (Figma 2169:108198), plus the
      * header tiles: template score, learners scored of eligible, questions.
+     *
+     * With `$courseId` every figure counts only that course's answers and
+     * learners - the Course Details Evaluations tab (Figma 2266:130142). The
+     * template's `locked` flag stays template-wide: it is about editing.
      */
-    public function templateResults(EvaluationCategory $template): array
+    public function templateResults(EvaluationCategory $template, ?int $courseId = null): array
     {
         $questions = DB::table('evaluations')
             ->where('evaluation_category_id', $template->id)
@@ -243,6 +287,7 @@ class AdminEvaluationReportService
         // query per question.
         $answers = DB::table('user_course_evaluations')
             ->whereIn('evaluation_id', $questions->pluck('id'))
+            ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->select('evaluation_id', 'answer', DB::raw('COUNT(*) as c'))
             ->groupBy('evaluation_id', 'answer')
             ->get()
@@ -276,6 +321,7 @@ class AdminEvaluationReportService
 
         $summary = DB::table('user_course_evaluations as uce')
             ->where('uce.evaluation_category_id', $template->id)
+            ->when($courseId, fn ($q) => $q->where('uce.course_id', $courseId))
             ->first([
                 DB::raw('COUNT(DISTINCT uce.user_id) as learners_scored'),
                 DB::raw("COUNT(DISTINCT CONCAT(uce.user_id, '-', uce.course_id)) as submissions"),
@@ -287,10 +333,12 @@ class AdminEvaluationReportService
 
         $eligible = DB::table('evaluation_categories as t')->where('t.id', $template->id)
             ->select('t.id')
-            ->tap(fn (Builder $q) => $this->selectEligible($q, []))
+            ->tap(fn (Builder $q) => $this->selectEligible($q, $courseId ? ['course_ids' => [$courseId]] : []))
             ->first();
 
         $template->loadMissing(['course:id,title', 'section:id,name']);
+
+        $locked = $courseId === null ? (int) $summary->submissions > 0 : $template->hasResponses();
 
         return [
             'template' => [
@@ -302,7 +350,7 @@ class AdminEvaluationReportService
                 'course'     => $template->course ? ['id' => $template->course->id, 'name' => $template->course->title] : null,
                 'cohort'     => $template->section ? ['id' => $template->section->id, 'name' => $template->section->name] : null,
                 // Read-only once answered (2026-09-26).
-                'locked'     => (int) $summary->submissions > 0,
+                'locked'     => $locked,
             ],
             'summary' => [
                 'score'             => $score,

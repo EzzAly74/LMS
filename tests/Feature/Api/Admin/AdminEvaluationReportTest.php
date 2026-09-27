@@ -76,29 +76,56 @@ class AdminEvaluationReportTest extends ApiTestCase
         ]);
     }
 
-    private function rate(User $user, int $stars, ?string $comment = null): void
+    /** A second course, for scoping tests. */
+    private function otherCourse(): Course
     {
-        DB::table('course_ratings')->insert([
-            'user_id'    => $user->id,
-            'course_id'  => $this->course->id,
-            'rating'     => $stars,
-            'comment'    => $comment,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        return Course::factory()->create();
+    }
+
+    /** One answer on a given course (answer() always writes to $this->course). */
+    private function answerOn(Course $course, User $user, Evaluation $question, string $answer, int $scale): void
+    {
+        $previous     = $this->course;
+        $this->course = $course;
+        $this->answer($user, $question, $answer, $scale);
+        $this->course = $previous;
     }
 
     // ------------------------------------------------- course summary (2266:128869)
 
-    public function test_the_course_summary_returns_a_full_star_histogram(): void
+    /**
+     * Built on evaluation responses, not course_ratings (Q-050): one review per
+     * (learner, template), the /5 score of each review rounded into a star
+     * bucket, comments = reviews with a written answer.
+     */
+    public function test_the_course_summary_is_built_from_evaluation_submissions(): void
     {
-        $a = User::factory()->create();
-        $b = User::factory()->create();
-        $c = User::factory()->create();
+        $stars = $this->question('five', 'Overall');
+        $scale = $this->question('ten', 'Pace');
+        $text  = $this->question('text', 'Anything else?');
 
-        $this->rate($a, 5, 'great');
-        $this->rate($b, 5);
-        $this->rate($c, 3);
+        [$a, $b, $c] = [User::factory()->create(), User::factory()->create(), User::factory()->create()];
+
+        // a: 5/5 and 10/10 -> 5.0, with a comment
+        $this->answer($a, $stars, '5', 5);
+        $this->answer($a, $scale, '10', 10);
+        $this->answer($a, $text, 'Great course', 0);
+        // b: 5/5 and 8/10 -> (1 + 0.8) / 2 * 5 = 4.5 -> rounds to 5 stars; blank text is not a comment
+        $this->answer($b, $stars, '5', 5);
+        $this->answer($b, $scale, '8', 10);
+        $this->answer($b, $text, '   ', 0);
+        // c: 3/5 and 6/10 -> 3.0
+        $this->answer($c, $stars, '3', 5);
+        $this->answer($c, $scale, '6', 10);
+
+        // Legacy ratings must not leak in.
+        DB::table('course_ratings')->insert([
+            'user_id' => $c->id, 'course_id' => $this->course->id, 'rating' => 1,
+            'comment' => 'legacy', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        // Another course's answers must not either.
+        $this->answerOn($this->otherCourse(), $c, $stars, '1', 5);
 
         ['headers' => $headers] = $this->adminToken();
 
@@ -107,26 +134,84 @@ class AdminEvaluationReportTest extends ApiTestCase
 
         $this->assertSame(3, $result['reviews']);
         $this->assertSame(1, $result['with_comments']);
-        $this->assertEqualsWithDelta(4.3, $result['average'], 0.05);
+        $this->assertSame(3, $result['learners_scored']);
+        // Mean of every scaled answer normalised: (1+1+1+0.8+0.6+0.6)/6*5 = 4.2
+        $this->assertEqualsWithDelta(4.2, $result['average'], 0.001);
+        $this->assertSame(5, $result['scale_max']);
 
         // 5 down to 1, gaps filled, so the UI never reconstructs buckets.
-        $this->assertCount(5, $result['distribution']);
         $this->assertSame([5, 4, 3, 2, 1], array_column($result['distribution'], 'value'));
         $this->assertSame([2, 0, 1, 0, 0], array_column($result['distribution'], 'count'));
+
+        $this->assertCount(1, $result['templates']);
+        $this->assertSame($this->template->id, $result['templates'][0]['id']);
+        $this->assertSame(3, $result['templates'][0]['submissions']);
+        $this->assertSame(3, $result['templates'][0]['questions']);
+        $this->assertTrue($result['templates'][0]['all_courses']);
     }
 
-    public function test_a_course_with_no_ratings_reports_null_average_not_zero(): void
+    /** The summary average is the header's score, so the two can never disagree. */
+    public function test_the_summary_average_equals_the_course_header_score(): void
     {
+        $stars = $this->question('five', 'Overall');
+        $this->answer(User::factory()->create(), $stars, '4', 5);
+        $this->answer(User::factory()->create(), $stars, '3', 5);
+
+        ['headers' => $headers] = $this->adminToken();
+
+        $summary = $this->getJson(self::BASE."/admin/courses/{$this->course->id}/evaluation-summary", $headers)
+            ->assertOk()->json('result.average');
+        $header = $this->getJson(self::BASE."/courses/{$this->course->id}", $headers)
+            ->assertOk()->json('result.evaluation_score');
+
+        $this->assertEquals($header, $summary);
+    }
+
+    public function test_a_course_with_no_evaluations_reports_null_average_not_zero(): void
+    {
+        // A template scoped to this course is offered even before anyone answers.
+        $scoped = EvaluationCategory::query()->create(['name' => 'Scoped', 'course_id' => $this->course->id]);
+
         ['headers' => $headers] = $this->adminToken();
 
         $result = $this->getJson(self::BASE."/admin/courses/{$this->course->id}/evaluation-summary", $headers)
             ->assertOk()->json('result');
 
         $this->assertSame(0, $result['reviews']);
-        // Null, not 0 — a course nobody rated has no average, and 0 would read
-        // as "rated one star by everyone".
+        // Null, not 0 - a course nobody evaluated has no average, and 0 would
+        // read as "scored zero by everyone".
         $this->assertNull($result['average']);
-        $this->assertCount(5, $result['distribution']);
+        $this->assertSame([0, 0, 0, 0, 0], array_column($result['distribution'], 'count'));
+        $this->assertSame([$scoped->id], array_column($result['templates'], 'id'));
+        $this->assertFalse($result['templates'][0]['all_courses']);
+    }
+
+    // ------------------------------- template results scoped to a course (2266:130142)
+
+    public function test_template_results_can_be_scoped_to_one_course(): void
+    {
+        $stars = $this->question('five', 'Overall');
+        $other = $this->otherCourse();
+
+        $this->answer(User::factory()->create(), $stars, '5', 5);
+        $this->answerOn($other, User::factory()->create(), $stars, '1', 5);
+        $this->answerOn($other, User::factory()->create(), $stars, '1', 5);
+
+        ['headers' => $headers] = $this->adminToken();
+        $url = self::BASE."/admin/evaluations/{$this->template->id}/results";
+
+        $all = $this->getJson($url, $headers)->assertOk()->json('result');
+        $this->assertSame(3, $all['questions'][0]['responses']);
+
+        $scoped = $this->getJson($url.'?course_id='.$this->course->id, $headers)->assertOk()->json('result');
+        $this->assertSame(1, $scoped['questions'][0]['responses']);
+        $this->assertSame(1, $scoped['summary']['learners_scored']);
+        $this->assertEqualsWithDelta(5.0, $scoped['summary']['score'], 0.001);
+        $this->assertSame([1, 0, 0, 0, 0], array_column($scoped['questions'][0]['distribution'], 'count'));
+        // Editing lock is about the template, not the course view.
+        $this->assertTrue($scoped['template']['locked']);
+
+        $this->getJson($url.'?course_id=999999', $headers)->assertStatus(422);
     }
 
     // ---------------------------------------------- template results (2169:108198)

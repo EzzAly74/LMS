@@ -238,6 +238,25 @@ class CourseDetailTabsTest extends ApiTestCase
         $this->assertSame([$inA->id], array_column(array_column($filtered, 'user'), 'id'));
     }
 
+    public function test_rows_say_whether_the_score_passes_the_items_own_pass_score(): void
+    {
+        $quiz = $this->quiz();
+        $quiz->update(['pass_score' => 50]);
+        $pass = $this->learner($this->cohortA, 0);
+        $fail = $this->learner($this->cohortA, 0);
+        $wait = $this->learner($this->cohortA, 0);
+        UserExam::factory()->create(['user_id' => $pass->id, 'course_id' => $this->course->id, 'exam_id' => $quiz->id, 'total_score' => 60, 'max_score' => 100]);
+        UserExam::factory()->create(['user_id' => $fail->id, 'course_id' => $this->course->id, 'exam_id' => $quiz->id, 'total_score' => 40, 'max_score' => 100]);
+        UserExam::factory()->create(['user_id' => $wait->id, 'course_id' => $this->course->id, 'exam_id' => $quiz->id, 'total_score' => null, 'max_score' => 100]);
+
+        $rows = collect($this->getJson(self::BASE.'/admin/quizzes/submissions?course_id='.$this->course->id, $this->adminToken()['headers'])
+            ->assertOk()->json('result'))->keyBy('user.id');
+
+        $this->assertTrue($rows[$pass->id]['passed']);
+        $this->assertFalse($rows[$fail->id]['passed']);
+        $this->assertNull($rows[$wait->id]['passed']);
+    }
+
     public function test_submission_lists_bound_the_page_size(): void
     {
         $this->assertSame(200, $this->getJson(self::BASE.'/admin/quizzes/submissions?per_page=100000', $this->adminToken()['headers'])

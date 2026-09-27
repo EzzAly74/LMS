@@ -46,6 +46,11 @@ class AdminQuizSubmissionResource extends JsonResource
             'total_score'     => $awarded !== null ? (int) $awarded : null,
             'max_score'       => (int) $max,
             'score_percent'   => $percent,
+            // Against the quiz's own pass score (Q-031), as the learner side
+            // decides it; null while ungraded or when the quiz sets none.
+            'passed'          => $quiz && $awarded !== null && $this->exam->pass_score !== null
+                ? $awarded >= $this->exam->pass_score
+                : null,
             'attempts'        => (int) ($this->attempts_count ?? 1),
             'status'          => $awarded !== null ? 'graded' : 'pending',
             'submitted_at'    => $this->submitted_at?->format('Y-m-d H:i:s'),

@@ -51,6 +51,11 @@ class AdminAssignmentSubmissionResource extends JsonResource
             'total_score'      => $awarded !== null ? (int) $awarded : null,
             'max_score'        => (int) $max,
             'score_percent'    => $percent,
+            // Against the assignment's own pass score (Q-031), as the learner
+            // side decides it; null while ungraded or when it sets none.
+            'passed'           => $assignment && $awarded !== null && $this->assignment->pass_score !== null
+                ? $awarded >= $this->assignment->pass_score
+                : null,
             'feedback'         => $this->feedback,
             'status'           => $awarded !== null ? 'graded' : 'pending',
             'submitted_at'     => $this->submitted_at?->format('Y-m-d H:i:s'),

@@ -33,12 +33,14 @@ class CourseDetailResource extends JsonResource
 
         // Read the pass percent through the policy rather than the settings
         // row directly, so this display can never drift from the threshold
-        // actually enforced at issuance. Null when the configured basis
-        // doesn't grade on score at all.
-        $policy = app(CertificatePolicy::class);
-        $passPercent = $policy->requires(CertificatePolicy::METRIC_SCORE)
-            ? $policy->minScore()
+        // actually enforced at issuance. Null when the rule this course
+        // follows (general or its own, D-058) doesn't grade on score at all.
+        $rule = app(CertificatePolicy::class)->forCourse($this->resource);
+        $passPercent = $rule->requires(CertificatePolicy::METRIC_SCORE)
+            ? $rule->minScore
             : null;
+        $customRule = (bool) $this->certificate_custom_rule
+            && in_array($this->certificate_mode, CertificatePolicy::BASES, true);
 
         return [
             'id'                 => $this->id,
@@ -105,6 +107,15 @@ class CourseDetailResource extends JsonResource
             'currency'           => $this->currency,
             'certificate'              => (bool) $this->certificate,
             'certificate_pass_percent' => $this->certificate ? $passPercent : null,
+            // The Add / Edit Course modal's rule: 'general' or the course's own
+            // basis, with its own thresholds (null under the general rule).
+            'certificate_rule'           => $customRule ? $this->certificate_mode : 'general',
+            'certificate_min_attendance' => $customRule && $rule->requires(CertificatePolicy::METRIC_ATTENDANCE)
+                ? $rule->minAttendance
+                : null,
+            'certificate_min_score'      => $customRule && $rule->requires(CertificatePolicy::METRIC_SCORE)
+                ? $rule->minScore
+                : null,
             'title_for_certificate'    => $this->getTranslation('title_for_certificate', app()->getLocale()),
             'active'             => $effectiveActive,
             'stored_active'      => (bool) $this->active,

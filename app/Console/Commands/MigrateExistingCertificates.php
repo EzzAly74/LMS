@@ -156,17 +156,17 @@ class MigrateExistingCertificates extends Command
      */
     private function collectAttendanceCandidates(?int $userId): \Illuminate\Support\Collection
     {
-        if (!app(CertificatePolicy::class)->requires(CertificatePolicy::METRIC_ATTENDANCE)) {
-            $this->warn('· Skipping attendance sweep — Platform Config awards certificates on score only.');
-            return collect();
-        }
-
+        // Each course follows the general rule or its own (D-058), so the
+        // attendance sweep is decided per course.
+        $policy  = app(CertificatePolicy::class);
         $courses = Course::query()
             ->where('certificate', true)
             ->get()
+            ->filter(fn (Course $c) => $policy->forCourse($c)->requires(CertificatePolicy::METRIC_ATTENDANCE))
             ->keyBy('id');
 
         if ($courses->isEmpty()) {
+            $this->warn('· Skipping attendance sweep — no certificate course grades on attendance.');
             return collect();
         }
 

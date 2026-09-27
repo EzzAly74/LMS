@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Course;
 use App\Models\Setting;
 
 /**
@@ -18,8 +19,15 @@ use App\Models\Setting;
  * and nothing on the backend ever read them back. Eligibility was instead
  * decided from per-course columns (`courses.certificate_mode`,
  * `certificate_attendance_threshold`, `certificate_score_threshold`) that no
- * API can even set — so the configured rule and the enforced rule were two
+ * API could even set — so the configured rule and the enforced rule were two
  * different things. Everything now reads the rule from here.
+ *
+ * A course may opt out of the general rule (D6, Figma 2401:126596: "Use the
+ * general certificate rule for this course?" = No). Only then do those three
+ * course columns apply, and only when `certificate_custom_rule` is true -
+ * every course that predates the flag keeps the general rule. Callers that
+ * judge a learner in a course ask {@see forCourse()}; the basis / min* methods
+ * below answer for the general rule.
  *
  * Division of labour, so the rule is never expressed twice:
  *   - This class owns the RULE (which metrics matter, and at what threshold).
@@ -65,11 +73,41 @@ class CertificatePolicy
      |  Configured rule                                                 |
      * ================================================================ */
 
+    public const BASES = [self::BASIS_ATTENDANCE, self::BASIS_SCORE, self::BASIS_BOTH];
+
+    /** A course's `certificate_rule` when it follows Platform Config (D-058). */
+    public const RULE_GENERAL = 'general';
+
+    /** The Platform Config rule. */
+    public function general(): CertificateRule
+    {
+        return new CertificateRule($this->basis(), $this->minAttendance(), $this->minScore());
+    }
+
+    /**
+     * The rule a course follows: its own when it opted out of the general
+     * rule, else the general one. A custom rule with a missing threshold for
+     * a metric it requires falls back to the general threshold rather than
+     * to a guess.
+     */
+    public function forCourse(Course $course): CertificateRule
+    {
+        if (!$course->certificate_custom_rule || !in_array($course->certificate_mode, self::BASES, true)) {
+            return $this->general();
+        }
+
+        return new CertificateRule(
+            $course->certificate_mode,
+            $this->clamp($course->certificate_attendance_threshold, $this->minAttendance()),
+            $this->clamp($course->certificate_score_threshold, $this->minScore()),
+        );
+    }
+
     public function basis(): string
     {
         $basis = (string) ($this->config()[self::KEY_BASIS] ?? '');
 
-        return in_array($basis, [self::BASIS_ATTENDANCE, self::BASIS_SCORE, self::BASIS_BOTH], true)
+        return in_array($basis, self::BASES, true)
             ? $basis
             : self::DEFAULT_BASIS;
     }
@@ -85,77 +123,45 @@ class CertificatePolicy
     }
 
     /**
-     * Metrics the configured basis requires.
+     * Metrics the general rule requires.
      *
      * @return array<int, string>
      */
     public function requiredMetrics(): array
     {
-        return match ($this->basis()) {
-            self::BASIS_ATTENDANCE => [self::METRIC_ATTENDANCE],
-            self::BASIS_SCORE      => [self::METRIC_SCORE],
-            default                => [self::METRIC_ATTENDANCE, self::METRIC_SCORE],
-        };
+        return $this->general()->requiredMetrics();
     }
 
     public function requires(string $metric): bool
     {
-        return in_array($metric, $this->requiredMetrics(), true);
+        return $this->general()->requires($metric);
     }
 
     public function threshold(string $metric): int
     {
-        return $metric === self::METRIC_ATTENDANCE ? $this->minAttendance() : $this->minScore();
+        return $this->general()->threshold($metric);
     }
 
     /* ================================================================ *
-     |  Judgement — pure, given already-measured percentages            |
+     |  Judgement under the general rule - see CertificateRule          |
      * ================================================================ */
 
     /**
-     * Verdict per required metric: true = met, false = missed,
-     * null = not measurable for this course (skipped).
-     *
-     * Only required metrics appear as keys, so callers can iterate the
-     * result without re-deriving the basis.
-     *
      * @return array<string, bool|null>
      */
     public function checks(?int $attendancePercent, ?int $scorePercent): array
     {
-        $measured = [
-            self::METRIC_ATTENDANCE => $attendancePercent,
-            self::METRIC_SCORE      => $scorePercent,
-        ];
-
-        $checks = [];
-        foreach ($this->requiredMetrics() as $metric) {
-            $percent = $measured[$metric];
-            $checks[$metric] = $percent === null ? null : $percent >= $this->threshold($metric);
-        }
-
-        return $checks;
+        return $this->general()->checks($attendancePercent, $scorePercent);
     }
 
-    /**
-     * True when no required metric is actively failing. Unmeasurable metrics
-     * are skipped — see the class docblock for why.
-     */
     public function isSatisfiedBy(?int $attendancePercent, ?int $scorePercent): bool
     {
-        return !in_array(false, $this->checks($attendancePercent, $scorePercent), true);
+        return $this->general()->isSatisfiedBy($attendancePercent, $scorePercent);
     }
 
-    /** True when at least one required metric could actually be measured. */
     public function hasEvidence(?int $attendancePercent, ?int $scorePercent): bool
     {
-        foreach ($this->checks($attendancePercent, $scorePercent) as $verdict) {
-            if ($verdict !== null) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->general()->hasEvidence($attendancePercent, $scorePercent);
     }
 
     /* ================================================================ *
@@ -207,5 +213,10 @@ class CertificatePolicy
         }
 
         return max(0, min(100, (int) $raw));
+    }
+
+    private function clamp(?int $value, int $fallback): int
+    {
+        return $value === null ? $fallback : max(0, min(100, $value));
     }
 }

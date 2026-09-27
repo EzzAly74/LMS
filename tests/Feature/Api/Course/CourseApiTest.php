@@ -17,6 +17,15 @@ class CourseApiTest extends ApiTestCase
         Storage::fake('public');
     }
 
+    /** There is no Instructor factory; create one the way the other suites do. */
+    private function instructor(): Instructor
+    {
+        return Instructor::query()->create([
+            'name'  => ['en' => 'Teacher', 'ar' => 'معلم'],
+            'email' => 'teacher'.uniqid().'@example.test',
+        ]);
+    }
+
     // =========================================================================
     // GET /api/v1/courses  (auth.user — any authenticated)
     // =========================================================================
@@ -94,17 +103,20 @@ class CourseApiTest extends ApiTestCase
     public function test_store_creates_course(): void
     {
         $category   = Category::factory()->create();
-        $instructor = Instructor::factory()->create();
+        $instructor = $this->instructor();
         ['headers' => $headers] = $this->adminToken();
 
+        // The D6 modal's contract (both titles, type, level, image, rule).
         $response = $this->withHeaders($headers)->postJson(self::BASE . '/courses', [
-            'title'       => 'New Course',
-            'description' => 'Description text',
-            'category_id' => $category->id,
-            'hours'       => 10,
-            'certificate' => true,
-            'image'       => UploadedFile::fake()->image('course.jpg'),
-            'instructors' => [$instructor->id],
+            'title'            => ['en' => 'New Course', 'ar' => 'دورة جديدة'],
+            'description'      => 'Description text',
+            'category_id'      => $category->id,
+            'course_type'      => 'online',
+            'level'            => 'beginner',
+            'hours'            => 10,
+            'certificate_rule' => 'general',
+            'image'            => UploadedFile::fake()->image('course.jpg'),
+            'instructors'      => [$instructor->id],
         ]);
 
         $this->assertCreated($response);
@@ -138,11 +150,11 @@ class CourseApiTest extends ApiTestCase
     public function test_update_modifies_course(): void
     {
         $course     = Course::factory()->create();
-        $instructor = Instructor::factory()->create();
+        $instructor = $this->instructor();
         ['headers' => $headers] = $this->adminToken();
 
         $response = $this->withHeaders($headers)->putJson(self::BASE . '/courses/' . $course->id, [
-            'title'       => 'Updated Title',
+            'title'       => ['en' => 'Updated Title', 'ar' => 'عنوان محدث'],
             'description' => 'Updated description',
             'category_id' => $course->category_id,
             'hours'       => 20,

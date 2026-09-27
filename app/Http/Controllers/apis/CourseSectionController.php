@@ -92,7 +92,7 @@ class CourseSectionController extends ApiController
      */
     public function store(Course $course, Request $request): JsonResponse
     {
-        $section = $this->service->create($course, $this->cohortRules($request));
+        $section = $this->service->create($course, $this->cohortRules($request, $course));
         return $this->created(__('messages.created'), new CourseSectionResource($section));
     }
 
@@ -208,7 +208,7 @@ class CourseSectionController extends ApiController
      * adds start/end dates, capacity and a status enum. Every new field
      * is `nullable` so older callers don't 422.
      */
-    private function cohortRules(Request $request): array
+    private function cohortRules(Request $request, ?Course $creatingFor = null): array
     {
         return $request->validate([
             'name'        => 'required|array',
@@ -226,7 +226,11 @@ class CourseSectionController extends ApiController
             // Planned session count for this cohort. Defaults from the
             // parent course on create; editable per cohort. Drives
             // session-based completion (see Course::deriveCohortStatus).
-            'number_of_sessions' => 'nullable|integer|min:1|max:1000',
+            // Courses made from the D6 modal carry no plan of their own, so
+            // their cohorts must state one - without it attendance can never
+            // be measured.
+            'number_of_sessions' => ($creatingFor && ! $creatingFor->number_of_sessions ? 'required' : 'nullable')
+                .'|integer|min:1|max:1000',
             // Average session length in hours (e.g. 1.5). Drives the live
             // attendance-window length for this cohort's sessions.
             'avg_session_time' => 'nullable|numeric|min:0.25|max:24',

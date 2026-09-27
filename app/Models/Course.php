@@ -35,6 +35,7 @@ class Course extends Model
         // { "en": string[], "ar": string[] }.
         'what_students_will_learn' => 'array',
         'requirements'             => 'array',
+        'certificate_custom_rule'          => 'boolean',
         'certificate_attendance_threshold' => 'integer',
         'certificate_score_threshold'      => 'integer',
     ];

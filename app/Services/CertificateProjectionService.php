@@ -175,8 +175,10 @@ class CertificateProjectionService
         $attendance = $this->attendancePercent($user, $course);
         $score      = $this->scorePercent($user, $course);
 
-        return $this->policy->hasEvidence($attendance, $score)
-            && $this->policy->isSatisfiedBy($attendance, $score);
+        $rule = $this->policy->forCourse($course);
+
+        return $rule->hasEvidence($attendance, $score)
+            && $rule->isSatisfiedBy($attendance, $score);
     }
 
     /**
@@ -196,7 +198,7 @@ class CertificateProjectionService
             return false;
         }
 
-        return $this->policy->isSatisfiedBy(
+        return $this->policy->forCourse($course)->isSatisfiedBy(
             $this->attendancePercent($user, $course),
             $this->scorePercent($user, $course),
         );
@@ -209,13 +211,13 @@ class CertificateProjectionService
     private function decide(Course $course, bool $hasCertificate, ?int $attendancePercent, ?int $scorePercent, bool $courseEnded): array
     {
         if ($hasCertificate) {
-            return array_merge($this->baseShape(), ['status' => self::STATUS_EARNED]);
+            return array_merge($this->baseShape($course), ['status' => self::STATUS_EARNED]);
         }
 
         // Unmeasurable metrics come back as null and are skipped, so they
         // never push a learner into at_risk for something their course
         // simply cannot report.
-        $checks = $this->policy->checks($attendancePercent, $scorePercent);
+        $checks = $this->policy->forCourse($course)->checks($attendancePercent, $scorePercent);
 
         $failing = array_keys(array_filter($checks, fn ($meets) => $meets === false));
 
@@ -236,7 +238,7 @@ class CertificateProjectionService
             };
         }
 
-        return array_merge($this->ruleShape(), [
+        return array_merge($this->ruleShape($course), [
             'status' => $status,
             'blocked_reason' => $status === self::STATUS_BLOCKED ? $blockedReason : null,
             'message' => $message,
@@ -249,20 +251,22 @@ class CertificateProjectionService
      * The configured rule, in the wire shape the learner apps already expect.
      *
      * `certificate_mode` keeps its name for contract stability (Angular and
-     * mobile both read it) but now carries the Platform Config basis rather
-     * than the retired per-course column.
+     * mobile both read it) and carries the basis of the rule this course
+     * follows: Platform Config's, or the course's own (D-058).
      *
      * @return array<string, mixed>
      */
-    private function ruleShape(): array
+    private function ruleShape(Course $course): array
     {
+        $rule = $this->policy->forCourse($course);
+
         return [
-            'certificate_mode'      => $this->policy->basis(),
-            'attendance_threshold'  => $this->policy->requires(CertificatePolicy::METRIC_ATTENDANCE)
-                ? $this->policy->minAttendance()
+            'certificate_mode'      => $rule->basis,
+            'attendance_threshold'  => $rule->requires(CertificatePolicy::METRIC_ATTENDANCE)
+                ? $rule->minAttendance
                 : null,
-            'score_threshold'       => $this->policy->requires(CertificatePolicy::METRIC_SCORE)
-                ? $this->policy->minScore()
+            'score_threshold'       => $rule->requires(CertificatePolicy::METRIC_SCORE)
+                ? $rule->minScore
                 : null,
         ];
     }
@@ -281,9 +285,9 @@ class CertificateProjectionService
         ];
     }
 
-    private function baseShape(): array
+    private function baseShape(Course $course): array
     {
-        return array_merge($this->ruleShape(), [
+        return array_merge($this->ruleShape($course), [
             'blocked_reason' => null,
             'message' => null,
             'attendance_percent' => null,

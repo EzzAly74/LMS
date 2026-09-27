@@ -9,6 +9,10 @@ class CourseRequest extends FormRequest
 {
     use AcceptsEnumIds;
 
+    public const IMAGE_MAX_KB = 3072;
+    public const TEXT_MAX     = 10000;
+    public const POINTS_MAX   = 50;
+
     public function authorize(): bool
     {
         return true;
@@ -78,21 +82,31 @@ class CourseRequest extends FormRequest
         }
     }
 
+    /**
+     * The Add / Edit Course modal (D6, Figma 2401:126596 / 2401:126340).
+     *
+     * Both titles are required; description and the bullet lists are optional.
+     * The planned session count and the first cohort's dates left the modal -
+     * cohorts are created on Course Details - so they are optional here and
+     * still accepted from older callers. The image is required on create:
+     * PNG / JPG / WEBP / GIF by content (never SVG, D-044), up to 3 MB.
+     * `certificate_rule` is 'general' (Platform Config) or the course's own
+     * basis, whose thresholds are then required (D-058).
+     */
     public function rules(): array
     {
-        $imageRule = $this->isMethod('post')
-            ? 'nullable|image|mimes:png,jpg,jpeg,webp,gif|max:2048'
-            : 'nullable|image|mimes:png,jpg,jpeg,webp,gif|max:2048';
+        $creating = $this->isMethod('post');
+        $imageRule = ($creating ? 'required' : 'nullable').'|image|mimes:png,jpg,jpeg,webp,gif|max:'.self::IMAGE_MAX_KB;
 
         return [
-            'course_type'             => 'sometimes|in:online,offline,hybrid,external_link',
+            'course_type'             => ($creating ? 'required' : 'sometimes').'|in:online,offline,hybrid,external_link',
             'title'                   => 'required|array',
             'title.en'                => 'required|string|max:255',
-            'title.ar'                => 'nullable|string|max:255',
+            'title.ar'                => 'required|string|max:255',
             'title_for_certificate'   => 'nullable|string|max:255',
-            'description'             => 'required|array',
-            'description.en'          => 'required|string',
-            'description.ar'          => 'nullable|string',
+            'description'             => 'nullable|array',
+            'description.en'          => 'nullable|string|max:'.self::TEXT_MAX,
+            'description.ar'          => 'nullable|string|max:'.self::TEXT_MAX,
             // Category is optional (Figma: the field carries no required
             // marker). A blank/absent value is fine; when present it must
             // reference a real category.
@@ -100,47 +114,40 @@ class CourseRequest extends FormRequest
             // Bilingual bullet lists (Overview tab). Each locale is an
             // optional array of short strings.
             'what_students_will_learn'      => 'nullable|array',
-            'what_students_will_learn.en'   => 'nullable|array',
+            'what_students_will_learn.en'   => 'nullable|array|max:'.self::POINTS_MAX,
             'what_students_will_learn.en.*' => 'string|max:500',
-            'what_students_will_learn.ar'   => 'nullable|array',
+            'what_students_will_learn.ar'   => 'nullable|array|max:'.self::POINTS_MAX,
             'what_students_will_learn.ar.*' => 'string|max:500',
             'requirements'                  => 'nullable|array',
-            'requirements.en'               => 'nullable|array',
+            'requirements.en'               => 'nullable|array|max:'.self::POINTS_MAX,
             'requirements.en.*'             => 'string|max:500',
-            'requirements.ar'               => 'nullable|array',
+            'requirements.ar'               => 'nullable|array|max:'.self::POINTS_MAX,
             'requirements.ar.*'             => 'string|max:500',
             'intro_video'             => 'nullable|string',
             'price'                   => 'nullable|numeric|min:0',
             'currency'                => 'nullable|string|max:10',
             'hours'                   => 'required|integer|min:1',
             'max_learners'            => 'nullable|integer|min:1|max:10000',
-            // Planned session count (Figma 321:7349). Mandatory when the
-            // course is first created, then read-only — the Edit Course
-            // dialog never sends it, so it's optional on update.
-            'number_of_sessions'      => $this->isMethod('post')
-                ? 'required|integer|min:1|max:1000'
-                : 'nullable|integer|min:1|max:1000',
+            'number_of_sessions'      => 'nullable|integer|min:1|max:1000',
             'language'                => 'nullable|string|max:50',
-            'level'                   => 'nullable|in:beginner,intermediate,professional',
-            'certificate'             => 'required|boolean',
+            // Kept beside the drawn fields (human, 2026-09-27): the Website
+            // card badge and the Website / mobile level filters read it.
+            'level'                   => ($creating ? 'required' : 'nullable').'|in:beginner,intermediate,professional',
+            'certificate'             => 'sometimes|boolean',
+            'certificate_rule'        => ($creating ? 'required' : 'sometimes').'|in:general,attendance,score,both',
+            'certificate_min_attendance' => 'nullable|required_if:certificate_rule,attendance,both|integer|between:1,100',
+            'certificate_min_score'      => 'nullable|required_if:certificate_rule,score,both|integer|between:1,100',
             'image'                   => $imageRule,
             'active'                  => 'nullable|boolean',
             'outside_materials'       => 'nullable|boolean',
             'is_evaluate'             => 'nullable|boolean',
             'allow_attendances'       => 'nullable|boolean',
-            'instructors'             => 'required|array|min:1',
-            'instructors.*'           => 'required|exists:instructors,id',
+            'instructors'             => 'required|array|min:1|max:20',
+            'instructors.*'           => 'required|integer|distinct|exists:instructors,id',
             'qualification_skill_ids' => 'nullable|array',
             'qualification_skill_ids.*' => 'integer|distinct|exists:qualification_skills,id',
-            // Cohort window. Mandatory on course creation (Figma 321:7349
-            // marks both dates required); optional on update so editing an
-            // older course without a cohort window doesn't 422.
-            'cohort_start'            => $this->isMethod('post')
-                ? 'required|date_format:Y-m-d'
-                : 'nullable|date_format:Y-m-d',
-            'cohort_end'              => $this->isMethod('post')
-                ? 'required|date_format:Y-m-d|after_or_equal:cohort_start'
-                : 'nullable|date_format:Y-m-d|after_or_equal:cohort_start',
+            'cohort_start'            => 'nullable|date_format:Y-m-d',
+            'cohort_end'              => 'nullable|date_format:Y-m-d|after_or_equal:cohort_start',
         ];
     }
 }

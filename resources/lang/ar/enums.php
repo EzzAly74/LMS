@@ -81,6 +81,13 @@ return [
         'open'    => 'إجابة قصيرة',
         'reorder' => 'إعادة ترتيب',
     ],
+    'assignment_question_type' => [
+        'mcq'     => 'اختيار من متعدد',
+        'yes_no'  => 'نعم / لا',
+        'open'    => 'إجابة قصيرة',
+        'reorder' => 'إعادة ترتيب',
+        'file'    => 'ملف',
+    ],
 
     'dashboard_range' => [
         'week'    => 'أسبوع',

@@ -90,6 +90,13 @@ return [
         'open'    => 'Short Answer',
         'reorder' => 'Reorder',
     ],
+    'assignment_question_type' => [
+        'mcq'     => 'Multiple Choice',
+        'yes_no'  => 'Yes / No',
+        'open'    => 'Short Answer',
+        'reorder' => 'Reorder',
+        'file'    => 'File',
+    ],
 
     // ── Dashboard ──────────────────────────────────────────────────────
     'dashboard_range' => [

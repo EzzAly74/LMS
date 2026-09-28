@@ -21,7 +21,12 @@ class UserCourseAssignmentAnswer extends Model
         'answer'        => 'array',
         'awarded_score' => 'integer',
         'is_correct'    => 'boolean',
+        'file_size'     => 'integer',
+        'file_uploaded_at' => 'datetime',
     ];
+
+    /** Private-disk key; served only through an authorized route (D-031). */
+    protected $hidden = ['file_path'];
 
     public function submission(): BelongsTo
     {

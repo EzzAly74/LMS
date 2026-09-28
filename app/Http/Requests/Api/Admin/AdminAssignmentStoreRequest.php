@@ -29,6 +29,10 @@ class AdminAssignmentStoreRequest extends FormRequest
             'status'                    => ['nullable', Rule::in(['draft', 'active'])],
 
             'questions'                 => ['required', 'array', 'min:1'],
+            // Present when editing: the question is updated in place, so its
+            // learners' answers survive (B-128). Checked against this
+            // assignment in AdminAssignmentService::syncQuestions.
+            'questions.*.id'            => ['nullable', 'integer', 'distinct'],
             'questions.*.type'          => ['required', Rule::in(CourseAssignmentQuestion::TYPES)],
             'questions.*.score'         => ['required', 'integer', 'min:0'],
             'questions.*.question_en'   => ['required', 'string', 'max:2000'],
@@ -62,7 +66,7 @@ class AdminAssignmentStoreRequest extends FormRequest
                     $v->errors()->add("questions.$i.options_en", __('Provide at least two options.'));
                 }
 
-                if ($type !== 'open' && empty($q['correct_answer_en'])) {
+                if (! in_array($type, CourseAssignmentQuestion::MANUAL_TYPES, true) && empty($q['correct_answer_en'])) {
                     $v->errors()->add("questions.$i.correct_answer_en", __('Correct answer is required for this question type.'));
                 }
             }

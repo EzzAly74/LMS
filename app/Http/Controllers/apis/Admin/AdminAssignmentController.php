@@ -10,6 +10,11 @@ use App\Http\Resources\Admin\AdminAssignmentListResource;
 use App\Http\Resources\Admin\AdminAssignmentResource;
 use App\Http\Resources\Admin\AdminAssignmentSubmissionDetailResource;
 use App\Http\Resources\Admin\AdminAssignmentSubmissionResource;
+use App\Http\Resources\Admin\AssignmentAttachmentPayload;
+use App\Http\Requests\Api\Admin\AdminAssignmentAttachmentRequest;
+use App\Models\CourseAssignmentQuestion;
+use App\Services\Assignments\AssignmentFileService;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Http\Traits\SubmissionListParams;
 use App\Models\CourseAssignment;
 use App\Models\CourseSession;
@@ -176,7 +181,6 @@ class AdminAssignmentController extends ApiController
             ->where('id', $answerId)
             ->firstOrFail();
 
-        /** @var User|null $user */
         $user = $request->user();
 
         $graded = $this->service->gradeAnswer(
@@ -200,5 +204,64 @@ class AdminAssignmentController extends ApiController
                 'submission' => new AdminAssignmentSubmissionDetailResource($submission),
             ],
         );
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  FILE QUESTIONS (D-033, D-064)                                     |
+     * ------------------------------------------------------------------ */
+
+    /** GET admin/assignments/submissions/{submission}/answers/{answer}/file */
+    public function answerFile(int $submissionId, int $answerId, AssignmentFileService $files): StreamedResponse
+    {
+        $answer = UserCourseAssignmentAnswer::query()
+            ->where('user_course_assignment_id', $submissionId)
+            ->whereKey($answerId)
+            ->whereNotNull('file_path')
+            ->firstOrFail();
+
+        return $files->download($answer->file_path, (string) $answer->file_name);
+    }
+
+    /** GET admin/assignments/{assignment}/questions/{question}/attachment */
+    public function questionAttachment(int $assignmentId, int $questionId, AssignmentFileService $files): StreamedResponse
+    {
+        $question = $this->fileQuestion($assignmentId, $questionId);
+        abort_if($question->attachment_path === null, 404);
+
+        return $files->download($question->attachment_path, (string) $question->attachment_name);
+    }
+
+    /**
+     * POST admin/assignments/{assignment}/questions/{question}/attachment
+     *
+     * Uploaded after the assignment is saved (the question needs an id), one
+     * file per question; a new upload replaces the old one.
+     */
+    public function uploadQuestionAttachment(int $assignmentId, int $questionId, AdminAssignmentAttachmentRequest $request, AssignmentFileService $files): JsonResponse
+    {
+        $question = $files->storeQuestionAttachment($this->fileQuestion($assignmentId, $questionId), $request->file('file'));
+
+        return $this->success(__('messages.updated'), AssignmentAttachmentPayload::for($question));
+    }
+
+    /** DELETE admin/assignments/{assignment}/questions/{question}/attachment */
+    public function removeQuestionAttachment(int $assignmentId, int $questionId, AssignmentFileService $files): JsonResponse
+    {
+        $files->removeQuestionAttachment($this->fileQuestion($assignmentId, $questionId));
+
+        return $this->success(__('messages.deleted'), null);
+    }
+
+    /** A file question of this assignment, or 404 / 422. */
+    private function fileQuestion(int $assignmentId, int $questionId): CourseAssignmentQuestion
+    {
+        $question = CourseAssignmentQuestion::query()
+            ->where('course_assignment_id', $assignmentId)
+            ->whereKey($questionId)
+            ->firstOrFail();
+
+        abort_unless($question->isFile(), 422, __('messages.assignment_question_not_file'));
+
+        return $question;
     }
 }

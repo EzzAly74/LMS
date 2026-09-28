@@ -16,6 +16,20 @@ use Tests\Feature\Api\ApiTestCase;
  */
 class LearnerAssignmentSubmissionTest extends ApiTestCase
 {
+    /**
+     * A learner enrolled in the course. B-130: the learner assessment routes
+     * now require enrolment (`enrolled`); these fixtures used any learner.
+     */
+    private function enrolledToken(Course $course): array
+    {
+        $user = User::factory()->create();
+        \Illuminate\Support\Facades\DB::table('users_courses')->insert([
+            'user_id' => $user->id, 'course_id' => $course->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $this->userToken($user);
+    }
+
     private function buildAssignment(Course $course): array
     {
         // No CourseAssignmentFactory exists in this codebase — create directly.
@@ -53,7 +67,7 @@ class LearnerAssignmentSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         $assignment = CourseAssignment::create(['course_id' => $course->id, 'title' => 'Plain file assignment', 'file' => 'assignments/instructions.pdf']); // no questions
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $response = $this->withHeaders($headers)->getJson(self::BASE . "/courses/{$course->id}/assignments/{$assignment->id}/take");
 
@@ -64,7 +78,7 @@ class LearnerAssignmentSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['assignment' => $assignment] = $this->buildAssignment($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $response = $this->withHeaders($headers)->getJson(self::BASE . "/courses/{$course->id}/assignments/{$assignment->id}/take");
 
@@ -80,7 +94,7 @@ class LearnerAssignmentSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['assignment' => $assignment, 'mcq' => $mcq, 'open' => $open] = $this->buildAssignment($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $mcqResponse = $this->withHeaders($headers)->postJson(
             self::BASE . "/courses/{$course->id}/assignments/{$assignment->id}/questions/{$mcq->id}/answer",
@@ -107,7 +121,7 @@ class LearnerAssignmentSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['assignment' => $assignment, 'mcq' => $mcq, 'open' => $open] = $this->buildAssignment($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $this->withHeaders($headers)->postJson(self::BASE . "/courses/{$course->id}/assignments/{$assignment->id}/questions/{$mcq->id}/answer", ['value' => '2'])->assertOk();
         $this->withHeaders($headers)->postJson(self::BASE . "/courses/{$course->id}/assignments/{$assignment->id}/questions/{$open->id}/answer", ['value' => 'x'])->assertOk();
@@ -129,7 +143,7 @@ class LearnerAssignmentSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['assignment' => $assignment, 'mcq' => $mcq, 'open' => $open] = $this->buildAssignment($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $this->withHeaders($headers)->postJson(self::BASE . "/courses/{$course->id}/assignments/{$assignment->id}/questions/{$mcq->id}/answer", ['value' => '2'])->assertOk();
         $this->withHeaders($headers)->postJson(self::BASE . "/courses/{$course->id}/assignments/{$assignment->id}/questions/{$open->id}/answer", ['value' => 'x'])->assertOk();

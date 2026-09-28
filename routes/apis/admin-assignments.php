@@ -28,6 +28,15 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-assignments'])->p
     Route::get('assignments/submissions/{submission}', [AdminAssignmentController::class, 'showSubmission']);
     Route::put('assignments/submissions/{submission}/answers/{answer}/grade',
         [AdminAssignmentController::class, 'gradeAnswer']);
+    // File questions (D-033 / D-064): private files, served here only.
+    Route::get('assignments/submissions/{submission}/answers/{answer}/file',
+        [AdminAssignmentController::class, 'answerFile'])->name('admin.assignments.answer-file');
+    Route::get('assignments/{assignment}/questions/{question}/attachment',
+        [AdminAssignmentController::class, 'questionAttachment'])->name('admin.assignments.question-attachment');
+    Route::post('assignments/{assignment}/questions/{question}/attachment',
+        [AdminAssignmentController::class, 'uploadQuestionAttachment'])->middleware('throttle:30,1');
+    Route::delete('assignments/{assignment}/questions/{question}/attachment',
+        [AdminAssignmentController::class, 'removeQuestionAttachment']);
 
     // Assignment resource
     Route::get('assignments',                 [AdminAssignmentController::class, 'index']);

@@ -16,6 +16,20 @@ use Tests\Feature\Api\ApiTestCase;
  */
 class LearnerQuizSubmissionTest extends ApiTestCase
 {
+    /**
+     * A learner enrolled in the course. B-130: the learner assessment routes
+     * now require enrolment (`enrolled`); these fixtures used any learner.
+     */
+    private function enrolledToken(Course $course): array
+    {
+        $user = User::factory()->create();
+        \Illuminate\Support\Facades\DB::table('users_courses')->insert([
+            'user_id' => $user->id, 'course_id' => $course->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $this->userToken($user);
+    }
+
     private function buildQuiz(Course $course): array
     {
         $quiz = CourseExam::factory()->create([
@@ -77,7 +91,7 @@ class LearnerQuizSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['quiz' => $quiz] = $this->buildQuiz($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $response = $this->withHeaders($headers)->getJson(self::BASE . "/courses/{$course->id}/quizzes/{$quiz->id}/take");
 
@@ -97,7 +111,7 @@ class LearnerQuizSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['quiz' => $quiz, 'mcq' => $mcq] = $this->buildQuiz($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $response = $this->withHeaders($headers)->postJson(
             self::BASE . "/courses/{$course->id}/quizzes/{$quiz->id}/questions/{$mcq->id}/answer",
@@ -119,7 +133,7 @@ class LearnerQuizSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['quiz' => $quiz, 'open' => $open] = $this->buildQuiz($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $response = $this->withHeaders($headers)->postJson(
             self::BASE . "/courses/{$course->id}/quizzes/{$quiz->id}/questions/{$open->id}/answer",
@@ -139,7 +153,7 @@ class LearnerQuizSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['quiz' => $quiz, 'reorder' => $reorder] = $this->buildQuiz($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         // Only position 0 ("Step 1") matches the correct order => 1 * (15/3) = 5 points.
         $response = $this->withHeaders($headers)->postJson(
@@ -158,7 +172,7 @@ class LearnerQuizSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['quiz' => $quiz, 'mcq' => $mcq, 'yesNo' => $yesNo] = $this->buildQuiz($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $this->withHeaders($headers)->postJson(
             self::BASE . "/courses/{$course->id}/quizzes/{$quiz->id}/questions/{$mcq->id}/answer",
@@ -180,7 +194,7 @@ class LearnerQuizSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['quiz' => $quiz, 'mcq' => $mcq, 'yesNo' => $yesNo, 'open' => $open, 'reorder' => $reorder] = $this->buildQuiz($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         $this->withHeaders($headers)->postJson(self::BASE . "/courses/{$course->id}/quizzes/{$quiz->id}/questions/{$mcq->id}/answer", ['value' => '4'])->assertOk();
         $this->withHeaders($headers)->postJson(self::BASE . "/courses/{$course->id}/quizzes/{$quiz->id}/questions/{$yesNo->id}/answer", ['value' => 'yes'])->assertOk();
@@ -212,7 +226,7 @@ class LearnerQuizSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['quiz' => $quiz, 'mcq' => $mcq, 'yesNo' => $yesNo, 'open' => $open, 'reorder' => $reorder] = $this->buildQuiz($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         foreach ([[$mcq, ['value' => '4']], [$yesNo, ['value' => 'yes']], [$open, ['value' => 'x']], [$reorder, ['order' => ['Step 1', 'Step 2', 'Step 3']]]] as [$question, $payload]) {
             $this->withHeaders($headers)->postJson(
@@ -233,7 +247,7 @@ class LearnerQuizSubmissionTest extends ApiTestCase
     {
         $course = Course::factory()->create();
         ['quiz' => $quiz, 'mcq' => $mcq, 'yesNo' => $yesNo, 'open' => $open, 'reorder' => $reorder] = $this->buildQuiz($course);
-        ['headers' => $headers] = $this->userToken();
+        ['headers' => $headers] = $this->enrolledToken($course);
 
         foreach ([[$mcq, ['value' => '4']], [$yesNo, ['value' => 'yes']], [$open, ['value' => 'x']], [$reorder, ['order' => ['Step 1', 'Step 2', 'Step 3']]]] as [$question, $payload]) {
             $this->withHeaders($headers)->postJson(

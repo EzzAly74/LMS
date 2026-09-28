@@ -22,9 +22,16 @@ class LearnerAssignmentAnswerRequest extends FormRequest
         $question = $this->route('question');
 
         return match ($question?->type) {
+            // D-033 / D-064: one uploaded file, multipart.
+            'file' => ['file' => AssignmentFileRules::rules()],
             'open' => ['value' => ['required', 'string', 'max:500']],
             'reorder' => ['order' => ['required', 'array', 'min:1'], 'order.*' => ['string', 'max:500']],
             default => ['value' => ['required', 'string', 'max:1000']], // mcq | yes_no
         };
+    }
+
+    public function messages(): array
+    {
+        return AssignmentFileRules::messages('file');
     }
 }

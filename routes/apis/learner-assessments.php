@@ -28,7 +28,9 @@ use Illuminate\Support\Facades\Route;
 |   GET  courses/{course}/assignments/{assignment}/results
 */
 
-Route::middleware(['auth.user', 'role:User'])->prefix('courses/{course}')->group(function () {
+// B-130: `enrolled` - these checked only that the quiz / assignment belongs
+// to the course, so any signed-in learner could take any course's assessment.
+Route::middleware(['auth.user', 'role:User', 'enrolled'])->prefix('courses/{course}')->group(function () {
     Route::get('quizzes/{quiz}/take', [LearnerQuizController::class, 'take']);
     Route::post('quizzes/{quiz}/questions/{question}/answer', [LearnerQuizController::class, 'answerQuestion']);
     Route::post('quizzes/{quiz}/finish', [LearnerQuizController::class, 'finish']);
@@ -38,4 +40,11 @@ Route::middleware(['auth.user', 'role:User'])->prefix('courses/{course}')->group
     Route::post('assignments/{assignment}/questions/{question}/answer', [LearnerAssignmentController::class, 'answerQuestion']);
     Route::post('assignments/{assignment}/finish', [LearnerAssignmentController::class, 'finish']);
     Route::get('assignments/{assignment}/results', [LearnerAssignmentController::class, 'results']);
+
+    // File questions (D-033 / D-064): the instructor's attachment and the
+    // learner's own uploaded answer, both from the private disk.
+    Route::get('assignments/{assignment}/questions/{question}/attachment', [LearnerAssignmentController::class, 'questionAttachment'])
+        ->name('learner.assignments.question-attachment');
+    Route::get('assignments/{assignment}/questions/{question}/my-file', [LearnerAssignmentController::class, 'myAnswerFile'])
+        ->name('learner.assignments.my-file');
 });

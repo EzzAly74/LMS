@@ -76,6 +76,11 @@ final class EnumRegistry
         'question_type' => [
             'values' => ['mcq', 'yes_no', 'open', 'reorder'],
         ],
+        // Assignments add `file` (D-033); quizzes keep `question_type`, so
+        // the quiz form never offers a type quizzes cannot take.
+        'assignment_question_type' => [
+            'values' => ['mcq', 'yes_no', 'open', 'reorder', 'file'],
+        ],
 
         // ── Dashboard ──────────────────────────────────────────────────
         'dashboard_range' => [

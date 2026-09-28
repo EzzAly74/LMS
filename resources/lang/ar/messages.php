@@ -109,6 +109,10 @@ return [
     'assignment_already_submitted'     => 'لقد أرسلت هذا الواجب مسبقًا.',
     'assignment_not_submitted'         => 'لم ترسل هذا الواجب بعد.',
     'assignment_question_not_in_assignment' => 'هذا السؤال لا ينتمي إلى هذا الواجب.',
+    'assignment_question_not_file' => 'هذا السؤال لا يقبل ملفًا.',
+    'assignment_file_locked' => 'تم تقييم هذه الإجابة، لذا لا يمكن استبدال ملفها.',
+    'assignment_file_type' => 'ارفع ملف PDF أو Word أو Excel أو PowerPoint أو PNG أو JPG.',
+    'assignment_file_size' => 'يجب ألا يزيد حجم الملف على 10 ميجابايت.',
 
     // لوحة التحكم — أداة رمز الحضور
     'passcode' => [

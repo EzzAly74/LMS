@@ -6,7 +6,9 @@ use App\Http\Requests\Api\LearnerAssignmentAnswerRequest;
 use App\Models\Course;
 use App\Models\CourseAssignment;
 use App\Models\CourseAssignmentQuestion;
+use App\Services\Assignments\AssignmentFileService;
 use App\Services\Learner\LearnerAssignmentService;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -41,6 +43,13 @@ class LearnerAssignmentController extends ApiController
     ): JsonResponse {
         $this->guard($course, $assignment);
 
+        if ($question->isFile()) {
+            return $this->success(
+                __('messages.updated'),
+                $this->service->answerFile($request->user(), $course, $assignment, $question, $request->file('file')),
+            );
+        }
+
         $payload = $request->has('order')
             ? ['order' => $request->validated('order')]
             : ['value' => $request->validated('value')];
@@ -71,6 +80,32 @@ class LearnerAssignmentController extends ApiController
             __('messages.retrieved'),
             $this->service->results($request->user(), $course, $assignment),
         );
+    }
+
+    /**
+     * GET …/questions/{question}/attachment - the instructor's file for a
+     * file question, to an enrolled learner (route middleware `enrolled`).
+     */
+    public function questionAttachment(Course $course, CourseAssignment $assignment, CourseAssignmentQuestion $question, AssignmentFileService $files): StreamedResponse
+    {
+        $this->guard($course, $assignment);
+        abort_if($question->course_assignment_id !== $assignment->id || $question->attachment_path === null, 404);
+
+        return $files->download($question->attachment_path, (string) $question->attachment_name);
+    }
+
+    /** GET …/questions/{question}/my-file - the learner's own uploaded answer. */
+    public function myAnswerFile(Request $request, Course $course, CourseAssignment $assignment, CourseAssignmentQuestion $question, AssignmentFileService $files): StreamedResponse
+    {
+        $this->guard($course, $assignment);
+        abort_if($question->course_assignment_id !== $assignment->id, 404);
+
+        // Scoped to the caller's own submission: another learner's file is
+        // simply not found.
+        $answer = $this->service->myAnswer($request->user(), $assignment, $question);
+        abort_if($answer === null || $answer->file_path === null, 404);
+
+        return $files->download($answer->file_path, (string) $answer->file_name);
     }
 
     private function guard(Course $course, CourseAssignment $assignment): void

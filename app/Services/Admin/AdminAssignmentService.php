@@ -12,6 +12,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use App\Services\Assignments\AssignmentFileService;
 
 /**
  * Service backing the rich (question-based) admin assignment workflow.
@@ -21,7 +23,10 @@ use Illuminate\Support\Facades\DB;
  */
 class AdminAssignmentService
 {
-    public function __construct(private readonly LearnerCohorts $cohorts) {}
+    public function __construct(
+        private readonly LearnerCohorts $cohorts,
+        private readonly AssignmentFileService $attachments,
+    ) {}
 
     /* ------------------------------------------------------------------ *
      |  ASSIGNMENT CRUD                                                   |
@@ -145,6 +150,11 @@ class AdminAssignmentService
     public function delete(CourseAssignment $assignment): void
     {
         DB::transaction(function () use ($assignment) {
+            CourseAssignmentQuestion::where('course_assignment_id', $assignment->id)->get()
+                ->each(function (CourseAssignmentQuestion $q) {
+                    $this->attachments->removeQuestionAttachment($q);
+                    $this->attachments->removeAnswerFiles($q);
+                });
             CourseAssignmentQuestion::where('course_assignment_id', $assignment->id)->delete();
             CourseAssignmentCohort::where('course_assignment_id', $assignment->id)->delete();
             $assignment->delete();
@@ -174,6 +184,7 @@ class AdminAssignmentService
                 'assignment.creator:id,name',
                 'assignment.cohorts.session:id,title',
             ])
+            ->withCount(['answers as pending_answers_count' => fn ($a) => $a->whereNull('awarded_score')])
             ->latest('id')
             ->paginate($perPage);
 
@@ -246,8 +257,13 @@ class AdminAssignmentService
             ->when(!empty($instructorIds), fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->whereIn('created_by', $instructorIds)))
             ->when(!empty($learnerIds), fn ($q) => $q->whereIn('user_id', $learnerIds))
             ->when(!empty($courseIds), fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->whereIn('course_id', $courseIds)))
-            ->when($status === 'graded', fn ($q) => $q->whereNotNull('total_score'))
-            ->when($status === 'pending', fn ($q) => $q->whereNull('total_score'))
+            // B-129: the learner flow writes a running total from the first
+            // answer, so `total_score` alone called every submission graded.
+            // Graded = scored and no answer still waiting for a person.
+            ->when($status === 'graded', fn ($q) => $q->whereNotNull('total_score')
+                ->whereDoesntHave('answers', fn ($a) => $a->whereNull('awarded_score')))
+            ->when($status === 'pending', fn ($q) => $q->where(fn ($w) => $w->whereNull('total_score')
+                ->orWhereHas('answers', fn ($a) => $a->whereNull('awarded_score'))))
             ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
             ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_course_assignments.user_id', $courseId, $sectionId));
     }
@@ -258,6 +274,8 @@ class AdminAssignmentService
             ->with([
                 'user:id,name,machine_code,department_name',
                 'assignment.course:id,title',
+                'assignment.course:id,title,course_type,category_id',
+                'assignment.course.category:id,name',
                 'assignment.creator:id,name',
                 'answers.question',
             ])
@@ -268,7 +286,9 @@ class AdminAssignmentService
         UserCourseAssignmentAnswer $answer,
         int $awardedScore,
         ?string $feedback,
-        ?User $reviewer
+        // B-131: typed ?User, but the only route here is role:Admin, so every
+        // grade was a TypeError (500). The grader is the signed-in admin.
+        ?Authenticatable $reviewer
     ): UserCourseAssignmentAnswer {
         return DB::transaction(function () use ($answer, $awardedScore, $feedback, $reviewer) {
             $maxScore = (int) ($answer->question->score ?? 0);
@@ -280,7 +300,7 @@ class AdminAssignmentService
                 'is_correct'    => $maxScore > 0 ? $awarded === $maxScore : null,
             ]);
 
-            $this->recalculateSubmissionTotals($answer->user_course_assignment_id, $reviewer?->id);
+            $this->recalculateSubmissionTotals($answer->user_course_assignment_id, $reviewer ? (int) $reviewer->getAuthIdentifier() : null);
 
             return $answer->fresh(['question']);
         });
@@ -290,26 +310,66 @@ class AdminAssignmentService
      |  INTERNAL HELPERS                                                  |
      * ------------------------------------------------------------------ */
 
+    /**
+     * Save the question list in place.
+     *
+     * B-128 (High): this deleted every question and re-created the list on
+     * each save. `user_course_assignment_answers` cascades on its question,
+     * so editing an assignment - even a typo in its title - erased every
+     * learner's answers and grades. Questions sent with their `id` are now
+     * updated (answers kept); new ones are created; only questions left out
+     * are removed, with their answers and attachment.
+     *
+     * An `id` that is not one of THIS assignment's questions is refused
+     * rather than silently created: it would otherwise let one assignment's
+     * payload move another assignment's question.
+     */
     private function syncQuestions(CourseAssignment $assignment, array $questions): void
     {
-        CourseAssignmentQuestion::where('course_assignment_id', $assignment->id)->delete();
+        $existing = CourseAssignmentQuestion::where('course_assignment_id', $assignment->id)->get()->keyBy('id');
+        $kept = [];
 
         foreach (array_values($questions) as $index => $q) {
-            CourseAssignmentQuestion::create([
-                'course_assignment_id' => $assignment->id,
-                'position'             => $index,
-                'type'                 => $q['type'],
-                'score'                => (int) ($q['score'] ?? 0),
-                'question_en'          => $q['question_en'],
-                'question_ar'          => $q['question_ar'] ?? null,
-                'options_en'           => $q['options_en'] ?? null,
-                'options_ar'           => $q['options_ar'] ?? null,
-                'correct_answer_en'    => $q['correct_answer_en'] ?? null,
-                'correct_answer_ar'    => $q['correct_answer_ar'] ?? null,
-                'explanation_en'       => $q['explanation_en'] ?? null,
-                'explanation_ar'       => $q['explanation_ar'] ?? null,
-            ]);
+            $attributes = [
+                'position'          => $index,
+                'type'              => $q['type'],
+                'score'             => (int) ($q['score'] ?? 0),
+                'question_en'       => $q['question_en'],
+                'question_ar'       => $q['question_ar'] ?? null,
+                'options_en'        => $q['options_en'] ?? null,
+                'options_ar'        => $q['options_ar'] ?? null,
+                'correct_answer_en' => $q['correct_answer_en'] ?? null,
+                'correct_answer_ar' => $q['correct_answer_ar'] ?? null,
+                'explanation_en'    => $q['explanation_en'] ?? null,
+                'explanation_ar'    => $q['explanation_ar'] ?? null,
+            ];
+
+            $id = isset($q['id']) ? (int) $q['id'] : null;
+            if ($id !== null) {
+                $question = $existing->get($id);
+                if ($question === null) {
+                    throw ValidationException::withMessages([
+                        "questions.{$index}.id" => __('messages.assignment_question_not_in_assignment'),
+                    ]);
+                }
+                // A question that stops being a file question drops its attachment.
+                if ($question->isFile() && $q['type'] !== CourseAssignmentQuestion::TYPE_FILE) {
+                    $this->attachments->removeQuestionAttachment($question);
+                }
+                $question->update($attributes);
+                $kept[] = $id;
+
+                continue;
+            }
+
+            CourseAssignmentQuestion::create($attributes + ['course_assignment_id' => $assignment->id]);
         }
+
+        $existing->except($kept)->each(function (CourseAssignmentQuestion $gone) {
+            $this->attachments->removeQuestionAttachment($gone);
+            $this->attachments->removeAnswerFiles($gone);
+            $gone->delete();
+        });
     }
 
     private function syncCohorts(CourseAssignment $assignment, string $scope, array $cohortIds): void

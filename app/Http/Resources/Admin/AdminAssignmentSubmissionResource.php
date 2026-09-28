@@ -4,7 +4,6 @@ namespace App\Http\Resources\Admin;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 /**
  * Paginated submissions row resource for the Figma "Submissions" table:
@@ -26,6 +25,10 @@ class AdminAssignmentSubmissionResource extends JsonResource
 
         $max     = $this->max_score ?? 0;
         $awarded = $this->total_score;
+        // Projected by paginateSubmissions; callers without it fall back to
+        // the loaded answers, then to "none pending" (the old behaviour).
+        $pendingAnswers = (int) ($this->pending_answers_count
+            ?? ($this->relationLoaded('answers') ? $this->answers->whereNull('awarded_score')->count() : 0));
         $percent = ($max > 0 && $awarded !== null) ? (int) round(($awarded / $max) * 100) : null;
 
         return [
@@ -52,17 +55,25 @@ class AdminAssignmentSubmissionResource extends JsonResource
                 'machine_code'    => $this->user->machine_code,
                 'department_name' => $this->user->department_name,
             ]),
-            'user_file_url'    => $this->user_file ? url(Storage::disk('public')->url($this->user_file)) : null,
+            // Authorized route, not the public disk the file is no longer on (D-031).
+            'user_file_url'    => $this->user_file && $assignment
+                ? route('assignment.submission.file', [
+                    'course'     => $this->assignment->course_id,
+                    'assignment' => $this->course_assignment_id,
+                    'submission' => $this->id,
+                ])
+                : null,
             'total_score'      => $awarded !== null ? (int) $awarded : null,
             'max_score'        => (int) $max,
             'score_percent'    => $percent,
             // Against the assignment's own pass score (Q-031), as the learner
             // side decides it; null while ungraded or when it sets none.
-            'passed'           => $assignment && $awarded !== null && $this->assignment->pass_score !== null
+            'passed'           => $assignment && $awarded !== null && $pendingAnswers === 0 && $this->assignment->pass_score !== null
                 ? $awarded >= $this->assignment->pass_score
                 : null,
             'feedback'         => $this->feedback,
-            'status'           => $awarded !== null ? 'graded' : 'pending',
+            // B-129: an answer still awaiting a person's score keeps it pending.
+            'status'           => $awarded !== null && $pendingAnswers === 0 ? 'graded' : 'pending',
             'submitted_at'     => $this->submitted_at?->format('Y-m-d H:i:s'),
             'reviewed_at'      => $this->reviewed_at?->format('Y-m-d H:i:s'),
             'created_at'       => $this->created_at?->format('Y-m-d H:i:s'),

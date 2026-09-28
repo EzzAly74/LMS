@@ -22,6 +22,8 @@ class AdminAssignmentQuestionResource extends JsonResource
             'correct_answer_ar' => $this->correct_answer_ar,
             'explanation_en'    => $this->explanation_en,
             'explanation_ar'    => $this->explanation_ar,
+            // File questions (D-033): name / size / date / authorized URL, no path.
+            'attachment'        => AssignmentAttachmentPayload::for($this->resource),
         ];
     }
 }

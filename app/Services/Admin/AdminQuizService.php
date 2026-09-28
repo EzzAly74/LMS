@@ -114,7 +114,8 @@ class AdminQuizService
             ->with([
                 'course:id,title',
                 'creator:id,name',
-                'richQuestions',
+                // B-136: legacy options / answer key live in course_exam_question_answers.
+                'richQuestions.answers',
                 'cohorts.session:id,title',
             ])
             ->findOrFail($id);

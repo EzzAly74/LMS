@@ -184,4 +184,24 @@ class QuizTypeAndResultTest extends ApiTestCase
         $this->getJson(self::BASE.'/admin/quizzes/submissions?result=maybe', $h)->assertStatus(422);
         $this->getJson(self::BASE.'/admin/quizzes/submissions?types[]=final', $h)->assertStatus(422);
     }
+
+    // ------------------------------------------------------------ B-136
+
+    public function test_a_legacy_question_shows_its_text_options_and_key_in_the_editor(): void
+    {
+        $exam = CourseExam::factory()->create(['course_id' => $this->course->id]);
+        $q = CourseExamQuestion::create(['course_exam_id' => $exam->id, 'position' => 0, 'type' => 'mcq', 'score' => 5,
+            'question' => ['en' => 'What does Management mean?', 'ar' => 'ما معنى الإدارة؟']]);
+        \App\Models\CourseExamQuestionAnswer::create(['question_id' => $q->id, 'answer' => ['en' => 'Projects', 'ar' => 'المشروعات'], 'is_correct' => true]);
+        \App\Models\CourseExamQuestionAnswer::create(['question_id' => $q->id, 'answer' => ['en' => 'Research', 'ar' => 'البحوث'], 'is_correct' => false]);
+
+        ['headers' => $h] = $this->adminToken();
+        $row = $this->getJson(self::BASE."/admin/quizzes/{$exam->id}", $h)->assertOk()->json('result.questions.0');
+
+        $this->assertSame('What does Management mean?', $row['question_en']);
+        $this->assertSame('ما معنى الإدارة؟', $row['question_ar']);
+        $this->assertSame(['Projects', 'Research'], $row['options_en']);
+        $this->assertSame('Projects', $row['correct_answer_en']);
+        $this->assertSame('المشروعات', $row['correct_answer_ar']);
+    }
 }

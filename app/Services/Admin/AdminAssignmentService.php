@@ -113,6 +113,7 @@ class AdminAssignmentService
                 'cohort_scope'    => $data['cohort_scope'],
                 'pass_score'      => $data['pass_score'] ?? null,
                 'status'          => $data['status'] ?? 'draft',
+                'type'            => $data['type'] ?? null,
                 'created_by'      => $creator?->id,
                 'total_score'     => $this->sumQuestionScores($data['questions'] ?? []),
             ]);
@@ -137,6 +138,7 @@ class AdminAssignmentService
                 'cohort_scope'    => $data['cohort_scope'],
                 'pass_score'      => $data['pass_score'] ?? null,
                 'status'          => $data['status'] ?? $assignment->status,
+                'type'            => $data['type'] ?? null,
                 'total_score'     => $this->sumQuestionScores($data['questions'] ?? []),
             ]);
 

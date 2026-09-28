@@ -31,6 +31,8 @@ class AdminAssignmentListResource extends JsonResource
             'total_score'     => (int) $this->total_score,
             'pass_score'      => $this->pass_score !== null ? (int) $this->pass_score : null,
             'status'          => $this->status,
+            // Pre / Mid / Post (D-065).
+            'type'            => $this->type,
             'due_date'        => $this->due_date?->format('Y-m-d'),
             'created_at'      => $this->created_at?->format('Y-m-d H:i:s'),
         ];

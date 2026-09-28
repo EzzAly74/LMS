@@ -236,7 +236,9 @@ class AdminLearnerProfileService
             ->selectRaw('user_exams.id as id')
             ->selectRaw('course_exams.title as name')
             ->selectRaw('courses.title as course_title')
-            ->selectRaw('CASE WHEN course_exams.is_final = 1 THEN "post" ELSE "mid" END as type')
+            // The quiz's own Pre / Mid / Post (D-065); older quizzes without one
+            // keep the previous final-exam guess.
+            ->selectRaw('COALESCE(course_exams.type, CASE WHEN course_exams.is_final = 1 THEN "post" ELSE "mid" END) as type')
             ->selectRaw('user_exams.user_degree as score')
             ->selectRaw('COALESCE(user_exams.max_score, user_exams.total_score) as max_score')
             ->selectRaw('user_exams.status as status')

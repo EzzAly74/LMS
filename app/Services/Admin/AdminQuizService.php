@@ -12,6 +12,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Service backing the rich (question-based) admin Quiz workflow.
@@ -134,6 +135,7 @@ class AdminQuizService
                 'cohort_scope'    => $data['cohort_scope'],
                 'pass_score'      => $data['pass_score'] ?? null,
                 'status'          => $data['status'] ?? 'draft',
+                'type'            => $data['type'] ?? null,
                 'created_by'      => $creator?->id,
                 'total_score'     => $this->sumQuestionScores($data['questions'] ?? []),
                 // Legacy column requirements:
@@ -163,6 +165,7 @@ class AdminQuizService
                 'cohort_scope'    => $data['cohort_scope'],
                 'pass_score'      => $data['pass_score'] ?? null,
                 'status'          => $data['status'] ?? $quiz->status,
+                'type'            => $data['type'] ?? null,
                 'total_score'     => $total,
                 'degree'          => $total,
             ]);
@@ -199,8 +202,11 @@ class AdminQuizService
         ?string $search,
         int $perPage = 20,
         ?int $sectionId = null,
+        ?string $result = null,
+        array $types = [],
     ): LengthAwarePaginator {
-        $page = $this->submissionsQuery($quizId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId)
+        $page = $this->submissionsQuery($quizId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId, $result, $types)
+            ->withCount(['answers as pending_answers_count' => fn ($a) => $this->pendingAnswer($a)])
             ->with([
                 'user:id,name',
                 'exam.course:id,title',
@@ -265,6 +271,8 @@ class AdminQuizService
         ?string $status,
         ?string $search,
         ?int $sectionId,
+        ?string $result = null,
+        array $types = [],
     ): Builder {
         return UserExam::query()
             ->whereHas('exam', function ($q) {
@@ -283,8 +291,22 @@ class AdminQuizService
             ->when(!empty($instructorIds), fn ($q) => $q->whereHas('exam', fn ($inner) => $inner->whereIn('created_by', $instructorIds)))
             ->when(!empty($learnerIds), fn ($q) => $q->whereIn('user_id', $learnerIds))
             ->when(!empty($courseIds), fn ($q) => $q->whereIn('course_id', $courseIds))
-            ->when($status === 'graded', fn ($q) => $q->whereNotNull('total_score'))
-            ->when($status === 'pending', fn ($q) => $q->whereNull('total_score'))
+            // B-134: as B-129 on assignments - an open answer still waiting
+            // for a person's score keeps the attempt pending.
+            ->when($status === 'graded', fn ($q) => $q->whereNotNull('total_score')
+                ->whereDoesntHave('answers', fn ($a) => $this->pendingAnswer($a)))
+            ->when($status === 'pending', fn ($q) => $q->where(fn ($w) => $w->whereNull('total_score')
+                ->orWhereHas('answers', fn ($a) => $this->pendingAnswer($a))))
+            // Figma 1983:42584 "Passed / Failed" (D-065): scored attempts only,
+            // against the quiz's own pass score, else the legacy pass status.
+            ->when($result === 'passed' || $result === 'failed', fn ($q) => $q
+                ->whereNotNull('total_score')
+                ->whereDoesntHave('answers', fn ($a) => $this->pendingAnswer($a))
+                ->whereHas('exam', fn ($e) => $e->whereRaw(
+                    '(CASE WHEN course_exams.pass_score IS NULL THEN LOWER(COALESCE(user_exams.status, \'\')) IN (\'passed\', \'completed\', \'success\') ELSE user_exams.total_score >= course_exams.pass_score END) = ?',
+                    [$result === 'passed' ? 1 : 0],
+                )))
+            ->when($types !== [], fn ($q) => $q->whereHas('exam', fn ($e) => $e->whereIn('type', $types)))
             ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
             ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_exams.user_id', $courseId, $sectionId));
     }
@@ -329,13 +351,24 @@ class AdminQuizService
      |  INTERNAL HELPERS                                                  |
      * ------------------------------------------------------------------ */
 
+    /**
+     * Save the question list in place.
+     *
+     * B-133 (High): this deleted every question and re-created the list on
+     * each save. `user_exam_answers.question_id` has no foreign key, so the
+     * learners' answers survived but pointed at questions that no longer
+     * existed - past attempts could not be reviewed and pending open answers
+     * could not be graded. Questions sent with their `id` are now updated,
+     * new ones created, and only omitted ones removed. An `id` that is not
+     * one of THIS quiz's questions is refused.
+     */
     private function syncQuestions(CourseExam $quiz, array $questions): void
     {
-        CourseExamQuestion::where('course_exam_id', $quiz->id)->delete();
+        $existing = CourseExamQuestion::where('course_exam_id', $quiz->id)->get()->keyBy('id');
+        $kept = [];
 
         foreach (array_values($questions) as $index => $q) {
-            CourseExamQuestion::create([
-                'course_exam_id'    => $quiz->id,
+            $attributes = [
                 'position'          => $index,
                 'type'              => $q['type'],
                 'score'             => (int) ($q['score'] ?? 0),
@@ -348,8 +381,38 @@ class AdminQuizService
                 'correct_answer_ar' => $q['correct_answer_ar'] ?? null,
                 'explanation_en'    => $q['explanation_en'] ?? null,
                 'explanation_ar'    => $q['explanation_ar'] ?? null,
-            ]);
+            ];
+
+            $id = isset($q['id']) ? (int) $q['id'] : null;
+            if ($id !== null) {
+                $question = $existing->get($id);
+                if ($question === null) {
+                    throw ValidationException::withMessages([
+                        "questions.{$index}.id" => __('messages.quiz_question_not_in_quiz'),
+                    ]);
+                }
+                $question->update($attributes);
+                $kept[] = $id;
+
+                continue;
+            }
+
+            CourseExamQuestion::create($attributes + ['course_exam_id' => $quiz->id]);
         }
+
+        $existing->except($kept)->each(fn (CourseExamQuestion $gone) => $gone->delete());
+    }
+
+    /**
+     * An answer a person still has to score: an open question with no
+     * awarded score. Legacy auto-graded answers never carry awarded_score,
+     * so the question type decides, not the null alone.
+     */
+    private function pendingAnswer($answers)
+    {
+        return $answers->whereNull('awarded_score')
+            // `examQuestion`: a `question` string column shadows `question()`.
+            ->whereHas('examQuestion', fn ($q) => $q->where('type', 'open'));
     }
 
     private function syncCohorts(CourseExam $quiz, string $scope, array $cohortIds): void

@@ -132,6 +132,14 @@ class AdminQuizController extends ApiController
 
         $this->validateCohortFilter($request);
 
+        $filters = $request->validate([
+            'result'  => ['nullable', 'in:passed,failed'],
+            'types'   => ['nullable', 'array', 'max:3'],
+            'types.*' => ['in:pre,mid,post'],
+        ]);
+        $result = $filters['result'] ?? null;
+        $types  = array_values($filters['types'] ?? []);
+
         $submissions = $this->service->paginateSubmissions(
             $request->integer('quiz_id') ?: null,
             $request->integer('course_id') ?: null,
@@ -143,6 +151,8 @@ class AdminQuizController extends ApiController
             $request->get('search'),
             $this->submissionsPerPage($request),
             $request->integer('section_id') ?: null,
+            $result,
+            $types,
         );
 
         return $this->paginated(

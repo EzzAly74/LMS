@@ -27,6 +27,8 @@ class AdminAssignmentStoreRequest extends FormRequest
             'cohort_ids.*'              => ['integer', 'exists:course_sessions,id'],
             'pass_score'                => ['nullable', 'integer', 'min:0'],
             'status'                    => ['nullable', Rule::in(['draft', 'active'])],
+            // Pre / Mid / Post (D-065). On quizzes Post is the final exam.
+            'type'                      => ['nullable', Rule::in(['pre', 'mid', 'post'])],
 
             'questions'                 => ['required', 'array', 'min:1'],
             // Present when editing: the question is updated in place, so its

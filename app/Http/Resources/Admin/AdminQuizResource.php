@@ -30,6 +30,8 @@ class AdminQuizResource extends JsonResource
             'pass_score'      => $this->pass_score !== null ? (int) $this->pass_score : null,
             'total_score'     => (int) $this->total_score,
             'status'          => $this->status,
+            // Pre / Mid / Post (D-065).
+            'type'            => $this->type,
             'created_by'      => $this->created_by,
             'created_by_user' => $this->whenLoaded('creator', fn () => $this->creator ? [
                 'id'   => $this->creator->id,

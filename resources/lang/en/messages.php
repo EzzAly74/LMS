@@ -110,6 +110,7 @@ return [
     'assignment_already_submitted'     => 'You have already submitted this assignment.',
     'assignment_not_submitted'         => 'You have not submitted this assignment yet.',
     'assignment_question_not_in_assignment' => 'This question does not belong to the assignment.',
+    'quiz_question_not_in_quiz' => 'This question does not belong to the quiz.',
     'assignment_question_not_file' => 'This question does not take a file.',
     'assignment_file_locked' => 'This answer has been graded, so its file can no longer be replaced.',
     'assignment_file_type' => 'Upload a PDF, Word, Excel, PowerPoint, PNG or JPG file.',

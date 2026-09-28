@@ -22,6 +22,8 @@ class AdminQuizSubmissionResource extends JsonResource
 
         $max     = $this->max_score ?? 0;
         $awarded = $this->total_score;
+        // B-134: projected by paginateSubmissions; absent elsewhere, then none pending.
+        $pendingAnswers = (int) ($this->pending_answers_count ?? 0);
         $percent = ($max > 0 && $awarded !== null) ? (int) round(($awarded / $max) * 100) : null;
 
         return [
@@ -30,7 +32,10 @@ class AdminQuizSubmissionResource extends JsonResource
                 'id'        => $this->exam->id,
                 'title'     => $this->exam->title,
                 'course_id' => $this->exam->course_id,
+                'type'      => $this->exam->type,
             ]),
+            // Figma 1983:42584 Type column.
+            'quiz_type'       => $quiz ? $this->exam->type : null,
             'quiz_title'      => $quiz ? $this->exam->title : null,
             'course_title'    => $course ? $course->title : null,
             'instructor_name' => $instructor && isset($instructor->name) ? $instructor->name : null,
@@ -48,11 +53,11 @@ class AdminQuizSubmissionResource extends JsonResource
             'score_percent'   => $percent,
             // Against the quiz's own pass score (Q-031), as the learner side
             // decides it; null while ungraded or when the quiz sets none.
-            'passed'          => $quiz && $awarded !== null && $this->exam->pass_score !== null
+            'passed'          => $quiz && $awarded !== null && $pendingAnswers === 0 && $this->exam->pass_score !== null
                 ? $awarded >= $this->exam->pass_score
                 : null,
             'attempts'        => (int) ($this->attempts_count ?? 1),
-            'status'          => $awarded !== null ? 'graded' : 'pending',
+            'status'          => $awarded !== null && $pendingAnswers === 0 ? 'graded' : 'pending',
             'submitted_at'    => $this->submitted_at?->format('Y-m-d H:i:s'),
             'reviewed_at'     => $this->reviewed_at?->format('Y-m-d H:i:s'),
             'created_at'      => $this->created_at?->format('Y-m-d H:i:s'),

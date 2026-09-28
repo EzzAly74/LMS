@@ -18,6 +18,30 @@ class CourseExam extends Model
         'due_date' => 'date',
     ];
 
+    /** Pre / Mid / Post (D-065). Post is the final exam. */
+    public const TYPES = ['pre', 'mid', 'post'];
+
+    /**
+     * Keep `type` and `is_final` telling the same story (D-065): Post means
+     * final exam, and the certificate / completion rules read `is_final`.
+     * Whichever of the two a caller changed wins: the new admin form sets
+     * `type`, the legacy exam endpoints set `is_final`.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $exam) {
+            if ($exam->isDirty('type')) {
+                $exam->is_final = $exam->type === 'post';
+            } elseif ($exam->isDirty('is_final')) {
+                if ($exam->is_final) {
+                    $exam->type = 'post';
+                } elseif ($exam->type === 'post') {
+                    $exam->type = null;
+                }
+            }
+        });
+    }
+
     public function questions()
     {
         return $this->hasMany(CourseExamQuestion::class, 'course_exam_id');

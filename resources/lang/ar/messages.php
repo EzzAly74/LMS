@@ -42,6 +42,8 @@ return [
     'import_yes_no'                    => 'استخدم yes أو no.',
     'import_id_number'                 => 'استخدم الرقم التعريفي، أو اترك الخلية فارغة.',
     'import_scope_mismatch'            => 'يجب أن تحمل كل صفوف النموذج نفس course_id و cohort_id.',
+    'import_type_mismatch'             => 'يجب أن تحمل كل صفوف النموذج نفس النوع (type).',
+    'evaluation_single_type'           => 'يجب أن تستخدم كل أسئلة النموذج نوع السؤال نفسه.',
     'import_too_many_questions'        => 'يمكن أن يحتوي النموذج على :max سؤالًا كحد أقصى.',
     'import_course_not_evaluable'      => 'هذه الدورة غير موجودة أو لم يُفعَّل لها التقييم.',
     'import_duplicate_in_file'         => 'يوجد نموذج آخر في هذا الملف بنفس الاسم.',

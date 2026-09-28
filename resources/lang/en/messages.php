@@ -42,6 +42,8 @@ return [
     'import_yes_no'                    => 'Use yes or no.',
     'import_id_number'                 => 'Use the numeric id, or leave it empty.',
     'import_scope_mismatch'            => 'Every row of a template must have the same course_id and cohort_id.',
+    'import_type_mismatch'             => 'Every row of a template must have the same type.',
+    'evaluation_single_type'           => 'All questions in a template must use the same question type.',
     'import_too_many_questions'        => 'A template can have at most :max questions.',
     'import_course_not_evaluable'      => 'This course does not exist or does not have evaluation enabled.',
     'import_duplicate_in_file'         => 'Another template in this file has the same name.',

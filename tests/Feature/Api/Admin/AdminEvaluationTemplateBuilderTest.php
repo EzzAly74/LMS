@@ -43,13 +43,21 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
             'section_id' => null,
             'questions'  => [
                 ['title' => ['en' => 'Clear?', 'ar' => 'واضح؟'], 'type' => 'five', 'required' => true],
-                [
-                    'title' => ['en' => 'Pace', 'ar' => 'السرعة'], 'type' => 'scale', 'required' => false,
-                    'scale_label_min' => ['en' => 'Unsatisfied', 'ar' => 'غير راضٍ'],
-                    'scale_label_max' => ['en' => 'Very satisfied', 'ar' => 'راضٍ جدًا'],
-                ],
+                ['title' => ['en' => 'Pace', 'ar' => 'السرعة'], 'type' => 'five', 'required' => false],
             ],
         ], $overrides);
+    }
+
+    /** A 1-5 scale template: one question type per template (D-061). */
+    private function scalePayload(array $overrides = []): array
+    {
+        $scale = fn (string $en, string $ar, bool $required) => [
+            'title' => ['en' => $en, 'ar' => $ar], 'type' => 'scale', 'required' => $required,
+            'scale_label_min' => ['en' => 'Unsatisfied', 'ar' => 'غير راضٍ'],
+            'scale_label_max' => ['en' => 'Very satisfied', 'ar' => 'راضٍ جدًا'],
+        ];
+
+        return $this->payload(array_merge(['questions' => [$scale('Clear?', 'واضح؟', true), $scale('Pace', 'السرعة', false)]], $overrides));
     }
 
     private function answer(User $user, Course $course, Evaluation $q, string $answer): void
@@ -82,10 +90,19 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $this->assertNull($result['course']);
         $this->assertFalse($result['locked']);
         $this->assertCount(2, $result['questions']);
-        $this->assertSame(['five', 'scale'], array_column($result['questions'], 'type'));
-        $this->assertSame(['en' => 'Unsatisfied', 'ar' => 'غير راضٍ'], $result['questions'][1]['scale_label_min']);
+        $this->assertSame(['five', 'five'], array_column($result['questions'], 'type'));
         $this->assertNull($result['questions'][0]['scale_label_min']);
         $this->assertSame([true, false], array_column($result['questions'], 'required'));
+    }
+
+    public function test_a_scale_template_keeps_each_questions_labels(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+
+        $result = $this->postJson(self::URL, $this->scalePayload(), $headers)->assertCreated()->json('result');
+
+        $this->assertSame(['scale', 'scale'], array_column($result['questions'], 'type'));
+        $this->assertSame(['en' => 'Unsatisfied', 'ar' => 'غير راضٍ'], $result['questions'][1]['scale_label_min']);
     }
 
     public function test_a_template_can_be_scoped_to_one_course_and_cohort(): void
@@ -118,6 +135,7 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
             'cohort of another course' => [$this->payload(['course_id' => $evaluable->id, 'section_id' => $cohortOfOther->id]), 'section_id'],
             'cohort without course'    => [$this->payload(['section_id' => $cohortOfOther->id]), 'section_id'],
             'name taken, any case'     => [$this->payload(['name' => ['en' => 'TAKEN', 'ar' => 'جديد']]), 'name.en'],
+            'mixed question types'     => [$this->payload(['questions' => [$this->payload()['questions'][0], $this->scalePayload()['questions'][0]]]), 'questions'],
             'too many questions'       => [$this->payload(['questions' => array_fill(0, 51, ['title' => ['en' => 'a', 'ar' => 'b'], 'type' => 'five', 'required' => true])]), 'questions'],
         ];
 
@@ -130,7 +148,7 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
     public function test_scale_labels_are_capped_at_twenty_characters(): void
     {
         ['headers' => $headers] = $this->adminToken();
-        $body = $this->payload();
+        $body = $this->scalePayload();
         $body['questions'][1]['scale_label_max']['en'] = str_repeat('x', 21);
 
         $this->postJson(self::URL, $body, $headers)->assertStatus(422)
@@ -200,7 +218,7 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         ['headers' => $headers] = $this->adminToken();
 
         $all    = $this->postJson(self::URL, $this->payload(), $headers)->json('result.id');
-        $onA    = $this->postJson(self::URL, $this->payload(['name' => ['en' => 'On A', 'ar' => 'أ'], 'course_id' => $a->id]), $headers)->json('result.id');
+        $onA    = $this->postJson(self::URL, $this->scalePayload(['name' => ['en' => 'On A', 'ar' => 'أ'], 'course_id' => $a->id]), $headers)->json('result.id');
         $cohort = $this->postJson(self::URL, $this->payload(['name' => ['en' => 'Cohort A', 'ar' => 'مجموعة أ'], 'course_id' => $a->id, 'section_id' => $cohortA->id]), $headers)->json('result.id');
 
         $rows = collect($this->getJson(self::URL, $headers)->assertOk()->json('result'))->keyBy('id');
@@ -251,7 +269,7 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $this->enrol($learner, $course);
         ['headers' => $admin] = $this->adminToken();
         $id = $this->postJson(self::URL, $this->payload(), $admin)->json('result.id');
-        [$star, $scale] = Evaluation::query()->where('evaluation_category_id', $id)->orderBy('id')->get()->all();
+        [$star, $optional] = Evaluation::query()->where('evaluation_category_id', $id)->orderBy('id')->get()->all();
         $elsewhere = EvaluationCategory::query()->create(['name' => ['en' => 'Elsewhere', 'ar' => 'مكان آخر'], 'course_id' => $this->course()->id]);
         $foreign = $elsewhere->evaluations()->create(['type' => 'five', 'title' => ['en' => 'x', 'ar' => 'x'], 'is_required' => true]);
 
@@ -259,14 +277,14 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $url    = self::BASE."/courses/{$course->id}/evaluate";
         $submit = fn (array $questions) => $this->postJson($url, ['instructor_id' => $instructor->id, 'questions' => $questions], $headers);
 
-        $submit([$scale->id => '3'])->assertStatus(422);                           // required star missing
+        $submit([$optional->id => '3'])->assertStatus(422);                        // required star missing
         $submit([$star->id => '6'])->assertStatus(422);                            // out of range
         $submit([$star->id => '4', $foreign->id => '5'])->assertStatus(422);       // not asked
         $this->postJson($url, ['instructor_id' => Instructor::query()->create(['name' => ['en' => 'N', 'ar' => 'ن'], 'email' => 'n'.uniqid().'@example.test'])->id, 'questions' => [$star->id => '4']], $headers)
             ->assertStatus(422);                                                   // not this course's instructor
         $this->assertSame(0, DB::table('user_course_evaluations')->count());
 
-        $submit([$star->id => '4', $scale->id => '5'])->assertCreated();
+        $submit([$star->id => '4', $optional->id => '5'])->assertCreated();
         $this->assertSame([5, 5], DB::table('user_course_evaluations')->orderBy('evaluation_id')->pluck('evaluation_type')->map(fn ($v) => (int) $v)->all());
         $submit([$star->id => '4'])->assertStatus(409);                            // once per course
     }
@@ -327,15 +345,17 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         ['headers' => $headers] = $this->adminToken();
         $file = $this->csv([
             $this->row('Imported One', 'مستورد ١', 'First'),
-            $this->row('Imported One', 'مستورد ١', 'Second', 'scale', ['Low', 'منخفض', 'High', 'مرتفع']),
-            $this->row('Imported Two', 'مستورد ٢', 'Only'),
+            $this->row('Imported One', 'مستورد ١', 'Second'),
+            $this->row('Imported Two', 'مستورد ٢', 'Only', 'scale', ['Low', 'منخفض', 'High', 'مرتفع']),
         ]);
 
         $report = $this->post(self::URL.'/import', ['file' => $file], $headers)->assertOk()->json('result');
 
         $this->assertSame(['created' => 2, 'questions' => 3, 'errors' => []], $report);
         $two = EvaluationCategory::query()->get()->first(fn ($t) => $t->getTranslation('name', 'en') === 'Imported One');
-        $this->assertSame(['five', 'scale'], $two->evaluations()->orderBy('id')->pluck('type')->all());
+        $this->assertSame(['five', 'five'], $two->evaluations()->orderBy('id')->pluck('type')->all());
+        $scale = EvaluationCategory::query()->get()->first(fn ($t) => $t->getTranslation('name', 'en') === 'Imported Two');
+        $this->assertSame(['scale'], $scale->evaluations()->pluck('type')->all());
     }
 
     public function test_an_import_with_any_bad_row_writes_nothing_and_lists_every_problem(): void
@@ -347,6 +367,7 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
             $this->row('Fine2', 'سليم٢', 'Bad type', 'emoji'),
             $this->row('Existing', 'جديد', 'Clashes'),
             $this->row('Scale', 'مقياس', 'No labels', 'scale'),
+            $this->row('Fine', 'سليم', 'Other kind', 'scale', ['Low', 'منخفض', 'High', 'مرتفع']),
         ]);
 
         $report = $this->post(self::URL.'/import', ['file' => $file], $headers)->assertOk()->json('result');
@@ -357,6 +378,7 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $this->assertContains('3:type', $problems);
         $this->assertContains('4:template_name_en', $problems);
         $this->assertContains('5:scale_min_label_en', $problems);
+        $this->assertContains('6:type', $problems);                  // one type per template (D-061)
     }
 
     public function test_an_import_refuses_a_file_that_is_not_a_spreadsheet(): void

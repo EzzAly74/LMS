@@ -124,6 +124,11 @@ class EvaluationTemplateImportService
             if ($groups[$key]['course_id'] !== $courseId || $groups[$key]['cohort_id'] !== $cohortId) {
                 $errors[] = [$line, 'course_id', __('messages.import_scope_mismatch')];
             }
+            // One question type per template (D-061): the template's first row sets it.
+            $groups[$key]['type'] ??= $type;
+            if ($type !== null && $groups[$key]['type'] !== null && $type !== $groups[$key]['type']) {
+                $errors[] = [$line, 'type', __('messages.import_type_mismatch')];
+            }
             $groups[$key]['questions'][] = [
                 'title'    => ['en' => $cell($row, 'question_en'), 'ar' => $cell($row, 'question_ar')],
                 'type'     => $type,

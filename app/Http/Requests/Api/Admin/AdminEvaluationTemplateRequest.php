@@ -14,7 +14,7 @@ use Illuminate\Validation\Validator;
  * Everything in the builder is required except the cohort: names in both
  * languages, at least one question, and for a scale question the words under
  * "1" and "5" in both languages. Question types are the two the builder offers
- * (Q-051). A course must have evaluation enabled - a template scoped to any
+ * (Q-051), and every question in a template has the same one (D-061). A course must have evaluation enabled - a template scoped to any
  * other course would never be shown to anyone. A cohort must belong to the
  * chosen course. Names are unique per language, ignoring case (as in D-034).
  */
@@ -59,6 +59,13 @@ class AdminEvaluationTemplateRequest extends FormRequest
         return [function (Validator $v) {
             if ($v->errors()->isNotEmpty()) {
                 return;
+            }
+
+            // One question type per template (D-061): the builder sets it once
+            // in the General section and every question follows it.
+            $types = array_unique(array_column((array) $this->input('questions'), 'type'));
+            if (count($types) > 1) {
+                $v->errors()->add('questions', __('messages.evaluation_single_type'));
             }
 
             $courseId  = $this->input('course_id');

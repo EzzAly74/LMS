@@ -41,6 +41,7 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
         ?string $search = null,
         string $sort = 'name',
         string $dir = 'asc',
+        bool $searchMatchesQualification = false,
     ): LengthAwarePaginator {
         // Every course linked to one of this job title's qualifications - the
         // "M" in "N of M courses" (D-056). This used to count only the ones
@@ -60,10 +61,12 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
 
         $query = User::query()
             ->where('users.job_title_id', $jobTitle->id)
-            ->when($search, fn ($q) => $q->where(function ($q2) use ($search) {
-                $q2->where('users.name', 'like', "%{$search}%")
-                    ->orWhere('users.machine_code', 'like', "%{$search}%");
-            }))
+            // "Search by learner or qualification" (Figma 2459:137558). Every
+            // learner here shares the job title's qualifications, so a term
+            // naming one of them matches every learner; the service then
+            // narrows each row's breakdown to that qualification.
+            ->when($search !== null && $search !== '' && ! $searchMatchesQualification,
+                fn ($q) => $this->whereLearnerMatches($q, (string) $search))
             ->select('users.*')
             ->selectSub($totalCourses, 'courses_total')
             ->selectSub($completedCourses, 'courses_completed');
@@ -81,8 +84,41 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
         return $query->paginate($perPage);
     }
 
-    public function list(int $perPage, ?string $search): LengthAwarePaginator
+    /**
+     * Name (any language) or employee ID contains the term. LIKE wildcards in
+     * the term are escaped: this used to interpolate the raw term, so "%"
+     * matched everyone.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder  $q
+     */
+    private function whereLearnerMatches($q, string $search, string $table = 'users')
     {
+        $like = '%'.addcslashes($search, '%_\\').'%';
+
+        return $q->where(fn ($w) => $w
+            ->where("{$table}.name", 'like', $like)
+            ->orWhere("{$table}.name_en", 'like', $like)
+            ->orWhere("{$table}.name_ar", 'like', $like)
+            ->orWhere("{$table}.machine_code", 'like', $like));
+    }
+
+    public function learnerOptions(?string $search, int $limit): Collection
+    {
+        return User::query()
+            ->whereNotNull('users.job_title_id')
+            ->when($search !== null && trim($search) !== '', fn ($q) => $this->whereLearnerMatches($q, trim((string) $search)))
+            ->orderBy('users.name')
+            ->limit($limit)
+            ->get(['users.id', 'users.name', 'users.name_en', 'users.name_ar', 'users.machine_code']);
+    }
+
+    public function list(
+        int $perPage,
+        ?string $search,
+        array $qualificationIds = [],
+        ?int $learnerId = null,
+        bool $learnerSearch = false,
+    ): LengthAwarePaginator {
         // Only count users who actually hold this job title (users.job_title_id = job_titles.id).
         // Without this filter, users from other job titles enrolled in the same courses
         // would inflate the count above the employees_count.
@@ -111,21 +147,42 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
             ->whereColumn('hu.job_title_id', 'job_titles.id')
             ->whereRaw(QualificationHolding::holdsSql('hu.id', 'hq.qualification_skill_id'));
 
+        $like = $search !== null && $search !== '' ? '%'.addcslashes($search, '%_\\').'%' : null;
+
         return $this->model->newQuery()
-            ->when($search, fn ($q) => $q->where(function ($q2) use ($search) {
-                $q2->where('name',    'LIKE', "%{$search}%")
-                   ->orWhere('name_en', 'LIKE', "%{$search}%")
-                   ->orWhere('name_ar', 'LIKE', "%{$search}%");
+            ->when($like, fn ($q) => $q->where(function ($q2) use ($like, $search, $learnerSearch) {
+                $q2->where('job_titles.name',    'LIKE', $like)
+                   ->orWhere('job_titles.name_en', 'LIKE', $like)
+                   ->orWhere('job_titles.name_ar', 'LIKE', $like);
+                // "Search by learner or job title" (Figma 2078:102691): a job
+                // title also matches when one of its employees does.
+                if ($learnerSearch) {
+                    $q2->orWhereExists(fn ($e) => $this->whereLearnerMatches(
+                        $e->selectRaw('1')->from('users as su')->whereColumn('su.job_title_id', 'job_titles.id'),
+                        (string) $search,
+                        'su',
+                    ));
+                }
             }))
+            // Filter modal (Figma 2463:138054): requires any chosen qualification…
+            ->when($qualificationIds !== [], fn ($q) => $q->whereHas(
+                'qualificationSkills',
+                fn ($s) => $s->whereIn('qualification_skills.id', $qualificationIds),
+            ))
+            // …and / or is the chosen learner's job title.
+            ->when($learnerId !== null, fn ($q) => $q->whereIn(
+                'job_titles.id',
+                User::query()->select('job_title_id')->whereKey($learnerId),
+            ))
             ->withCount(['qualificationSkills', 'users as employees_count'])
-            ->addSelect([
-                'job_titles.*',
-                DB::raw("({$learnersSubQuery->toSql()}) as learners_count"),
-                DB::raw("({$completedQualsSubQuery->toSql()}) as completed_qualifications_count"),
-            ])
-            ->mergeBindings($learnersSubQuery)
-            ->mergeBindings($completedQualsSubQuery)
-            ->orderBy('name')
+            ->addSelect('job_titles.*')
+            // selectSub keeps each subquery's bindings in the SELECT slot.
+            // These used to be raw strings plus mergeBindings(), which puts the
+            // bindings in the WHERE slot - harmless only while the subqueries
+            // had none, and wrong once the filters above add their own.
+            ->selectSub($learnersSubQuery, 'learners_count')
+            ->selectSub($completedQualsSubQuery, 'completed_qualifications_count')
+            ->orderBy('job_titles.name')
             ->paginate($perPage);
     }
 

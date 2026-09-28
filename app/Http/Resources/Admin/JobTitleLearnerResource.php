@@ -48,6 +48,9 @@ class JobTitleLearnerResource extends JsonResource
             'qualifications_completed' => (int) ($this->qualifications_completed ?? 0),
             'qualifications_total'     => (int) ($this->qualifications_total ?? 0),
             'qualification_breakdown'  => $this->qualification_breakdown ?? [],
+            // True when the search matched a qualification, not this learner:
+            // the breakdown above is narrowed to the matching qualifications.
+            'qualification_match'      => (bool) ($this->qualification_match ?? false),
 
             // Whole percent, matching how JobTitleResource renders the card's
             // compliance bar. A learner with no relevant enrolments is 0, not

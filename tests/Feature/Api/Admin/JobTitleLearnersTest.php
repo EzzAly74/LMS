@@ -378,4 +378,104 @@ class JobTitleLearnersTest extends ApiTestCase
             "Query count grew from {$withOne} to {$withSeven} with six more learners — the breakdown is an N+1.",
         );
     }
+
+    // ------------------------------------------------ D1b: course rows (Figma 2459:137558)
+
+    public function test_each_qualification_lists_its_courses_with_the_learners_status(): void
+    {
+        $user = User::factory()->create(['name' => 'Ava', 'job_title_id' => $this->jobTitle->id]);
+        [$done, $going, $never] = [Course::factory()->create(), Course::factory()->create(), Course::factory()->create()];
+        foreach ([$done, $going, $never] as $c) {
+            DB::table('course_qualification_skills')->insert(['course_id' => $c->id, 'qualification_skill_id' => $this->skill->id]);
+        }
+        foreach ([$done, $going] as $c) {
+            DB::table('users_courses')->insert(['user_id' => $user->id, 'course_id' => $c->id, 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $this->passExam($user, $done);
+
+        // Two of the in-progress course's four lectures are complete.
+        $lectures = \App\Models\CourseLecture::factory()->count(4)->create(['course_id' => $going->id]);
+        foreach ($lectures->take(2) as $lecture) {
+            DB::table('user_lecture_progress')->insert([
+                'user_id' => $user->id, 'lecture_id' => $lecture->id, 'progress' => 100, 'completed' => true,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        ['headers' => $headers] = $this->adminToken();
+        $q = $this->getJson($this->url(), $headers)->assertOk()->json('result.0.qualification_breakdown.0');
+
+        $this->assertSame(3, $q['courses_total']);
+        $this->assertSame(1, $q['courses_completed']);
+        $byId = collect($q['courses'])->keyBy('id');
+        $this->assertSame(['completed', 100], [$byId[$done->id]['status'], $byId[$done->id]['percent']]);
+        $this->assertSame(['in_progress', 50], [$byId[$going->id]['status'], $byId[$going->id]['percent']]);
+        $this->assertSame(['unenrolled', 0], [$byId[$never->id]['status'], $byId[$never->id]['percent']]);
+        $this->assertNotSame('', $byId[$done->id]['title']);
+    }
+
+    public function test_the_course_rows_do_not_query_per_learner(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+        $measure = function () use ($headers): int {
+            DB::enableQueryLog();
+            DB::flushQueryLog();
+            $this->getJson($this->url().'?per_page=20', $headers)->assertOk();
+            $n = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $n;
+        };
+
+        $this->learnerWith(3, 1, 'First');
+        $one = $measure();
+        for ($i = 0; $i < 5; $i++) {
+            $this->learnerWith(3, 2, "More{$i}");
+        }
+
+        $this->assertLessThanOrEqual(2, $measure() - $one);
+    }
+
+    // ------------------------------------------------ D1b: search by learner or qualification
+
+    public function test_a_search_naming_a_qualification_returns_every_learner_narrowed_to_it(): void
+    {
+        $other = QualificationSkill::query()->create(['name' => 'Rigging']);
+        $this->jobTitle->qualificationSkills()->attach($other->id);
+        $this->learnerWith(1, 0, 'Ava');
+        $this->learnerWith(1, 1, 'Liam');
+
+        ['headers' => $headers] = $this->adminToken();
+        $rows = $this->getJson($this->url().'?search=rigg', $headers)->assertOk()->json('result');
+
+        $this->assertCount(2, $rows);
+        foreach ($rows as $row) {
+            $this->assertTrue($row['qualification_match']);
+            $this->assertSame(['Rigging'], array_column($row['qualification_breakdown'], 'name'));
+            // Totals still cover every required qualification.
+            $this->assertSame(2, $row['qualifications_total']);
+        }
+    }
+
+    public function test_a_search_naming_a_learner_keeps_the_full_breakdown(): void
+    {
+        $this->learnerWith(1, 0, 'Ava');
+        $this->learnerWith(1, 0, 'Liam');
+
+        ['headers' => $headers] = $this->adminToken();
+        $rows = $this->getJson($this->url().'?search=liam', $headers)->assertOk()->json('result');
+
+        $this->assertSame(['Liam'], array_column($rows, 'name'));
+        $this->assertFalse($rows[0]['qualification_match']);
+        $this->assertCount(1, $rows[0]['qualification_breakdown']);
+    }
+
+    public function test_like_wildcards_in_the_search_are_literal(): void
+    {
+        $this->learnerWith(1, 0, 'Ava');
+
+        ['headers' => $headers] = $this->adminToken();
+
+        $this->assertSame([], $this->getJson($this->url().'?search=%25', $headers)->assertOk()->json('result'));
+    }
 }

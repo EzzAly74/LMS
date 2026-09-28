@@ -7,25 +7,57 @@ use App\Repositories\Contracts\JobTitleRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use App\Support\CourseCompletion;
+use App\Support\LocalizedJson;
 use App\Support\QualificationHolding;
 use Illuminate\Support\Facades\DB;
 
 class JobTitleService
 {
+    /** Learner options returned to the index Filter modal per search. */
+    public const LEARNER_OPTION_LIMIT = 20;
+
     public function __construct(
         private readonly JobTitleRepositoryInterface $repository,
     ) {}
 
-    public function list(int $perPage = 15, ?string $search = null): LengthAwarePaginator
-    {
-        return $this->repository->list($perPage, $search);
+    /**
+     * @param  list<int>  $qualificationIds
+     */
+    public function list(
+        int $perPage = 15,
+        ?string $search = null,
+        array $qualificationIds = [],
+        ?int $learnerId = null,
+        bool $learnerSearch = false,
+    ): LengthAwarePaginator {
+        return $this->repository->list($perPage, $search, $qualificationIds, $learnerId, $learnerSearch);
     }
 
     /**
-     * Learners holding this job title (Figma 2325:117118).
+     * Learners holding any job title, as Filter-modal options.
      *
-     * Eager-loads the job title with its qualification skills so the resource
-     * can render the qualifications column without a query per row.
+     * @return list<array{id:int, name:string, employee_id:?string}>
+     */
+    public function learnerOptions(?string $search): array
+    {
+        return $this->repository->learnerOptions($search, self::LEARNER_OPTION_LIMIT)
+            ->map(fn ($u) => [
+                'id'          => (int) $u->id,
+                'name'        => $u->getLocalizedName(),
+                'employee_id' => $u->machine_code,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Learners holding this job title (Figma 2325:117118 / 2459:137558).
+     *
+     * "Search by learner or qualification": a term matching one of the job
+     * title's required qualifications returns every learner (they all share
+     * it) with each row narrowed to the matching qualifications and flagged
+     * `qualification_match`, so the page can open those rows. A learner whose
+     * own name or ID matches keeps the full breakdown.
      */
     public function learnersFor(
         JobTitle $jobTitle,
@@ -34,97 +66,218 @@ class JobTitleService
         string $sort = 'name',
         string $dir = 'asc',
     ): LengthAwarePaginator {
-        $page = $this->repository->paginateLearners($jobTitle, $perPage, $search, $sort, $dir);
+        $search = $search !== null ? trim($search) : null;
+        $matchedSkillIds = $search ? $this->matchingSkillIds($jobTitle, $search) : [];
+
+        $page = $this->repository->paginateLearners(
+            $jobTitle, $perPage, $search, $sort, $dir,
+            searchMatchesQualification: $matchedSkillIds !== [],
+        );
 
         $page->getCollection()->each(
             fn ($user) => $user->setRelation('jobTitle', $jobTitle),
         );
 
-        $this->attachQualificationBreakdown($jobTitle, $page->getCollection());
+        $this->attachQualificationBreakdown($jobTitle, $page->getCollection(), $search, $matchedSkillIds);
 
         return $page;
     }
 
+    /**
+     * Required qualifications whose name contains the term in either language.
+     * Matched in PHP: a job title requires a handful, already loaded, and the
+     * translatable JSON column does not LIKE-match Arabic reliably (it may be
+     * stored \u-escaped).
+     *
+     * @return list<int>
+     */
+    private function matchingSkillIds(JobTitle $jobTitle, string $search): array
+    {
+        $needle = mb_strtolower($search);
+
+        return $jobTitle->qualificationSkills
+            ->filter(function ($skill) use ($needle) {
+                foreach (['en', 'ar'] as $locale) {
+                    $name = mb_strtolower((string) $skill->getTranslation('name', $locale, false));
+                    if ($name !== '' && str_contains($name, $needle)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+    }
 
     /**
-     * Per-qualification progress for each learner on the page.
+     * Per-qualification progress for each learner on the page, down to the
+     * courses (Figma 2459:137558, third level).
      *
-     * The job-title detail table (Figma 2325:117118) labels a row
-     * "N of M qualifications" and expands it into one sub-row per required
-     * qualification, each reading "N of M Courses". The row-level course
-     * counts alone cannot render either of those, so they are attached here.
+     * Level 2 reads "N of M Courses"; level 3 lists those M courses with the
+     * learner's status on each:
+     *   - completed:   a passing exam (App\Support\CourseCompletion, B-104), 100 %;
+     *   - in_progress: enrolled, not passed - lecture completion % (the rule
+     *                  LectureProgressService uses everywhere else);
+     *   - unenrolled:  no enrolment row, 0 % (FG-41: "Unenrolled / Not Yet").
      *
      * "Held" is App\Support\QualificationHolding (D-056): a direct grant, or
      * every linked course completed. M is every course linked to the
-     * qualification, not only the ones this learner is enrolled in - counting
-     * enrolled ones let "passed 1 of 3" read as "1 of 1 Courses - earned".
+     * qualification, enrolled or not. A direct grant marks the qualification
+     * earned and 100 % but does not inflate `courses_completed`: the row can
+     * read "0 of 3 Courses" while the qualification is held, which is what an
+     * externally obtained certificate means.
      *
-     * A direct grant marks the qualification earned and 100%, but it does NOT
-     * inflate `courses_completed`: the sub-row can read "0 of 3 Courses" while
-     * the qualification still counts as held, which is exactly what an
-     * externally-obtained certificate means.
+     * Six queries for the whole page whatever its size: linked courses,
+     * direct grants, passes, enrolments, lecture totals, completed lectures.
      *
-     * Two grouped queries for the whole page (linked courses per
-     * qualification, passed ones per learner x qualification) plus the grants.
+     * @param  list<int>  $matchedSkillIds
      */
-    private function attachQualificationBreakdown(JobTitle $jobTitle, Collection $learners): void
-    {
-        $skills = $jobTitle->qualificationSkills;
-
+    private function attachQualificationBreakdown(
+        JobTitle $jobTitle,
+        Collection $learners,
+        ?string $search,
+        array $matchedSkillIds,
+    ): void {
         if ($learners->isEmpty()) {
             return;
         }
 
+        $skills  = $jobTitle->qualificationSkills;
+        $userIds = $learners->pluck('id')->map(fn ($id) => (int) $id)->all();
         $granted = $this->directGrants($learners, $skills);
-        $linked  = collect();
-        $passed  = collect();
+        $locale  = app()->getLocale();
 
-        if ($skills->isNotEmpty()) {
-            $linked = DB::table('course_qualification_skills')
-                ->whereIn('qualification_skill_id', $skills->pluck('id'))
-                ->groupBy('qualification_skill_id')
-                ->selectRaw('qualification_skill_id AS q, COUNT(*) AS n')
-                ->pluck('n', 'q');
+        $links = $skills->isEmpty() ? collect() : DB::table('course_qualification_skills as cqs')
+            ->join('courses', 'courses.id', '=', 'cqs.course_id')
+            ->whereIn('cqs.qualification_skill_id', $skills->pluck('id'))
+            ->orderBy('cqs.course_id')
+            ->get(['cqs.qualification_skill_id as skill_id', 'courses.id as course_id', 'courses.title']);
 
-            $passed = DB::table('course_qualification_skills as cqs')
-                ->crossJoin('users')
-                ->whereIn('users.id', $learners->pluck('id'))
-                ->whereIn('cqs.qualification_skill_id', $skills->pluck('id'))
-                ->whereRaw(CourseCompletion::existsSql('users.id', 'cqs.course_id'))
-                ->groupBy('users.id', 'cqs.qualification_skill_id')
-                ->get(['users.id as user_id', 'cqs.qualification_skill_id', DB::raw('COUNT(*) as passed')])
-                ->groupBy('user_id')
-                ->map(fn ($rows) => $rows->pluck('passed', 'qualification_skill_id'));
+        $courseIds = $links->pluck('course_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $titles    = $links->mapWithKeys(fn ($l) => [(int) $l->course_id => (string) LocalizedJson::pick($l->title, $locale)]);
+        $bySkill   = $links->groupBy('skill_id');
+
+        $passed = $enrolled = $progress = [];
+        if ($courseIds !== []) {
+            $passed = $this->pairs(DB::table('user_exams')
+                ->whereIn('user_id', $userIds)
+                ->whereIn('course_id', $courseIds)
+                ->whereIn(DB::raw("LOWER(COALESCE(status, ''))"), CourseCompletion::PASSING_STATUSES));
+            $enrolled = $this->pairs(DB::table('users_courses')
+                ->whereIn('user_id', $userIds)
+                ->whereIn('course_id', $courseIds));
+            $progress = $this->lectureProgress($userIds, $courseIds);
         }
 
-        $locale = app()->getLocale();
+        $learners->each(function ($user) use ($skills, $bySkill, $titles, $passed, $enrolled, $progress, $granted, $locale, $search, $matchedSkillIds) {
+            $uid  = (int) $user->id;
+            $mine = $granted[$uid] ?? [];
 
-        $learners->each(function ($user) use ($skills, $linked, $passed, $granted, $locale) {
-            $mine   = $granted[$user->id] ?? [];
-            $passes = $passed->get($user->id) ?? collect();
+            $breakdown = $skills->map(function ($skill) use ($uid, $bySkill, $titles, $passed, $enrolled, $progress, $mine, $locale) {
+                $courses = ($bySkill->get($skill->id) ?? collect())->map(function ($link) use ($uid, $titles, $passed, $enrolled, $progress) {
+                    $cid = (int) $link->course_id;
+                    $key = $uid.':'.$cid;
 
-            $breakdown = $skills->map(function ($skill) use ($linked, $passes, $mine, $locale) {
-                $total     = (int) ($linked[$skill->id] ?? 0);
-                $completed = (int) ($passes[$skill->id] ?? 0);
-                $direct    = in_array($skill->id, $mine, true);
+                    [$status, $percent] = match (true) {
+                        isset($passed[$key])   => ['completed', 100],
+                        isset($enrolled[$key]) => ['in_progress', $progress[$key] ?? 0],
+                        default                => ['unenrolled', 0],
+                    };
+
+                    return ['id' => $cid, 'title' => $titles[$cid] ?? '', 'status' => $status, 'percent' => $percent];
+                })->values();
+
+                $total     = $courses->count();
+                $completed = $courses->where('status', 'completed')->count();
+                $direct    = in_array((int) $skill->id, $mine, true);
 
                 return [
-                    'id'                => $skill->id,
+                    'id'                => (int) $skill->id,
                     'name'              => $skill->getTranslation('name', $locale),
                     'courses_total'     => $total,
                     'courses_completed' => $completed,
                     'percent'           => QualificationHolding::percent($direct, $total, $completed),
                     'granted_directly'  => $direct,
                     'earned'            => QualificationHolding::holds($direct, $total, $completed),
+                    'courses'           => $courses->all(),
                 ];
             })->values();
 
-            $user->qualification_breakdown  = $breakdown->all();
+            // Totals always cover every required qualification: compliance
+            // does not change because the admin searched.
             $user->qualifications_total     = $breakdown->count();
             // A qualification with no courses attached and no direct grant is
             // not counted - nothing has happened to earn it.
             $user->qualifications_completed = $breakdown->where('earned', true)->count();
+
+            $narrow = $matchedSkillIds !== [] && ! $this->learnerMatches($user, (string) $search);
+            $user->qualification_match     = $narrow;
+            $user->qualification_breakdown = ($narrow
+                ? $breakdown->filter(fn ($q) => in_array($q['id'], $matchedSkillIds, true))->values()
+                : $breakdown)->all();
         });
+    }
+
+    /** Whether the learner's own name (any language) or employee ID contains the term. */
+    private function learnerMatches(object $user, string $search): bool
+    {
+        $needle = mb_strtolower($search);
+        foreach ([$user->name, $user->name_en, $user->name_ar, $user->machine_code] as $value) {
+            if ($value !== null && $value !== '' && str_contains(mb_strtolower((string) $value), $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Distinct (user, course) pairs of a query, as a "user:course" => true set.
+     *
+     * @return array<string, true>
+     */
+    private function pairs(\Illuminate\Database\Query\Builder $query): array
+    {
+        return $query->distinct()->get(['user_id', 'course_id'])
+            ->mapWithKeys(fn ($r) => [((int) $r->user_id).':'.((int) $r->course_id) => true])
+            ->all();
+    }
+
+    /**
+     * Lecture completion % per (user, course): completed lectures / lectures,
+     * as LectureProgressService::getCourseProgressBatch, for many users at once.
+     *
+     * @param  list<int>  $userIds
+     * @param  list<int>  $courseIds
+     * @return array<string, int>
+     */
+    private function lectureProgress(array $userIds, array $courseIds): array
+    {
+        $totals = DB::table('course_lectures')
+            ->whereIn('course_id', $courseIds)
+            ->groupBy('course_id')
+            ->selectRaw('course_id, COUNT(*) AS n')
+            ->pluck('n', 'course_id');
+
+        $out = [];
+        DB::table('user_lecture_progress as ulp')
+            ->join('course_lectures as cl', 'cl.id', '=', 'ulp.lecture_id')
+            ->whereIn('ulp.user_id', $userIds)
+            ->whereIn('cl.course_id', $courseIds)
+            ->where('ulp.completed', true)
+            ->groupBy('ulp.user_id', 'cl.course_id')
+            ->get(['ulp.user_id', 'cl.course_id', DB::raw('COUNT(*) AS done')])
+            ->each(function ($r) use ($totals, &$out) {
+                $total = (int) ($totals[$r->course_id] ?? 0);
+                if ($total > 0) {
+                    $out[((int) $r->user_id).':'.((int) $r->course_id)] = (int) min(100, round($r->done * 100 / $total));
+                }
+            });
+
+        return $out;
     }
 
     /**

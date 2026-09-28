@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\apis;
 
 use App\Http\Resources\JobTitleResource;
+use App\Http\Requests\Api\Admin\AdminJobTitleIndexRequest;
+use App\Http\Requests\Api\Admin\JobTitleLearnerOptionsRequest;
 use App\Http\Requests\Api\Admin\JobTitleLearnersRequest;
 use App\Http\Resources\Admin\JobTitleLearnerResource;
 use App\Models\JobTitle;
@@ -27,6 +29,40 @@ class JobTitleController extends ApiController
         return $this->paginated(
             __('messages.retrieved'),
             JobTitleResource::collection($jobTitles),
+        );
+    }
+
+    /**
+     * GET admin/job-titles - the admin Job Titles index (Figma 2078:102691):
+     * search also matches employees' names / IDs, and the Filter modal
+     * (2463:138054) narrows by required qualifications and by learner.
+     */
+    public function adminIndex(AdminJobTitleIndexRequest $request): JsonResponse
+    {
+        $jobTitles = $this->service->list(
+            perPage:          $request->perPage(),
+            search:           $request->search(),
+            qualificationIds: $request->qualificationIds(),
+            learnerId:        $request->learnerId(),
+            learnerSearch:    true,
+        );
+
+        return $this->paginated(
+            __('messages.retrieved'),
+            JobTitleResource::collection($jobTitles),
+        );
+    }
+
+    /**
+     * GET admin/job-titles/learner-options - Learner dropdown of the Filter
+     * modal: learners holding a job title, searched on the server (there can
+     * be thousands), at most JobTitleService::LEARNER_OPTION_LIMIT per call.
+     */
+    public function learnerOptions(JobTitleLearnerOptionsRequest $request): JsonResponse
+    {
+        return $this->success(
+            __('messages.retrieved'),
+            $this->service->learnerOptions($request->input('search')),
         );
     }
 

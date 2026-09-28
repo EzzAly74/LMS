@@ -2,14 +2,20 @@
 
 namespace App\Http\Controllers\apis;
 
+use App\Exports\CohortScheduleTemplateExport;
+use App\Http\Requests\Api\CohortWithScheduleRequest;
 use App\Http\Requests\Api\CourseSectionSyncRequest;
 use App\Http\Resources\CourseSectionResource;
 use App\Models\Course;
 use App\Models\CourseSection;
+use App\Services\CohortScheduleImportService;
 use App\Services\CourseSectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Maatwebsite\Excel\Excel as ExcelFormat;
+use Maatwebsite\Excel\Facades\Excel;
 use OpenApi\Annotations as OA;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class CourseSectionController extends ApiController
 {
@@ -94,6 +100,40 @@ class CourseSectionController extends ApiController
     {
         $section = $this->service->create($course, $this->cohortRules($request, $course));
         return $this->created(__('messages.created'), new CourseSectionResource($section));
+    }
+
+    /**
+     * GET courses/{course}/sections/schedule-template - "Download Schedule
+     * Template" (Figma 2393:123167): one numbered row per planned session.
+     */
+    public function scheduleTemplate(Course $course): BinaryFileResponse
+    {
+        return Excel::download(
+            new CohortScheduleTemplateExport((int) $course->number_of_sessions),
+            'cohort-schedule-template.xlsx',
+            ExcelFormat::XLSX,
+        );
+    }
+
+    /**
+     * POST courses/{course}/sections/scheduled - New Cohort with its uploaded
+     * schedule (Figma 2393:122292). All-or-nothing: any bad row returns 422
+     * with every problem under `report.errors` and creates nothing.
+     */
+    public function storeWithSchedule(Course $course, CohortWithScheduleRequest $request, CohortScheduleImportService $import): JsonResponse
+    {
+        $out = $import->create($course, $request->cohort(), $request->file('schedule'));
+
+        if ($out['section'] === null) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('messages.import_rejected'),
+                'errors'  => ['schedule' => [__('messages.import_rejected')]],
+                'report'  => ['errors' => $out['errors']],
+            ], 422);
+        }
+
+        return $this->created(__('messages.created'), new CourseSectionResource($out['section']));
     }
 
     /**

@@ -32,6 +32,9 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])->group
     // Sections — write
     Route::post('courses/{course}/sections',               [CourseSectionController::class, 'store']);
     Route::post('courses/{course}/sections/sync',          [CourseSectionController::class, 'sync']);
+    // New Cohort with its schedule (Figma 2393:123167 / 2393:122292).
+    Route::get('courses/{course}/sections/schedule-template', [CourseSectionController::class, 'scheduleTemplate'])->middleware('throttle:10,1');
+    Route::post('courses/{course}/sections/scheduled',     [CourseSectionController::class, 'storeWithSchedule'])->middleware('throttle:10,1');
     Route::put('courses/{course}/sections/{section}',      [CourseSectionController::class, 'update']);
     Route::delete('courses/{course}/sections/{section}',   [CourseSectionController::class, 'destroy']);
 

@@ -54,7 +54,11 @@ class CourseRequest extends FormRequest
             $merge['qualification_skill_ids'] = $this->input('qualification_ids');
         }
 
-        if (! $this->has('hours')) {
+        // Hours follow the cohort schedule (D-062, CourseHoursService). A new
+        // course starts at 1 until its first schedule is uploaded; an edit
+        // that doesn't send hours leaves the derived value alone instead of
+        // resetting it to 1 (B-119).
+        if (! $this->has('hours') && $this->route('course') === null) {
             $merge['hours'] = 1;
         }
 
@@ -126,7 +130,7 @@ class CourseRequest extends FormRequest
             'intro_video'             => 'nullable|string',
             'price'                   => 'nullable|numeric|min:0',
             'currency'                => 'nullable|string|max:10',
-            'hours'                   => 'required|integer|min:1',
+            'hours'                   => ($this->route('course') === null ? 'required' : 'sometimes').'|integer|min:1',
             'max_learners'            => 'nullable|integer|min:1|max:10000',
             'number_of_sessions'      => 'nullable|integer|min:1|max:1000',
             'language'                => 'nullable|string|max:50',

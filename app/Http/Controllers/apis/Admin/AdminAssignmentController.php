@@ -143,6 +143,13 @@ class AdminAssignmentController extends ApiController
 
         $this->validateCohortFilter($request);
 
+        // Passed / Failed and Pre / Mid / Post, as on the quizzes list (D-065).
+        $filters = $request->validate([
+            'result'  => ['nullable', 'in:passed,failed'],
+            'types'   => ['nullable', 'array', 'max:3'],
+            'types.*' => ['in:pre,mid,post'],
+        ]);
+
         $submissions = $this->service->paginateSubmissions(
             $request->integer('assignment_id') ?: null,
             $request->integer('course_id') ?: null,
@@ -154,6 +161,8 @@ class AdminAssignmentController extends ApiController
             $request->get('search'),
             $this->submissionsPerPage($request),
             $request->integer('section_id') ?: null,
+            $filters['result'] ?? null,
+            array_values($filters['types'] ?? []),
         );
 
         return $this->paginated(

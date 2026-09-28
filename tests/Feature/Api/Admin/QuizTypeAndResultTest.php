@@ -210,6 +210,36 @@ class QuizTypeAndResultTest extends ApiTestCase
         $this->assertSame('post', $row['quiz_type']);
     }
 
+    // ------------------------------------------------------------ assignments (same list, 1983:42584)
+
+    public function test_assignment_attempts_filter_by_passed_failed_and_type(): void
+    {
+        $pre  = CourseAssignment::factory()->create(['course_id' => $this->course->id, 'type' => 'pre', 'pass_score' => 10]);
+        $post = CourseAssignment::factory()->create(['course_id' => $this->course->id, 'type' => 'post', 'pass_score' => 10]);
+        $row = fn (CourseAssignment $a, ?int $score) => \App\Models\UserCourseAssignment::create([
+            'user_id' => User::factory()->create()->id, 'course_assignment_id' => $a->id,
+            'total_score' => $score, 'max_score' => 20, 'submitted_at' => now(),
+        ])->id;
+        $passed  = $row($pre, 15);
+        $failed  = $row($post, 5);
+        $waiting = $row($post, null);
+
+        ['headers' => $h] = $this->adminToken();
+        $ids = fn (string $q) => collect($this->getJson(self::BASE.'/admin/assignments/submissions'.$q, $h)->assertOk()->json('result'))
+            ->pluck('id')->sort()->values()->all();
+
+        $this->assertSame([$passed], $ids('?result=passed'));
+        $this->assertSame([$failed], $ids('?result=failed'));
+        $this->assertSame([$passed], $ids('?types[]=pre'));
+        $this->assertSame(collect([$failed, $waiting])->sort()->values()->all(), $ids('?types[]=post'));
+
+        $first = collect($this->getJson(self::BASE.'/admin/assignments/submissions', $h)->json('result'))->firstWhere('id', $passed);
+        $this->assertSame(['pre', true], [$first['assignment_type'], $first['passed']]);
+
+        $this->getJson(self::BASE.'/admin/assignments/submissions?result=maybe', $h)->assertStatus(422);
+        $this->getJson(self::BASE.'/admin/assignments/submissions?types[]=final', $h)->assertStatus(422);
+    }
+
     public function test_invalid_filters_are_rejected(): void
     {
         ['headers' => $h] = $this->adminToken();

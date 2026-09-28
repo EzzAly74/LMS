@@ -44,6 +44,8 @@ class AdminAssignmentSubmissionResource extends JsonResource
                     ? ($this->assignment->title_ar ?: $this->assignment->title)
                     : ($this->assignment->title ?: $this->assignment->title_ar))
                 : null,
+            // Pre / Mid / Post (D-065): the Type column of the list (Figma 1983:42584).
+            'assignment_type'  => $assignment ? $this->assignment->type : null,
             'course_title'     => $course ? $course->title : null,
             'instructor_name'  => $instructor && isset($instructor->name) ? $instructor->name : null,
             'cohort_titles'    => $cohortTitles,

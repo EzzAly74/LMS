@@ -178,8 +178,10 @@ class AdminAssignmentService
         ?string $search,
         int $perPage = 20,
         ?int $sectionId = null,
+        ?string $result = null,
+        array $types = [],
     ): LengthAwarePaginator {
-        $page = $this->submissionsQuery($assignmentId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId)
+        $page = $this->submissionsQuery($assignmentId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId, $result, $types)
             ->with([
                 'user:id,name,machine_code,department_name',
                 'assignment.course:id,title',
@@ -251,6 +253,8 @@ class AdminAssignmentService
         ?string $status,
         ?string $search,
         ?int $sectionId,
+        ?string $result = null,
+        array $types = [],
     ): Builder {
         return UserCourseAssignment::query()
             ->when($assignmentId, fn ($q) => $q->where('course_assignment_id', $assignmentId))
@@ -267,7 +271,16 @@ class AdminAssignmentService
             ->when($status === 'pending', fn ($q) => $q->where(fn ($w) => $w->whereNull('total_score')
                 ->orWhereHas('answers', fn ($a) => $a->whereNull('awarded_score'))))
             ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
-            ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_course_assignments.user_id', $courseId, $sectionId));
+            ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_course_assignments.user_id', $courseId, $sectionId))
+            // Passed / Failed (Figma 1983:42584, D-065): only a fully graded
+            // submission of an assignment that sets a pass score has a result,
+            // the same rule the resource's `passed` uses.
+            ->when($result === 'passed' || $result === 'failed', fn ($q) => $q
+                ->whereNotNull('user_course_assignments.total_score')
+                ->whereDoesntHave('answers', fn ($a) => $a->whereNull('awarded_score'))
+                ->whereHas('assignment', fn ($a) => $a->whereNotNull('course_assignments.pass_score')
+                    ->whereColumn('user_course_assignments.total_score', $result === 'passed' ? '>=' : '<', 'course_assignments.pass_score')))
+            ->when($types !== [], fn ($q) => $q->whereHas('assignment', fn ($a) => $a->whereIn('type', $types)));
     }
 
     public function showSubmission(int $id): UserCourseAssignment

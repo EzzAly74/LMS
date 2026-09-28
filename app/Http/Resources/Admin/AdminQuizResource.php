@@ -38,8 +38,8 @@ class AdminQuizResource extends JsonResource
                 'name' => $this->creator->name,
             ] : null),
             'cohorts'         => $this->whenLoaded('cohorts', fn () => $this->cohorts->map(fn ($c) => [
-                'id'    => $c->course_session_id,
-                'title' => optional($c->session)->title,
+                'id'    => $c->course_section_id,
+                'title' => optional($c->cohort)->name,
             ])->values()),
             'questions'       => AdminQuizQuestionResource::collection($this->whenLoaded('richQuestions')),
             'created_at'      => $this->created_at?->format('Y-m-d H:i:s'),

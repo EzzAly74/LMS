@@ -15,8 +15,8 @@ class AdminQuizListResource extends JsonResource
     public function toArray(Request $request): array
     {
         $cohorts = $this->whenLoaded('cohorts', fn () => $this->cohorts->map(fn ($c) => [
-            'id'    => $c->course_session_id,
-            'title' => optional($c->session)->title,
+            'id'    => $c->course_section_id,
+            'title' => optional($c->cohort)->name,
         ])->values(), collect());
 
         return [

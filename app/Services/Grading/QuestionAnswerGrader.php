@@ -66,6 +66,41 @@ class QuestionAnswerGrader
             : ($question->correct_answer_en ?? $question->correct_answer_ar);
     }
 
+    /**
+     * The options a learner sees. A reorder question's items are authored in
+     * their correct order (Figma 1982:41913, D-066), so they are shuffled
+     * here - otherwise the learner starts on the answer. The shuffle is
+     * seeded by the attempt, so a resumed attempt shows the same order, and
+     * it never returns the correct order itself.
+     *
+     * @return array<int, string>|null
+     */
+    public function optionsForLearner(object $question, string $locale, int $attemptId): ?array
+    {
+        $options = $locale === 'ar'
+            ? ($question->options_ar ?? $question->options_en)
+            : ($question->options_en ?? $question->options_ar);
+
+        if ($question->type !== self::TYPE_REORDER || ! is_array($options) || count($options) < 2) {
+            return $options;
+        }
+
+        $items = array_values($options);
+        $keyed = [];
+        foreach ($items as $i => $item) {
+            $keyed[] = [hash('sha256', "{$attemptId}:{$question->id}:{$i}"), $item];
+        }
+        usort($keyed, fn (array $a, array $b) => strcmp($a[0], $b[0]));
+        $shuffled = array_column($keyed, 1);
+
+        // A hash order can land on the original; rotate by one so it never does.
+        if ($shuffled === $items) {
+            $shuffled[] = array_shift($shuffled);
+        }
+
+        return $shuffled;
+    }
+
     private function gradeChoice(object $question, array $payload): array
     {
         $submitted = $this->normalize((string) ($payload['value'] ?? ''));

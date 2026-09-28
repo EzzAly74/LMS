@@ -18,17 +18,20 @@ class AdminAssignmentStoreRequest extends FormRequest
         return [
             'course_id'                 => ['required', 'integer', 'exists:courses,id'],
             'title'                     => ['required', 'string', 'max:255'],
-            'title_ar'                  => ['nullable', 'string', 'max:255'],
+            // Figma marks the Arabic title, Type and every Arabic question
+            // field required (answered 2026-09-28, D-066).
+            'title_ar'                  => ['required', 'string', 'max:255'],
             'instructions_en'           => ['nullable', 'string', 'max:5000'],
             'instructions_ar'           => ['nullable', 'string', 'max:5000'],
             'due_date'                  => ['nullable', 'date'],
             'cohort_scope'              => ['required', Rule::in(['all', 'specific'])],
             'cohort_ids'                => ['nullable', 'array'],
-            'cohort_ids.*'              => ['integer', 'exists:course_sessions,id'],
+            // Cohorts are course_sections of THIS course (B-137).
+            'cohort_ids.*'              => ['integer', 'distinct', Rule::exists('course_sections', 'id')->where('course_id', (int) $this->input('course_id'))],
             'pass_score'                => ['nullable', 'integer', 'min:0'],
             'status'                    => ['nullable', Rule::in(['draft', 'active'])],
-            // Pre / Mid / Post (D-065). On quizzes Post is the final exam.
-            'type'                      => ['nullable', Rule::in(['pre', 'mid', 'post'])],
+            // Pre / Mid / Post (D-065, required by D-066). On quizzes Post is the final exam.
+            'type'                      => ['required', Rule::in(['pre', 'mid', 'post'])],
 
             'questions'                 => ['required', 'array', 'min:1'],
             // Present when editing: the question is updated in place, so its
@@ -38,7 +41,7 @@ class AdminAssignmentStoreRequest extends FormRequest
             'questions.*.type'          => ['required', Rule::in(CourseAssignmentQuestion::TYPES)],
             'questions.*.score'         => ['required', 'integer', 'min:0'],
             'questions.*.question_en'   => ['required', 'string', 'max:2000'],
-            'questions.*.question_ar'   => ['nullable', 'string', 'max:2000'],
+            'questions.*.question_ar'   => ['required', 'string', 'max:2000'],
             'questions.*.options_en'    => ['nullable', 'array'],
             'questions.*.options_en.*'  => ['string', 'max:500'],
             'questions.*.options_ar'    => ['nullable', 'array'],
@@ -62,14 +65,16 @@ class AdminAssignmentStoreRequest extends FormRequest
 
             foreach ((array) $this->input('questions', []) as $i => $q) {
                 $type = $q['type'] ?? null;
-                $opts = $q['options_en'] ?? [];
 
-                if (in_array($type, ['mcq', 'reorder'], true) && (empty($opts) || count($opts) < 2)) {
-                    $v->errors()->add("questions.$i.options_en", __('Provide at least two options.'));
-                }
+                foreach (['en', 'ar'] as $lang) {
+                    $opts = $q["options_$lang"] ?? [];
+                    if (in_array($type, ['mcq', 'reorder'], true) && (empty($opts) || count($opts) < 2)) {
+                        $v->errors()->add("questions.$i.options_$lang", __('Provide at least two options.'));
+                    }
 
-                if (! in_array($type, CourseAssignmentQuestion::MANUAL_TYPES, true) && empty($q['correct_answer_en'])) {
-                    $v->errors()->add("questions.$i.correct_answer_en", __('Correct answer is required for this question type.'));
+                    if (! in_array($type, CourseAssignmentQuestion::MANUAL_TYPES, true) && empty($q["correct_answer_$lang"])) {
+                        $v->errors()->add("questions.$i.correct_answer_$lang", __('Correct answer is required for this question type.'));
+                    }
                 }
             }
         });

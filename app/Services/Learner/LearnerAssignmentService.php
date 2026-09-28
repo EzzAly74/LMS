@@ -49,7 +49,7 @@ class LearnerAssignmentService
 
         $locale = app()->getLocale();
 
-        $questionPayload = $questions->map(function (CourseAssignmentQuestion $question) use ($answers, $locale) {
+        $questionPayload = $questions->map(function (CourseAssignmentQuestion $question) use ($answers, $locale, $submission) {
             $answer = $answers->get($question->id);
 
             return [
@@ -58,7 +58,7 @@ class LearnerAssignmentService
                 'type' => $question->type,
                 'score' => $question->score,
                 'question' => $locale === 'ar' ? ($question->question_ar ?? $question->question_en) : ($question->question_en ?? $question->question_ar),
-                'options' => $locale === 'ar' ? ($question->options_ar ?? $question->options_en) : ($question->options_en ?? $question->options_ar),
+                'options' => $this->grader->optionsForLearner($question, $locale, $submission->id),
                 'my_answer' => $answer?->answer,
                 'is_answered' => $answer !== null,
                 // File questions (D-033): the instructor's attachment and the

@@ -41,6 +41,8 @@ class AssignmentFileQuestionTest extends ApiTestCase
         return [
             'course_id'    => $this->course->id,
             'title'        => 'Practical Assessment',
+            'title_ar'     => 'تقييم عملي',
+            'type'         => 'post',
             'cohort_scope' => 'all',
             'status'       => 'active',
             'questions'    => $questions,
@@ -49,7 +51,7 @@ class AssignmentFileQuestionTest extends ApiTestCase
 
     private function fileQuestion(array $extra = []): array
     {
-        return $extra + ['type' => 'file', 'score' => 20, 'question_en' => 'Describe the first three actions after a spill.'];
+        return $extra + ['type' => 'file', 'score' => 20, 'question_en' => 'Describe the first three actions after a spill.', 'question_ar' => 'صف أول ثلاث خطوات بعد الانسكاب.'];
     }
 
     /** @return array{0: CourseAssignment, 1: CourseAssignmentQuestion} */
@@ -173,7 +175,7 @@ class AssignmentFileQuestionTest extends ApiTestCase
         $this->post($this->answerUrl($a, $q), ['file' => $this->pdf()], $learner + ['Accept' => 'application/json'])->assertOk();
         ['headers' => $admin] = $this->adminToken();
 
-        $this->putJson(self::BASE."/admin/assignments/{$a->id}", $this->payload([['type' => 'open', 'score' => 5, 'question_en' => 'Instead']]), $admin)->assertOk();
+        $this->putJson(self::BASE."/admin/assignments/{$a->id}", $this->payload([['type' => 'open', 'score' => 5, 'question_en' => 'Instead', 'question_ar' => 'بدلا من ذلك']]), $admin)->assertOk();
 
         $this->assertNull($q->fresh());
         $this->assertSame([], Storage::disk('private')->allFiles());

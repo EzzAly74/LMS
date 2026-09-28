@@ -17,7 +17,7 @@ class AdminQuizSubmissionResource extends JsonResource
         $course       = $quiz ? optional($this->exam->course) : null;
         $instructor   = $quiz ? optional($this->exam->creator) : null;
         $cohortTitles = $quiz && $this->exam->relationLoaded('cohorts')
-            ? $this->exam->cohorts->map(fn ($c) => optional($c->session)->title)->filter()->values()
+            ? $this->exam->cohorts->map(fn ($c) => optional($c->cohort)->name)->filter()->values()
             : collect();
 
         $max     = $this->max_score ?? 0;

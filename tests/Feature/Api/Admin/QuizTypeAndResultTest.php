@@ -27,17 +27,26 @@ class QuizTypeAndResultTest extends ApiTestCase
         $this->course = Course::factory()->create();
     }
 
+    /** An MCQ with both languages, as the form sends it (D-066). */
+    private function mcq(array $extra = []): array
+    {
+        return $extra + [
+            'type' => 'mcq', 'score' => 20, 'question_en' => 'Pick', 'question_ar' => 'اختر',
+            'options_en' => ['a', 'b'], 'options_ar' => ['أ', 'ب'], 'correct_answer_en' => 'a', 'correct_answer_ar' => 'أ',
+        ];
+    }
+
     private function payload(array $extra = [], ?array $questions = null): array
     {
         return $extra + [
             'course_id'    => $this->course->id,
             'title'        => 'Knowledge Check',
+            'title_ar'     => 'اختبار المعرفة',
+            'type'         => 'mid',
             'cohort_scope' => 'all',
             'status'       => 'active',
             'pass_score'   => 10,
-            'questions'    => $questions ?? [[
-                'type' => 'mcq', 'score' => 20, 'question_en' => 'Pick', 'options_en' => ['a', 'b'], 'correct_answer_en' => 'a',
-            ]],
+            'questions'    => $questions ?? [$this->mcq()],
         ];
     }
 
@@ -55,11 +64,9 @@ class QuizTypeAndResultTest extends ApiTestCase
     {
         $post = $this->createQuiz(['type' => 'post']);
         $mid  = $this->createQuiz(['type' => 'mid']);
-        $none = $this->createQuiz();
 
         $this->assertSame(['post', true], [$post->type, (bool) $post->is_final]);
         $this->assertSame(['mid', false], [$mid->type, (bool) $mid->is_final]);
-        $this->assertSame([null, false], [$none->type, (bool) $none->is_final]);
 
         ['headers' => $h] = $this->adminToken();
         $this->getJson(self::BASE."/admin/quizzes/{$post->id}", $h)->assertOk()->assertJsonPath('result.type', 'post');
@@ -86,6 +93,32 @@ class QuizTypeAndResultTest extends ApiTestCase
         $this->postJson(self::BASE.'/admin/assignments', $this->payload(['type' => 'x']), $h)->assertStatus(422)->assertJsonValidationErrors('type');
     }
 
+    // ------------------------------------------------------------ D-066
+
+    public function test_type_and_every_arabic_field_are_required(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+        $bare = ['type' => 'mcq', 'score' => 20, 'question_en' => 'Pick', 'options_en' => ['a', 'b'], 'correct_answer_en' => 'a'];
+
+        foreach (['quizzes', 'assignments'] as $kind) {
+            $body = $this->payload([], [$bare]);
+            unset($body['type'], $body['title_ar']);
+
+            $this->postJson(self::BASE."/admin/$kind", $body, $h)->assertStatus(422)->assertJsonValidationErrors([
+                'type', 'title_ar', 'questions.0.question_ar', 'questions.0.options_ar', 'questions.0.correct_answer_ar',
+            ]);
+        }
+    }
+
+    public function test_an_open_question_needs_no_answer_key_in_either_language(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+
+        $this->postJson(self::BASE.'/admin/quizzes', $this->payload([], [[
+            'type' => 'open', 'score' => 5, 'question_en' => 'Why', 'question_ar' => 'لماذا',
+        ]]), $h)->assertSuccessful();
+    }
+
     public function test_an_assignment_keeps_its_type(): void
     {
         ['headers' => $h] = $this->adminToken();
@@ -105,9 +138,9 @@ class QuizTypeAndResultTest extends ApiTestCase
         DB::table('user_exam_answers')->insert(['user_exam_id' => $attempt->id, 'question_id' => $question->id, 'is_correct' => true, 'created_at' => now(), 'updated_at' => now()]);
 
         ['headers' => $h] = $this->adminToken();
-        $this->putJson(self::BASE."/admin/quizzes/{$quiz->id}", $this->payload([], [[
-            'id' => $question->id, 'type' => 'mcq', 'score' => 20, 'question_en' => 'Pick one', 'options_en' => ['a', 'b'], 'correct_answer_en' => 'a',
-        ]]), $h)->assertOk();
+        $this->putJson(self::BASE."/admin/quizzes/{$quiz->id}", $this->payload([], [
+            $this->mcq(['id' => $question->id, 'question_en' => 'Pick one']),
+        ]), $h)->assertOk();
 
         $this->assertSame('Pick one', CourseExamQuestion::findOrFail($question->id)->question_en);
         $this->assertSame(1, DB::table('user_exam_answers')->where('question_id', $question->id)->count());
@@ -119,9 +152,9 @@ class QuizTypeAndResultTest extends ApiTestCase
         $other = $this->createQuiz()->questions()->firstOrFail();
         ['headers' => $h] = $this->adminToken();
 
-        $this->putJson(self::BASE."/admin/quizzes/{$quiz->id}", $this->payload([], [[
-            'id' => $other->id, 'type' => 'mcq', 'score' => 20, 'question_en' => 'Pick', 'options_en' => ['a', 'b'], 'correct_answer_en' => 'a',
-        ]]), $h)->assertStatus(422)->assertJsonValidationErrors('questions.0.id');
+        $this->putJson(self::BASE."/admin/quizzes/{$quiz->id}", $this->payload([], [
+            $this->mcq(['id' => $other->id]),
+        ]), $h)->assertStatus(422)->assertJsonValidationErrors('questions.0.id');
     }
 
     // ------------------------------------------------------------ Passed / Failed + B-134

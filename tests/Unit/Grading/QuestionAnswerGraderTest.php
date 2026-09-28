@@ -155,4 +155,28 @@ class QuestionAnswerGraderTest extends TestCase
 
         $this->assertSame('B', $this->grader()->correctAnswerForDisplay($question, 'ar'));
     }
+
+    // ------------------------------------------------------------ D-066 learner options
+
+    public function test_reorder_items_reach_the_learner_shuffled_never_in_the_answer_order(): void
+    {
+        $items = ['Assess', 'Contain', 'Report', 'Clean'];
+        $question = $this->question(['id' => 7, 'type' => 'reorder', 'options_en' => $items, 'options_ar' => ['قيّم', 'احتوِ', 'أبلغ', 'نظّف']]);
+
+        foreach (range(1, 40) as $attempt) {
+            $shown = $this->grader()->optionsForLearner($question, 'en', $attempt);
+            $this->assertNotSame($items, $shown, "attempt $attempt showed the answer order");
+            $this->assertEqualsCanonicalizing($items, $shown);
+        }
+
+        // A resumed attempt sees the same order; Arabic learners get the Arabic items.
+        $this->assertSame($this->grader()->optionsForLearner($question, 'en', 3), $this->grader()->optionsForLearner($question, 'en', 3));
+        $this->assertEqualsCanonicalizing(['قيّم', 'احتوِ', 'أبلغ', 'نظّف'], $this->grader()->optionsForLearner($question, 'ar', 3));
+    }
+
+    public function test_choice_options_reach_the_learner_unchanged(): void
+    {
+        $this->assertSame(['A', 'B', 'C'], $this->grader()->optionsForLearner($this->question(['id' => 1]), 'en', 5));
+        $this->assertSame(['أ', 'ب', 'ج'], $this->grader()->optionsForLearner($this->question(['id' => 1]), 'ar', 5));
+    }
 }

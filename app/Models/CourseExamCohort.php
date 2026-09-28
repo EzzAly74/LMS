@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Pivot model linking a rich Quiz (course_exams) to a specific cohort
- * (course_sessions). Used only when CourseExam::cohort_scope === 'specific'.
+ * (course_sections, B-137). Used only when CourseExam::cohort_scope === 'specific'.
  */
 class CourseExamCohort extends Model
 {
@@ -22,8 +22,8 @@ class CourseExamCohort extends Model
         return $this->belongsTo(CourseExam::class, 'course_exam_id');
     }
 
-    public function session()
+    public function cohort()
     {
-        return $this->belongsTo(CourseSession::class, 'course_session_id');
+        return $this->belongsTo(CourseSection::class, 'course_section_id');
     }
 }

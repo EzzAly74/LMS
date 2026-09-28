@@ -57,7 +57,7 @@ class LearnerQuizService
 
         $locale = app()->getLocale();
 
-        $questionPayload = $questions->map(function (CourseExamQuestion $question) use ($answers, $locale) {
+        $questionPayload = $questions->map(function (CourseExamQuestion $question) use ($answers, $locale, $submission) {
             $answer = $answers->get($question->id);
 
             return [
@@ -66,7 +66,7 @@ class LearnerQuizService
                 'type' => $question->type,
                 'score' => $question->score,
                 'question' => $locale === 'ar' ? ($question->question_ar ?? $question->question_en) : ($question->question_en ?? $question->question_ar),
-                'options' => $locale === 'ar' ? ($question->options_ar ?? $question->options_en) : ($question->options_en ?? $question->options_ar),
+                'options' => $this->grader->optionsForLearner($question, $locale, $submission->id),
                 'my_answer' => $answer?->answer_payload,
                 'is_answered' => $answer !== null,
             ];

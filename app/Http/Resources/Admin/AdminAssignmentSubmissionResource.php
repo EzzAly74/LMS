@@ -20,7 +20,7 @@ class AdminAssignmentSubmissionResource extends JsonResource
         $course       = $assignment ? optional($this->assignment->course) : null;
         $instructor   = $assignment ? optional($this->assignment->creator) : null;
         $cohortTitles = $assignment && $this->assignment->relationLoaded('cohorts')
-            ? $this->assignment->cohorts->map(fn ($c) => optional($c->session)->title)->filter()->values()
+            ? $this->assignment->cohorts->map(fn ($c) => optional($c->cohort)->name)->filter()->values()
             : collect();
 
         $max     = $this->max_score ?? 0;

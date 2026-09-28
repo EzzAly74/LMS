@@ -80,19 +80,19 @@ return [
 
     // ── Quizzes / assignments ──────────────────────────────────────────
     'cohort_scope' => [
-        'all'      => 'All cohorts',
-        'specific' => 'Specific cohort',
+        'all'      => 'All Cohorts',
+        'specific' => 'Specific Cohort',
     ],
 
     'question_type' => [
-        'mcq'     => 'Multiple Choice',
-        'yes_no'  => 'Yes / No',
+        'mcq'     => 'MCQ',
+        'yes_no'  => 'Yes/No',
         'open'    => 'Short Answer',
         'reorder' => 'Reorder',
     ],
     'assignment_question_type' => [
-        'mcq'     => 'Multiple Choice',
-        'yes_no'  => 'Yes / No',
+        'mcq'     => 'MCQ',
+        'yes_no'  => 'Yes/No',
         'open'    => 'Short Answer',
         'reorder' => 'Reorder',
         'file'    => 'File',

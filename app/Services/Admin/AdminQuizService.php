@@ -36,7 +36,7 @@ class AdminQuizService
         int $perPage = 20
     ): LengthAwarePaginator {
         return CourseExam::query()
-            ->with(['course:id,title', 'cohorts.session:id,title'])
+            ->with(['course:id,title', 'cohorts.cohort:id,name'])
             ->withCount(['richQuestions as rich_questions_count'])
             ->whereExists(function ($sub) {
                 $sub->select(DB::raw(1))
@@ -116,7 +116,7 @@ class AdminQuizService
                 'creator:id,name',
                 // B-136: legacy options / answer key live in course_exam_question_answers.
                 'richQuestions.answers',
-                'cohorts.session:id,title',
+                'cohorts.cohort:id,name',
             ])
             ->findOrFail($id);
     }
@@ -212,7 +212,7 @@ class AdminQuizService
                 'user:id,name',
                 'exam.course:id,title',
                 'exam.creator:id,name',
-                'exam.cohorts.session:id,title',
+                'exam.cohorts.cohort:id,name',
             ])
             ->latest('id')
             ->paginate($perPage);
@@ -424,10 +424,10 @@ class AdminQuizService
             return;
         }
 
-        foreach (array_unique($cohortIds) as $sessionId) {
+        foreach (array_unique($cohortIds) as $cohortId) {
             CourseExamCohort::create([
                 'course_exam_id'    => $quiz->id,
-                'course_session_id' => $sessionId,
+                'course_section_id' => $cohortId,
             ]);
         }
     }

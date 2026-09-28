@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Pivot between a course_assignment and a course_session (cohort).
+ * Pivot between an assignment and a cohort (course_sections, B-137).
  */
 class CourseAssignmentCohort extends Model
 {
@@ -20,8 +20,8 @@ class CourseAssignmentCohort extends Model
         return $this->belongsTo(CourseAssignment::class, 'course_assignment_id');
     }
 
-    public function session(): BelongsTo
+    public function cohort(): BelongsTo
     {
-        return $this->belongsTo(CourseSession::class, 'course_session_id');
+        return $this->belongsTo(CourseSection::class, 'course_section_id');
     }
 }

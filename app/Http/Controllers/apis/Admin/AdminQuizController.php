@@ -12,6 +12,7 @@ use App\Http\Resources\Admin\AdminQuizSubmissionDetailResource;
 use App\Http\Resources\Admin\AdminQuizSubmissionResource;
 use App\Http\Traits\SubmissionListParams;
 use App\Models\CourseExam;
+use App\Models\CourseSection;
 use App\Models\CourseSession;
 use App\Models\User;
 use App\Models\UserExam;
@@ -65,12 +66,15 @@ class AdminQuizController extends ApiController
 
     public function cohorts(Request $request): JsonResponse
     {
-        $courseId = $request->integer('course_id');
-        $cohorts = CourseSession::query()
-            ->select(['id', 'course_id', 'title'])
-            ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
-            ->orderBy('title')
-            ->get();
+        // The cohorts (course_sections) of one course - not its class
+        // sessions, and never every course's at once (B-137).
+        $courseId = (int) $request->validate(['course_id' => ['required', 'integer', 'exists:courses,id']])['course_id'];
+        $cohorts = CourseSection::query()
+            ->where('course_id', $courseId)
+            ->orderBy('id')
+            ->limit(500)
+            ->get(['id', 'course_id', 'name'])
+            ->map(fn (CourseSection $s) => ['id' => $s->id, 'course_id' => $s->course_id, 'title' => $s->name]);
 
         return $this->success(__('messages.retrieved'), $cohorts);
     }

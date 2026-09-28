@@ -39,7 +39,7 @@ class AdminAssignmentService
         int $perPage = 20
     ): LengthAwarePaginator {
         return CourseAssignment::query()
-            ->with(['course:id,title', 'cohorts.session:id,title'])
+            ->with(['course:id,title', 'cohorts.cohort:id,name'])
             ->withCount('questions')
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->when($status, fn ($q) => $q->where('status', $status))
@@ -95,7 +95,7 @@ class AdminAssignmentService
                 'course:id,title',
                 'creator:id,name',
                 'questions',
-                'cohorts.session:id,title',
+                'cohorts.cohort:id,name',
             ])
             ->findOrFail($id);
     }
@@ -184,7 +184,7 @@ class AdminAssignmentService
                 'user:id,name,machine_code,department_name',
                 'assignment.course:id,title',
                 'assignment.creator:id,name',
-                'assignment.cohorts.session:id,title',
+                'assignment.cohorts.cohort:id,name',
             ])
             ->withCount(['answers as pending_answers_count' => fn ($a) => $a->whereNull('awarded_score')])
             ->latest('id')
@@ -382,10 +382,10 @@ class AdminAssignmentService
             return;
         }
 
-        foreach (array_unique($cohortIds) as $sessionId) {
+        foreach (array_unique($cohortIds) as $cohortId) {
             CourseAssignmentCohort::create([
                 'course_assignment_id' => $assignment->id,
-                'course_session_id'    => $sessionId,
+                'course_section_id'    => $cohortId,
             ]);
         }
     }

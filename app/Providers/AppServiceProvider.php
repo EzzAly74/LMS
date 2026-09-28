@@ -94,6 +94,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\PersonalAccessToken;
 use Throwable;
 
 class AppServiceProvider extends ServiceProvider
@@ -175,8 +176,27 @@ class AppServiceProvider extends ServiceProvider
         // Laravel 11's Tailwind default.
         Paginator::useBootstrapFive();
 
+        // General API limit, keyed per signed-in account (B-124, B-121).
+        //
+        // `throttle:api` runs in the api group, before AuthenticationMiddleware
+        // sets the user resolver, so `$request->user()` was always null here and
+        // every request was keyed on IP: everyone behind the office NAT shared
+        // one 60/min bucket. The token is resolved here instead (a primary-key
+        // lookup, as in the middleware). A valid token is keyed on its owner, so
+        // extra tokens don't multiply the budget; 300/min covers a Dashboard
+        // page (~10 calls, ~10 more on a language switch). A missing, unknown or
+        // expired token falls back to the IP at 60/min, so random bearer strings
+        // cannot buy fresh buckets. Login, upload and export keep their own
+        // tighter limits.
         RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+            $token = $request->bearerToken();
+            $pat   = $token ? PersonalAccessToken::findToken($token) : null;
+
+            if ($pat !== null && ($pat->expires_at === null || $pat->expires_at->isFuture())) {
+                return Limit::perMinute(300)->by('principal:'.$pat->tokenable_type.':'.$pat->tokenable_id);
+            }
+
+            return Limit::perMinute(60)->by('ip:'.$request->ip());
         });
 
         // Login throttle. Learner credentials are verified by the HR API, so an

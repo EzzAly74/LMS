@@ -102,4 +102,50 @@ class ApiHardeningTest extends ApiTestCase
 
         $this->assertSame(429, $lastStatus, 'Expected the api limiter to return 429 within 65 requests.');
     }
+
+    // ---------------------------------------------------------------------
+    // B-124 — the api limiter keyed every request on IP
+    // ---------------------------------------------------------------------
+
+    private function hit(array $headers = []): \Illuminate\Testing\TestResponse
+    {
+        return $this->getJson(self::BASE.'/enums', $headers);
+    }
+
+    public function test_a_signed_in_account_is_not_limited_by_anonymous_traffic_from_the_same_ip(): void
+    {
+        for ($i = 0; $i < 60; $i++) {
+            $this->hit()->assertOk();
+        }
+        $this->hit()->assertStatus(429);   // the office NAT address is spent
+
+        ['headers' => $admin] = $this->adminToken();
+        ['headers' => $learner] = $this->userToken();
+        $this->hit($admin)->assertOk()->assertHeader('X-RateLimit-Limit', '300');
+        $this->hit($learner)->assertOk()->assertHeader('X-RateLimit-Limit', '300');
+    }
+
+    public function test_each_account_has_its_own_budget_shared_by_its_tokens(): void
+    {
+        ['model' => $user, 'headers' => $first] = $this->userToken();
+        $second = ['Authorization' => 'Bearer '.$user->createToken('second')->plainTextToken];
+        ['headers' => $other] = $this->userToken();
+
+        $this->hit($first)->assertHeader('X-RateLimit-Remaining', '299');
+        $this->hit($second)->assertHeader('X-RateLimit-Remaining', '298');   // same owner, same bucket
+        $this->hit($other)->assertHeader('X-RateLimit-Remaining', '299');    // another account
+    }
+
+    public function test_an_unknown_or_expired_token_stays_on_the_ip_limit(): void
+    {
+        for ($i = 0; $i < 60; $i++) {
+            $this->hit()->assertOk();
+        }
+
+        $this->hit(['Authorization' => 'Bearer 999|'.str_repeat('x', 40)])->assertStatus(429);
+
+        ['model' => $user] = $this->userToken();
+        $expired = $user->createToken('old', ['*'], now()->subMinute())->plainTextToken;
+        $this->hit(['Authorization' => 'Bearer '.$expired])->assertStatus(429);
+    }
 }

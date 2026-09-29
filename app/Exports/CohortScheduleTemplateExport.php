@@ -18,6 +18,9 @@ use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
  * end_time (24-hour HH:MM), and an optional location. Date and time columns
  * are formatted as text, so spreadsheet apps keep what is typed instead of
  * converting it; the importer also accepts real date / time cells.
+ *
+ * When editing a cohort the sheet starts with its sessions as they are, then
+ * blank numbered rows for the sessions still to plan (at least EXTRA_ROWS).
  */
 class CohortScheduleTemplateExport implements FromCollection, WithHeadings, WithColumnFormatting
 {
@@ -26,7 +29,13 @@ class CohortScheduleTemplateExport implements FromCollection, WithHeadings, With
     /** Rows offered when the course has no planned session count. */
     public const DEFAULT_ROWS = 10;
 
-    public function __construct(private readonly int $sessions) {}
+    /** Blank rows after an edited cohort's sessions when its plan is already met. */
+    public const EXTRA_ROWS = 5;
+
+    /**
+     * @param  list<array{date: string, from: ?string, to: ?string, location: ?string}>  $existing
+     */
+    public function __construct(private readonly int $sessions, private readonly array $existing = []) {}
 
     public function headings(): array
     {
@@ -35,9 +44,19 @@ class CohortScheduleTemplateExport implements FromCollection, WithHeadings, With
 
     public function collection(): Collection
     {
-        $count = $this->sessions > 0 ? min($this->sessions, CohortScheduleImportService::MAX_ROWS) : self::DEFAULT_ROWS;
+        if ($this->existing === []) {
+            $count = $this->sessions > 0 ? min($this->sessions, CohortScheduleImportService::MAX_ROWS) : self::DEFAULT_ROWS;
 
-        return collect(range(1, $count))->map(static fn (int $n) => [$n, null, null, null, null]);
+            return collect(range(1, $count))->map(static fn (int $n) => [$n, null, null, null, null]);
+        }
+
+        $have  = count($this->existing);
+        $blank = min(max(self::EXTRA_ROWS, $this->sessions - $have), max(0, CohortScheduleImportService::MAX_ROWS - $have));
+
+        return collect($this->existing)
+            ->values()
+            ->map(static fn (array $s, int $i) => [$i + 1, $s['date'], $s['from'], $s['to'], $s['location']])
+            ->concat($blank > 0 ? array_map(static fn (int $n) => [$n, null, null, null, null], range($have + 1, $have + $blank)) : []);
     }
 
     public function columnFormats(): array

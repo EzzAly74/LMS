@@ -35,6 +35,9 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])->group
     // New Cohort with its schedule (Figma 2393:123167 / 2393:122292).
     Route::get('courses/{course}/sections/schedule-template', [CourseSectionController::class, 'scheduleTemplate'])->middleware('throttle:10,1');
     Route::post('courses/{course}/sections/scheduled',     [CourseSectionController::class, 'storeWithSchedule'])->middleware('throttle:10,1');
+    // Edit Cohort in the same dialog: its schedule as a sheet, and the upload that adds only new sessions.
+    Route::get('courses/{course}/sections/{section}/schedule-template', [CourseSectionController::class, 'sectionScheduleTemplate'])->middleware('throttle:10,1');
+    Route::post('courses/{course}/sections/{section}/scheduled',        [CourseSectionController::class, 'updateWithSchedule'])->middleware('throttle:10,1');
     Route::put('courses/{course}/sections/{section}',      [CourseSectionController::class, 'update']);
     Route::delete('courses/{course}/sections/{section}',   [CourseSectionController::class, 'destroy']);
 

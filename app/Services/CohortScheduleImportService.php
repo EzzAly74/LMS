@@ -84,8 +84,216 @@ class CohortScheduleImportService
         return ['section' => $section->refresh(), 'errors' => []];
     }
 
+    /**
+     * Edit Cohort (same dialog as New Cohort): rename, change the capacity and,
+     * optionally, upload the schedule again.
+     *
+     * The sheet is compared with the sessions the cohort already has, by date,
+     * start and end time:
+     *   - a row that matches an existing session is that session: it is kept,
+     *     and only its location may change - and only before it starts;
+     *   - every other row is a new session and must start in the future;
+     *   - an existing session that the sheet leaves out is kept too, so the
+     *     full schedule with extra rows and a sheet of only the new sessions
+     *     both add exactly the new ones. Nothing is ever deleted here.
+     * New sessions may not overlap each other or any existing session. Any
+     * problem returns the full list and changes nothing (the name and capacity
+     * included); otherwise everything is written in one transaction, under a
+     * lock on the cohort so two uploads cannot both add the same sessions.
+     *
+     * @param  array{name: array{en: string, ar: string}, capacity: int}  $cohort
+     * @return array{section: ?CourseSection, added: int, updated: int, errors: list<array{row: int, column: ?string, message: string}>}
+     */
+    public function update(Course $course, CourseSection $section, array $cohort, ?UploadedFile $file): array
+    {
+        $rows = [];
+        if ($file !== null) {
+            $parsed = $this->parse($file, keepLines: true);
+            if ($parsed['errors'] !== []) {
+                return ['section' => null, 'added' => 0, 'updated' => 0, 'errors' => $parsed['errors']];
+            }
+            $rows = $parsed['sessions'];
+        }
+
+        return DB::transaction(function () use ($course, $section, $cohort, $rows, $file) {
+            // Serialise edits of one cohort: the comparison below must see the
+            // sessions another upload may have just added.
+            CourseSection::query()->whereKey($section->id)->lockForUpdate()->first();
+
+            $existing = DB::table('course_sessions')
+                ->where('section_id', $section->id)
+                ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
+                ->get(['id', 'title', 'session_date', 'time_from', 'time_to', 'location']);
+
+            $now    = CarbonImmutable::now();
+            $byKey  = [];
+            foreach ($existing as $s) {
+                $byKey[$this->key((string) $s->session_date, (string) $s->time_from, (string) $s->time_to)] = $s;
+            }
+
+            $errors = [];
+            $new    = [];
+            $moved  = [];
+            foreach ($rows as $r) {
+                $match = $byKey[$this->key($r['date'], $r['from'], $r['to'])] ?? null;
+                if ($match !== null) {
+                    if ((string) ($match->location ?? '') === (string) ($r['location'] ?? '')) {
+                        continue; // unchanged
+                    }
+                    if ($this->starts($r['date'], $r['from']) <= $now) {
+                        $errors[] = [$r['line'], 'location', __('messages.schedule_held_session_locked')];
+                        continue;
+                    }
+                    $moved[$match->id] = $r['location'];
+                    continue;
+                }
+                if ($this->starts($r['date'], $r['from']) <= $now) {
+                    $errors[] = [$r['line'], 'date', __('messages.schedule_new_session_in_past')];
+                    continue;
+                }
+                $new[] = $r;
+            }
+
+            // New sessions against the ones the cohort keeps (the sheet's own
+            // rows were already checked against each other).
+            foreach ($new as $r) {
+                foreach ($existing as $s) {
+                    if ((string) $s->session_date === $r['date'] && $s->time_from !== null && $s->time_to !== null
+                        && $r['from'] < (string) $s->time_to && (string) $s->time_from < $r['to']) {
+                        $errors[] = [$r['line'], 'start_time', __('messages.schedule_overlap_existing', [
+                            'date' => $r['date'], 'from' => substr((string) $s->time_from, 0, 5), 'to' => substr((string) $s->time_to, 0, 5),
+                        ])];
+                        break;
+                    }
+                }
+            }
+
+            if ($errors === [] && $file !== null && $new === [] && $moved === []) {
+                $errors[] = [0, null, __('messages.schedule_nothing_new')];
+            }
+            if ($errors !== []) {
+                return ['section' => null, 'added' => 0, 'updated' => 0, 'errors' => $this->fail($errors)['errors']];
+            }
+
+            $stamp = now();
+            foreach ($moved as $id => $location) {
+                DB::table('course_sessions')->where('id', $id)->update(['location' => $location, 'updated_at' => $stamp]);
+            }
+            if ($new !== []) {
+                DB::table('course_sessions')->insert(array_map(fn ($s) => [
+                    'course_id'    => $course->id,
+                    'section_id'   => $section->id,
+                    'title'        => __('messages.schedule_session_title', ['n' => 0]), // numbered below
+                    'session_date' => $s['date'],
+                    'time_from'    => $s['from'],
+                    'time_to'      => $s['to'],
+                    'location'     => $s['location'],
+                    'created_at'   => $stamp,
+                    'updated_at'   => $stamp,
+                ], $new));
+            }
+
+            $update = ['name' => $cohort['name'], 'capacity' => $cohort['capacity']];
+            if ($new !== []) {
+                $this->renumber($section);
+                $update += $this->derived($section);
+            }
+            $this->cohorts->update($section, $update);
+
+            if ($new !== []) {
+                $this->hours->refresh($course);
+            }
+
+            return ['section' => $section->refresh(), 'added' => count($new), 'updated' => count($moved), 'errors' => []];
+        });
+    }
+
+    /**
+     * "Download Schedule Template" when editing: the cohort's sessions as they
+     * are, so the admin adds rows to them (or uploads only new rows).
+     *
+     * @return list<array{date: string, from: ?string, to: ?string, location: ?string}>
+     */
+    public function scheduleRows(CourseSection $section): array
+    {
+        return DB::table('course_sessions')
+            ->where('section_id', $section->id)
+            ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
+            ->get(['session_date', 'time_from', 'time_to', 'location'])
+            ->map(fn ($s) => [
+                'date'     => substr((string) $s->session_date, 0, 10),
+                'from'     => $s->time_from !== null ? substr((string) $s->time_from, 0, 5) : null,
+                'to'       => $s->time_to !== null ? substr((string) $s->time_to, 0, 5) : null,
+                'location' => $s->location,
+            ])
+            ->all();
+    }
+
+    /**
+     * Sessions added by an edit are numbered in date order. They all start in
+     * the future, so only upcoming sessions can move; those keep a custom title
+     * and only the generated "Session N" / "الجلسة N" ones are renumbered.
+     */
+    private function renumber(CourseSection $section): void
+    {
+        $sessions = DB::table('course_sessions')
+            ->where('section_id', $section->id)
+            ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
+            ->get(['id', 'title']);
+
+        $patterns = array_map(
+            static fn (string $locale) => '/^'.str_replace('\:n', '\d+', preg_quote(trans('messages.schedule_session_title', [], $locale), '/')).'$/u',
+            ['en', 'ar'],
+        );
+
+        $n = 0;
+        foreach ($sessions as $s) {
+            $n++;
+            $title = (string) $s->title;
+            foreach ($patterns as $i => $pattern) {
+                if (preg_match($pattern, $title)) {
+                    $wanted = trans('messages.schedule_session_title', ['n' => $n], ['en', 'ar'][$i]);
+                    if ($wanted !== $title) {
+                        DB::table('course_sessions')->where('id', $s->id)->update(['title' => $wanted]);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    /** The cohort's dates, session count and average length, from all its sessions (as on create). */
+    private function derived(CourseSection $section): array
+    {
+        $sessions = DB::table('course_sessions')->where('section_id', $section->id)->get(['session_date', 'time_from', 'time_to']);
+        $dates    = $sessions->map(fn ($s) => substr((string) $s->session_date, 0, 10));
+        $lengths  = $sessions->filter(fn ($s) => $s->time_from !== null && $s->time_to !== null)
+            ->map(fn ($s) => ($this->seconds((string) $s->time_to) - $this->seconds((string) $s->time_from)) / 3600);
+
+        $out = [
+            'start_date'         => $dates->min(),
+            'end_date'           => $dates->max(),
+            'number_of_sessions' => $sessions->count(),
+        ];
+        if ($lengths->isNotEmpty()) {
+            $out['avg_session_time'] = min(24, max(0.25, round($lengths->avg(), 2)));
+        }
+
+        return $out;
+    }
+
+    private function key(string $date, string $from, string $to): string
+    {
+        return substr($date, 0, 10).'|'.substr($from, 0, 5).'|'.substr($to, 0, 5);
+    }
+
+    private function starts(string $date, string $from): CarbonImmutable
+    {
+        return CarbonImmutable::parse(substr($date, 0, 10).' '.$from);
+    }
+
     /** @return array{sessions: list<array{date: string, from: string, to: string, seconds: int, location: ?string}>, errors: list<array{row: int, column: ?string, message: string}>} */
-    private function parse(UploadedFile $file): array
+    private function parse(UploadedFile $file, bool $keepLines = false): array
     {
         // A file can pass the MIME check and still be unparseable; the
         // contract is a report, not a 500.
@@ -182,7 +390,7 @@ class CohortScheduleImportService
         }
 
         return [
-            'sessions' => array_map(static fn ($s) => array_diff_key($s, ['line' => true]), $sessions),
+            'sessions' => $keepLines ? $sessions : array_map(static fn ($s) => array_diff_key($s, ['line' => true]), $sessions),
             'errors'   => [],
         ];
     }

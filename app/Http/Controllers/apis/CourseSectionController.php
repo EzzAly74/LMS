@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\apis;
 
 use App\Exports\CohortScheduleTemplateExport;
+use App\Http\Requests\Api\CohortScheduleUpdateRequest;
 use App\Http\Requests\Api\CohortWithScheduleRequest;
 use App\Http\Requests\Api\CourseSectionSyncRequest;
 use App\Http\Resources\CourseSectionResource;
@@ -134,6 +135,50 @@ class CourseSectionController extends ApiController
         }
 
         return $this->created(__('messages.created'), new CourseSectionResource($out['section']));
+    }
+
+    /**
+     * GET courses/{course}/sections/{section}/schedule-template - the Edit
+     * Cohort "Download Schedule Template": the cohort's sessions as they are,
+     * then blank numbered rows for new ones.
+     */
+    public function sectionScheduleTemplate(Course $course, CourseSection $section, CohortScheduleImportService $import): BinaryFileResponse
+    {
+        abort_if($section->course_id !== $course->id, 404);
+
+        return Excel::download(
+            new CohortScheduleTemplateExport((int) ($section->number_of_sessions ?? $course->number_of_sessions), $import->scheduleRows($section)),
+            'cohort-schedule.xlsx',
+            ExcelFormat::XLSX,
+        );
+    }
+
+    /**
+     * POST courses/{course}/sections/{section}/scheduled - Edit Cohort in the
+     * New Cohort dialog: names, capacity and optionally the schedule again,
+     * of which only the new sessions are added (CohortScheduleImportService::update).
+     * All-or-nothing, with every problem under `report.errors`.
+     */
+    public function updateWithSchedule(Course $course, CourseSection $section, CohortScheduleUpdateRequest $request, CohortScheduleImportService $import): JsonResponse
+    {
+        abort_if($section->course_id !== $course->id, 404);
+
+        $out = $import->update($course, $section, $request->cohort(), $request->file('schedule'));
+
+        if ($out['section'] === null) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('messages.import_rejected'),
+                'errors'  => ['schedule' => [__('messages.import_rejected')]],
+                'report'  => ['errors' => $out['errors']],
+            ], 422);
+        }
+
+        return $this->success(__('messages.updated'), [
+            'section'          => new CourseSectionResource($out['section']),
+            'sessions_added'   => $out['added'],
+            'sessions_updated' => $out['updated'],
+        ]);
     }
 
     /**

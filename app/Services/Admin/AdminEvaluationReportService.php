@@ -157,6 +157,38 @@ class AdminEvaluationReportService
     }
 
     /**
+     * Narrow a course query to the evaluation bands chosen in the All Courses
+     * filter (Figma 2430:135164): `high` from 80% of the scale (4 of 5), `mid`
+     * from 60% (3) up to that, `low` below it, `none` nobody scored. It is the
+     * same rounded score the Evaluation column shows, so a row always sits in
+     * the band its number reads. One grouped subquery, left-joined once.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<Course>  $courses
+     * @param  list<string>  $bands
+     */
+    public function whereCourseScoreIn(\Illuminate\Database\Eloquent\Builder $courses, array $bands): void
+    {
+        $scores = DB::table('user_course_evaluations as uce')
+            ->groupBy('uce.course_id')
+            ->select(['uce.course_id', DB::raw($this->scoreSql('uce').' as score')]);
+
+        $high = 0.8 * $this->scoreMax();
+        $mid  = 0.6 * $this->scoreMax();
+
+        $courses->leftJoinSub($scores, 'course_scores', 'course_scores.course_id', '=', 'courses.id')
+            ->where(function ($w) use ($bands, $high, $mid) {
+                foreach (array_unique($bands) as $band) {
+                    match ($band) {
+                        'high' => $w->orWhere('course_scores.score', '>=', $high),
+                        'mid'  => $w->orWhere(fn ($b) => $b->where('course_scores.score', '>=', $mid)->where('course_scores.score', '<', $high)),
+                        'low'  => $w->orWhere('course_scores.score', '<', $mid),
+                        'none' => $w->orWhereNull('course_scores.score'),
+                    };
+                }
+            });
+    }
+
+    /**
      * The /5 score and submission count of each course, in one grouped query,
      * for the course list's Evaluation column and the course header card
      * (Figma 2430:135164, 2266:128869). A course nobody evaluated is absent,

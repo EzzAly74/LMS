@@ -21,6 +21,8 @@ class CourseRepository extends BaseRepository implements CourseRepositoryInterfa
         ?bool   $active,
         ?string $courseType,
         ?string $status = null,
+        array   $filters = [],
+        ?\Closure $scope = null,
     ): LengthAwarePaginator {
         $locale = app()->getLocale();
 
@@ -52,6 +54,15 @@ class CourseRepository extends BaseRepository implements CourseRepositoryInterfa
                 // individual class meetings (course_sessions). Count the
                 // `sections` relation so the column is accurate.
                 'sections as cohorts_count',
+                // Completion (Figma 2430:135164, "learners that earned their
+                // certifications"): enrolled learners holding an active
+                // certificate for this course.
+                'users as certified_count' => fn ($u) => $u->whereExists(fn ($c) => $c
+                    ->selectRaw('1')
+                    ->from('user_certificates')
+                    ->whereColumn('user_certificates.user_id', 'users.id')
+                    ->whereColumn('user_certificates.course_id', 'users_courses.course_id')
+                    ->where('user_certificates.status', 'active')),
             ])
             ->when($search, fn ($q) => $q->where(function ($inner) use ($search, $locale) {
                 // Translatable columns are stored as JSON. Match BOTH the
@@ -64,7 +75,20 @@ class CourseRepository extends BaseRepository implements CourseRepositoryInterfa
             ->when(!is_null($active), fn ($q) => $q->where('active', $active))
             ->when($courseType, fn ($q) => $q->where('course_type', $courseType))
             ->when($status, fn ($q) => $this->applyStatusFilter($q, $status))
-            ->latest('id')
+            ->when($filters['ids'] ?? null, fn ($q, $ids) => $q->whereIn('courses.id', $ids))
+            ->when($filters['category_ids'] ?? null, fn ($q, $ids) => $q->whereIn('courses.category_id', $ids))
+            ->when($filters['instructor_ids'] ?? null, fn ($q, $ids) => $q->whereHas(
+                'instructors', fn ($i) => $i->whereIn('instructors.id', $ids),
+            ))
+            // Several statuses: a course matches any of them (each is its own
+            // EXISTS rule, so they are OR-ed in one group).
+            ->when($filters['statuses'] ?? null, fn ($q, $statuses) => $q->where(function ($any) use ($statuses) {
+                foreach ($statuses as $s) {
+                    $any->orWhere(fn ($one) => $this->applyStatusFilter($one, $s));
+                }
+            }))
+            ->when($scope, fn ($q) => $scope($q))
+            ->latest('courses.id')
             ->paginate($perPage);
     }
 

@@ -58,6 +58,13 @@ class CourseResource extends JsonResource
             'status'             => $effectiveStatus,
             'users_count'        => $this->users_count ?? null,
             'cohorts_count'      => $this->cohorts_count ?? null,
+            // Share of enrolled learners who earned the certificate (admin list only).
+            'completion_percent' => $this->when(
+                array_key_exists('certified_count', $this->resource->getAttributes()),
+                fn () => (int) $this->users_count > 0
+                    ? (int) round(100 * (int) $this->certified_count / (int) $this->users_count)
+                    : 0,
+            ),
             // Only where a query aggregated them (the learner dashboard). The
             // admin list no longer does: ratings left the admin side
             // (2026-09-26) and the Evaluation score below replaced them.

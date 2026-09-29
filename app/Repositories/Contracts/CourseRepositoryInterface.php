@@ -8,6 +8,11 @@ use Illuminate\Support\Collection;
 
 interface CourseRepositoryInterface extends BaseRepositoryInterface
 {
+    /**
+     * @param  array{ids?:list<int>, category_ids?:list<int>, instructor_ids?:list<int>, statuses?:list<string>}  $filters
+     *         the All Courses filter modal (OR within a key, AND across keys)
+     * @param  (\Closure(\Illuminate\Database\Eloquent\Builder<Course>): void)|null  $scope  a further constraint (the evaluation bands)
+     */
     public function paginateWithFilters(
         int     $perPage,
         ?string $search,
@@ -15,6 +20,8 @@ interface CourseRepositoryInterface extends BaseRepositoryInterface
         ?bool   $active,
         ?string $courseType,
         ?string $status = null,
+        array   $filters = [],
+        ?\Closure $scope = null,
     ): LengthAwarePaginator;
 
     /**

@@ -8,6 +8,7 @@ use App\Http\Traits\HasFile;
 use App\Models\Course;
 use App\Models\CourseSection;
 use App\Repositories\Contracts\CourseRepositoryInterface;
+use App\Services\Admin\AdminEvaluationReportService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -22,6 +23,7 @@ class CourseService
 
     public function __construct(
         private readonly CourseRepositoryInterface $courseRepository,
+        private readonly AdminEvaluationReportService $evaluations,
     ) {}
 
     public function list(
@@ -31,9 +33,14 @@ class CourseService
         ?bool   $active     = null,
         ?string $courseType = null,
         ?string $status     = null,
+        array   $filters    = [],
     ): LengthAwarePaginator {
+        $bands = $filters['evaluation'] ?? [];
+        unset($filters['evaluation']);
+
         return $this->courseRepository->paginateWithFilters(
-            $perPage, $search, $categoryId, $active, $courseType, $status,
+            $perPage, $search, $categoryId, $active, $courseType, $status, $filters,
+            $bands !== [] ? fn ($q) => $this->evaluations->whereCourseScoreIn($q, $bands) : null,
         );
     }
 

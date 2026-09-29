@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\apis;
 
+use App\Http\Requests\Api\CourseIndexRequest;
 use App\Http\Requests\Api\CourseRequest;
 use App\Http\Resources\CourseDetailResource;
 use App\Http\Resources\CourseResource;
@@ -48,6 +49,11 @@ class CourseController extends ApiController
      *         description="Filter by course type (online or offline).",
      *         @OA\Schema(type="string", enum={"online","offline"})
      *     ),
+     *     @OA\Parameter(name="ids[]", in="query", required=false, description="Only these courses.", @OA\Schema(type="array", @OA\Items(type="integer"))),
+     *     @OA\Parameter(name="category_ids[]", in="query", required=false, description="Any of these categories.", @OA\Schema(type="array", @OA\Items(type="integer"))),
+     *     @OA\Parameter(name="instructor_ids[]", in="query", required=false, description="Taught by any of these instructors.", @OA\Schema(type="array", @OA\Items(type="integer"))),
+     *     @OA\Parameter(name="statuses[]", in="query", required=false, description="Any of these derived statuses.", @OA\Schema(type="array", @OA\Items(type="string", enum={"active","upcoming","inactive"}))),
+     *     @OA\Parameter(name="evaluation[]", in="query", required=false, description="Evaluation score band: high (4+ of 5), mid (3 to under 4), low (under 3), none (not evaluated).", @OA\Schema(type="array", @OA\Items(type="string", enum={"high","mid","low","none"}))),
      *     @OA\Response(
      *         response=200,
      *         description="Paginated courses",
@@ -65,7 +71,7 @@ class CourseController extends ApiController
      *     @OA\Response(response=401, ref="#/components/responses/Unauthorized")
      * )
      */
-    public function index(Request $request): JsonResponse
+    public function index(CourseIndexRequest $request): JsonResponse
     {
         $active = null;
         if ($request->has('active')) {
@@ -87,6 +93,7 @@ class CourseController extends ApiController
             active:     $active,
             courseType: $request->get('course_type'),
             status:     $status,
+            filters:    $request->filters(),
         );
 
         $this->attachEvaluationScores($courses->getCollection());

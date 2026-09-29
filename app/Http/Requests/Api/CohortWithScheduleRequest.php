@@ -33,6 +33,9 @@ class CohortWithScheduleRequest extends FormRequest
             'name.en'  => ['required', 'string', 'max:255'],
             'name.ar'  => ['required', 'string', 'max:255'],
             'capacity' => ['nullable', 'integer', 'min:1', 'max:10000'],
+            // "Open for enrolment early" (Q-073): the cohort shows in the app
+            // before its start date.
+            'open_for_enrollment' => ['sometimes', 'boolean'],
             'schedule' => [
                 'required', 'file', 'max:'.self::MAX_KB,
                 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/zip,application/x-ole-storage,application/CDFV2',
@@ -66,14 +69,15 @@ class CohortWithScheduleRequest extends FormRequest
         ];
     }
 
-    /** @return array{name: array{en: string, ar: string}, capacity: int} */
+    /** @return array{name: array{en: string, ar: string}, capacity: int, open_early: ?bool} */
     public function cohort(): array
     {
         $d = $this->validated();
 
         return [
-            'name'     => ['en' => trim($d['name']['en']), 'ar' => trim($d['name']['ar'])],
-            'capacity' => (int) ($d['capacity'] ?? 30),
+            'name'       => ['en' => trim($d['name']['en']), 'ar' => trim($d['name']['ar'])],
+            'capacity'   => (int) ($d['capacity'] ?? 30),
+            'open_early' => $this->has('open_for_enrollment') ? $this->boolean('open_for_enrollment') : null,
         ];
     }
 }

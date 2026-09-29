@@ -56,6 +56,7 @@ class CohortScheduleImportService
             $section = $this->cohorts->create($course, [
                 'name'               => $cohort['name'],
                 'capacity'           => $cohort['capacity'],
+                'status'             => ($cohort['open_early'] ?? false) ? 'open_for_enrollment' : 'scheduled',
                 'start_date'         => min($dates),
                 'end_date'           => max($dates),
                 'number_of_sessions' => count($sessions),
@@ -101,7 +102,7 @@ class CohortScheduleImportService
      * included); otherwise everything is written in one transaction, under a
      * lock on the cohort so two uploads cannot both add the same sessions.
      *
-     * @param  array{name: array{en: string, ar: string}, capacity: int}  $cohort
+     * @param  array{name: array{en: string, ar: string}, capacity: int, open_early: ?bool}  $cohort
      * @return array{section: ?CourseSection, added: int, updated: int, errors: list<array{row: int, column: ?string, message: string}>}
      */
     public function update(Course $course, CourseSection $section, array $cohort, ?UploadedFile $file): array
@@ -194,6 +195,12 @@ class CohortScheduleImportService
             }
 
             $update = ['name' => $cohort['name'], 'capacity' => $cohort['capacity']];
+            // Only meaningful before the cohort starts; after that the calendar decides.
+            $started = $section->start_date !== null && CarbonImmutable::parse((string) $section->start_date)->startOfDay() <= $now->startOfDay();
+            $status  = $started ? null : $this->enrolmentStatus((string) ($section->status ?? 'scheduled'), $cohort['open_early'] ?? null);
+            if ($status !== null) {
+                $update['status'] = $status;
+            }
             if ($new !== []) {
                 $this->renumber($section);
                 $update += $this->derived($section);
@@ -206,6 +213,24 @@ class CohortScheduleImportService
 
             return ['section' => $section->refresh(), 'added' => count($new), 'updated' => count($moved), 'errors' => []];
         });
+    }
+
+    /**
+     * The stored status for the "Open for enrolment early" switch (Q-073).
+     * Only the two manual enrolment-window values move; a cohort made
+     * `inactive` elsewhere stays so, and the calendar still derives
+     * active / completed (Course::deriveCohortStatus). Null = no change.
+     */
+    private function enrolmentStatus(string $stored, ?bool $openEarly): ?string
+    {
+        if ($openEarly === null || $stored === 'inactive') {
+            return null;
+        }
+        if ($openEarly) {
+            return $stored === 'open_for_enrollment' ? null : 'open_for_enrollment';
+        }
+
+        return $stored === 'open_for_enrollment' ? 'scheduled' : null;
     }
 
     /**

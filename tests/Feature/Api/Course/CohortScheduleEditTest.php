@@ -234,6 +234,50 @@ class CohortScheduleEditTest extends ApiTestCase
         $this->edit($course, $section, $txt)->assertStatus(422)->assertJsonValidationErrors('schedule');
     }
 
+    // ─────────────────────────────────── open for enrolment early (Q-073)
+
+    private function futureCohort(bool $openEarly): array
+    {
+        $course = Course::factory()->create();
+        $id = $this->post(self::BASE."/courses/{$course->id}/sections/scheduled", [
+            'name' => ['en' => 'Later', 'ar' => 'لاحقًا'], 'capacity' => 20, 'open_for_enrollment' => $openEarly ? '1' : '0',
+            'schedule' => $this->xlsx([[1, '2026-11-02', '09:00', '11:00', '']]),
+        ], $this->headers + ['Accept' => 'application/json'])->assertCreated()->json('result.id');
+
+        return [$course, CourseSection::query()->findOrFail($id)];
+    }
+
+    public function test_new_and_edit_set_open_for_enrolment_before_the_start(): void
+    {
+        [$course, $closed] = $this->futureCohort(false);
+        [$openCourse, $open] = $this->futureCohort(true);
+        $this->assertSame('scheduled', $closed->status);
+        $this->assertSame('open_for_enrollment', $open->status);
+
+        $this->edit($course, $closed, null, ['open_for_enrollment' => '1'])->assertOk()
+            ->assertJsonPath('result.section.stored_status', 'open_for_enrollment');
+        $this->edit($course, $closed, null, ['open_for_enrollment' => '0'])->assertOk();
+        $this->assertSame('scheduled', $closed->refresh()->status);
+
+        // Left out: unchanged.
+        $this->edit($openCourse, $open, null)->assertOk();
+        $this->assertSame('open_for_enrollment', $open->refresh()->status);
+    }
+
+    public function test_the_switch_does_not_move_a_started_or_inactive_cohort(): void
+    {
+        [$course, $started] = $this->cohort(); // began 1 Oct
+        $this->edit($course, $started, null, ['open_for_enrollment' => '1'])->assertOk();
+        $this->assertNotSame('open_for_enrollment', $started->refresh()->status);
+
+        [$later, $future] = $this->futureCohort(false);
+        DB::table('course_sections')->where('id', $future->id)->update(['status' => 'inactive']);
+        $this->edit($later, $future, null, ['open_for_enrollment' => '1'])->assertOk();
+        $this->assertSame('inactive', $future->refresh()->status);
+
+        $this->edit($later, $future, null, ['open_for_enrollment' => 'maybe'])->assertStatus(422)->assertJsonValidationErrors('open_for_enrollment');
+    }
+
     // ─────────────────────────────────────────────────────── template
 
     public function test_the_edit_template_starts_with_the_cohorts_sessions(): void

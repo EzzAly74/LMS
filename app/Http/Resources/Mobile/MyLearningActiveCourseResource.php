@@ -132,6 +132,10 @@ class MyLearningActiveCourseResource extends JsonResource
             // Certificate progress projection for the card badge.
             'certificate_status'     => $certificate['status'] ?? null,
             'certificate_projection' => $certificate,
+            // Course evaluation (Website "Evaluate course", Figma 2078:104643).
+            // Answering it completes the course, so an active row is never
+            // already answered (QualificationProgressService, rule c).
+            'evaluation'     => ['available' => (bool) $course->is_evaluate],
             // The learner's own rating (null when not rated yet).
             'rate'           => $rateValue,
             // Localized sentiment label for the rating (null when unrated).

@@ -58,6 +58,9 @@ class UserCourseEvaluationController extends ApiController
 
         return $this->success(__('messages.retrieved'), [
             'already_evaluated'    => $this->evalService->hasEvaluated($request->user()->id, $course->id),
+            // POST needs one of these as `instructor_id` (the course's instructors only).
+            'instructors'          => $course->instructors()->orderBy('instructors.id')->get(['instructors.id', 'instructors.name'])
+                ->map(fn ($i) => ['id' => (int) $i->id, 'name' => (string) $i->name])->values(),
             'evaluation_categories' => EvaluationCategoryResource::collection($this->evalService->getForm(
                 $course,
                 $enrolment->group_id !== null ? (int) $enrolment->group_id : null,

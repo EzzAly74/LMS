@@ -10,6 +10,7 @@ use App\Models\EvaluationCategory;
 use App\Models\Instructor;
 use App\Models\User;
 use App\Notifications\CourseEvaluationDroppedNotification;
+use Database\Seeders\MobileSettingSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -258,6 +259,55 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
             ->assertOk()->json('result.evaluation_categories'))->pluck('name')->sort()->values()->all();
 
         $this->assertSame(['All', 'My cohort', 'This course'], $names);
+    }
+
+    /** Website evaluation modal (Figma 2194:78325): the form carries its questions and the course's instructors. */
+    public function test_the_learner_form_carries_its_questions_and_the_course_instructors(): void
+    {
+        $course     = $this->course();
+        $instructor = Instructor::query()->create(['name' => ['en' => 'Teacher', 'ar' => 'معلم'], 'email' => 'teacher'.uniqid().'@example.test']);
+        $course->instructors()->attach($instructor->id);
+        $learner = User::factory()->create();
+        $this->enrol($learner, $course);
+        ['headers' => $admin] = $this->adminToken();
+        $this->postJson(self::URL, $this->scalePayload(), $admin)->assertCreated();
+
+        ['headers' => $headers] = $this->userToken($learner);
+        $form = $this->getJson(self::BASE."/courses/{$course->id}/evaluate", $headers + ['Accept-Language' => 'ar'])->assertOk();
+
+        $form->assertJsonPath('result.already_evaluated', false)
+            ->assertJsonPath('result.instructors.0.id', $instructor->id)
+            ->assertJsonPath('result.instructors.0.name', 'معلم')
+            ->assertJsonPath('result.evaluation_categories.0.questions.0.type', 'scale')
+            ->assertJsonPath('result.evaluation_categories.0.questions.0.title', 'واضح؟')
+            ->assertJsonPath('result.evaluation_categories.0.questions.0.is_required', true)
+            ->assertJsonPath('result.evaluation_categories.0.questions.0.scale_max', 5)
+            ->assertJsonPath('result.evaluation_categories.0.questions.0.scale_label_min', 'غير راضٍ')
+            ->assertJsonPath('result.evaluation_categories.0.questions.1.is_required', false);
+    }
+
+    /** "Evaluate course" shows on the learner's course until they have answered. */
+    public function test_the_learnings_list_says_whether_a_course_is_evaluated_and_answered(): void
+    {
+        $this->seed(MobileSettingSeeder::class);
+        $open   = $this->course();
+        $closed = $this->course(false);
+        $learner = User::factory()->create();
+        $this->enrol($learner, $open);
+        $this->enrol($learner, $closed);
+        ['headers' => $headers] = $this->userToken($learner);
+
+        $rows = collect($this->getJson(self::BASE.'/learner/profile/learnings', $headers)->assertOk()->json('result'))->keyBy('id');
+        $this->assertSame(['available' => true], $rows[$open->id]['evaluation']);
+        $this->assertSame(['available' => false], $rows[$closed->id]['evaluation']);
+
+        $template = EvaluationCategory::query()->create(['name' => ['en' => 'Feedback', 'ar' => 'تقييم'], 'course_id' => $open->id]);
+        $this->answer($learner, $open, $template->evaluations()->create(['type' => 'five', 'title' => ['en' => 'x', 'ar' => 'x'], 'is_required' => true]), '4');
+
+        $rows = collect($this->getJson(self::BASE.'/learner/profile/learnings', $headers)->assertOk()->json('result'))->keyBy('id');
+        // Answering completes the course, so it leaves the active list.
+        $this->assertFalse($rows->has($open->id));
+        $this->assertTrue($rows->has($closed->id));
     }
 
     public function test_the_learner_submit_accepts_only_valid_answers_to_questions_they_were_asked(): void

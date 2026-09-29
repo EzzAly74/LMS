@@ -316,7 +316,7 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
         $today = now()->toDateString();
 
         return $this->course->newQuery()
-            ->select(['courses.id', 'courses.title', 'courses.course_type', 'courses.image', 'courses.hours'])
+            ->select(['courses.id', 'courses.title', 'courses.course_type', 'courses.image', 'courses.hours', 'courses.is_evaluate'])
             // Drop courses the learner is already done with (completed
             // competency OR ended cohort). Without this a session course whose
             // cohort has ended lingered here with a meaningless 0% progress.

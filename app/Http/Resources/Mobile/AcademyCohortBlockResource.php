@@ -7,6 +7,7 @@ namespace App\Http\Resources\Mobile;
 use App\Models\Course;
 use App\Models\CourseSection;
 use App\Services\Mobile\AcademyService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -56,8 +57,34 @@ class AcademyCohortBlockResource extends JsonResource
                     'time_from'    => $s->time_from,
                     'time_to'      => $s->time_to,
                     'location'     => $s->location,
+                    ...$this->sessionTiming($s->session_date, $s->time_from, $s->time_to, $now),
                 ])->values()
                 : [],
+        ];
+    }
+
+    /**
+     * Schedule tab (Figma 2027:97810): Duration and Completed / Upcoming,
+     * decided on the server clock so every viewer sees the same status.
+     * A session is completed once its end (or, without times, its day) has passed.
+     *
+     * @return array{duration_minutes: ?int, status: ?string}
+     */
+    private function sessionTiming(mixed $date, ?string $from, ?string $to, Carbon $now): array
+    {
+        if ($date === null || $date === '') {
+            return ['duration_minutes' => null, 'status' => null];
+        }
+        $day   = $date instanceof Carbon ? $date->copy()->startOfDay() : Carbon::parse((string) $date)->startOfDay();
+        $start = $from ? $day->copy()->setTimeFromTimeString($from) : null;
+        $end   = $to ? $day->copy()->setTimeFromTimeString($to) : null;
+
+        $duration = $start && $end && $end->greaterThan($start) ? (int) $start->diffInMinutes($end) : null;
+        $over     = $end ?? $day->copy()->endOfDay();
+
+        return [
+            'duration_minutes' => $duration,
+            'status'           => $now->greaterThan($over) ? 'completed' : 'upcoming',
         ];
     }
 }

@@ -336,18 +336,35 @@ final class AcademyService
                 ->value('group_id');
 
             if (!empty($enrolledCohortId)) {
-                return $course->sections->firstWhere('id', (int) $enrolledCohortId)
-                    ?? CourseSection::query()->find($enrolledCohortId);
+                return $this->withSessions($course, CourseSection::query()->find($enrolledCohortId));
             }
         }
 
-        return $this->repository->nextJoinableCohort(
+        return $this->withSessions($course, $this->repository->nextJoinableCohort(
             $course,
             $user,
             now(),
             $this->settings->academyDefaultCloseOffsetDays(),
             $this->settings->academyScheduledVisibilityDays(),
-        );
+        ));
+    }
+
+    /**
+     * The Schedule tab and the "Sessions" count read the anchor's sessions.
+     * `nextJoinableCohort` is its own query without them, so prefer the
+     * eager-loaded copy on the course and load them in date order otherwise.
+     */
+    private function withSessions(Course $course, ?CourseSection $cohort): ?CourseSection
+    {
+        if ($cohort === null) {
+            return null;
+        }
+        $loaded = $course->relationLoaded('sections') ? $course->sections->firstWhere('id', $cohort->id) : null;
+        if ($loaded !== null && $loaded->relationLoaded('sessions')) {
+            return $loaded;
+        }
+
+        return $cohort->load(['sessions' => fn ($q) => $q->orderBy('session_date')->orderBy('time_from')]);
     }
 
     /**

@@ -5,6 +5,7 @@ namespace Tests\Feature\Api\Mobile;
 use App\Models\Category;
 use App\Models\Course;
 use App\Models\CourseSection;
+use App\Models\CourseSession;
 use App\Models\UsersCourse;
 
 /**
@@ -123,6 +124,50 @@ class AcademyApiTest extends MobileTestCase
         $this->assertSuccess($response);
         // Regression: the resource used to read the wrong column and always returned false.
         $response->assertJsonPath('result.allow_attendance', true);
+    }
+
+    /** Schedule tab (Figma 2027:97810): the anchor carries its sessions in date order, with duration and status. */
+    public function test_course_detail_anchor_cohort_lists_sessions_with_status(): void
+    {
+        $user   = $this->employee();
+        $course = Course::factory()->create();
+        $cohort = CourseSection::factory()->create(['course_id' => $course->id]);
+        CourseSession::factory()->create([
+            'course_id' => $course->id, 'section_id' => $cohort->id, 'title' => 'Later',
+            'session_date' => now()->addDays(25)->toDateString(), 'time_from' => '13:00:00', 'time_to' => '15:00:00',
+        ]);
+        CourseSession::factory()->create([
+            'course_id' => $course->id, 'section_id' => $cohort->id, 'title' => 'Earlier',
+            'session_date' => now()->subDay()->toDateString(), 'time_from' => '09:00:00', 'time_to' => '11:30:00',
+        ]);
+
+        $response = $this->withHeaders($this->headersFor($user))
+                         ->getJson(self::BASE . '/mobile/academy/courses/' . $course->id);
+
+        $this->assertSuccess($response);
+        $response->assertJsonPath('result.anchor_cohort.id', $cohort->id)
+                 ->assertJsonCount(2, 'result.anchor_cohort.sessions')
+                 ->assertJsonPath('result.anchor_cohort.sessions.0.title', 'Earlier')
+                 ->assertJsonPath('result.anchor_cohort.sessions.0.duration_minutes', 150)
+                 ->assertJsonPath('result.anchor_cohort.sessions.0.status', 'completed')
+                 ->assertJsonPath('result.anchor_cohort.sessions.1.duration_minutes', 120)
+                 ->assertJsonPath('result.anchor_cohort.sessions.1.status', 'upcoming');
+    }
+
+    public function test_course_detail_enrolled_anchor_cohort_lists_its_sessions(): void
+    {
+        $user   = $this->employee();
+        $course = Course::factory()->create();
+        $cohort = CourseSection::factory()->running()->create(['course_id' => $course->id]);
+        CourseSession::factory()->count(3)->create(['course_id' => $course->id, 'section_id' => $cohort->id]);
+        UsersCourse::factory()->create(['user_id' => $user->id, 'course_id' => $course->id, 'group_id' => $cohort->id]);
+
+        $response = $this->withHeaders($this->headersFor($user))
+                         ->getJson(self::BASE . '/mobile/academy/courses/' . $course->id);
+
+        $this->assertSuccess($response);
+        $response->assertJsonPath('result.anchor_cohort.id', $cohort->id)
+                 ->assertJsonCount(3, 'result.anchor_cohort.sessions');
     }
 
     public function test_course_detail_404_for_missing_course(): void

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Admin;
 use App\Models\Course;
+use App\Models\CourseRating;
 use App\Models\Evaluation;
 use App\Models\EvaluationCategory;
 use App\Models\User;
@@ -57,12 +58,16 @@ class UserCourseEvaluationService
      *
      * Runs under a row lock on the learner's enrolment, so two submits sent
      * together cannot both pass the "already evaluated" check.
+     *
+     * Returns the learner's "My Rating" taken from these answers (see
+     * myRating()), or null when the form had no star or 1-5 answer.
      */
-    public function submit(User $user, Course $course, int $instructorId, array $questions): void
+    public function submit(User $user, Course $course, int $instructorId, array $questions): ?int
     {
         $dropped = null;
+        $rating  = null;
 
-        DB::transaction(function () use ($user, $course, $instructorId, $questions, &$dropped) {
+        DB::transaction(function () use ($user, $course, $instructorId, $questions, &$dropped, &$rating) {
             $enrolment = DB::table('users_courses')
                 ->where('user_id', $user->id)->where('course_id', $course->id)
                 ->lockForUpdate()->first();
@@ -104,6 +109,16 @@ class UserCourseEvaluationService
                 $firstRow ??= $row;
             }
 
+            // "My Rating" on the course (human, 2026-09-30): replaced by this
+            // evaluation. A comment the learner left earlier is kept.
+            $rating = $this->myRating($answers);
+            if ($rating !== null) {
+                CourseRating::query()->updateOrCreate(
+                    ['user_id' => $user->id, 'course_id' => $course->id],
+                    ['rating' => $rating],
+                );
+            }
+
             // Alert only on the crossing (Q-034): at or above the limit before
             // (or never evaluated), below it now. Re-alerting on every low
             // answer after that would bury the notification.
@@ -126,6 +141,27 @@ class UserCourseEvaluationService
         if ($dropped !== null) {
             $this->notifyDrop($course, $dropped);
         }
+
+        return $rating;
+    }
+
+    /**
+     * The average of the star and 1-5 answers, rounded to the nearest whole
+     * number (halves up), so it sits on the 1-5 "My Rating" scale. 1-10 and
+     * free-text answers are not on that scale and are left out.
+     *
+     * @param list<array{0: Evaluation, 1: EvaluationCategory, 2: string}> $answers
+     */
+    private function myRating(array $answers): ?int
+    {
+        $points = [];
+        foreach ($answers as [$evaluation, , $answer]) {
+            if (($evaluation->type === 'five' || $evaluation->type === 'scale') && ctype_digit($answer)) {
+                $points[] = (int) $answer;
+            }
+        }
+
+        return $points === [] ? null : (int) round(array_sum($points) / count($points), 0, PHP_ROUND_HALF_UP);
     }
 
     /**

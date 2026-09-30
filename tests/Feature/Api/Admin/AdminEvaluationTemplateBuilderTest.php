@@ -339,6 +339,67 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $submit([$star->id => '4'])->assertStatus(409);                            // once per course
     }
 
+    public function test_submitting_sets_my_rating_to_the_rounded_average_of_the_star_and_scale_answers(): void
+    {
+        $this->seed(MobileSettingSeeder::class);
+        $course     = $this->course();
+        $instructor = Instructor::query()->create(['name' => ['en' => 'Teacher', 'ar' => 'معلم'], 'email' => 'teacher'.uniqid().'@example.test']);
+        $course->instructors()->attach($instructor->id);
+        ['headers' => $admin] = $this->adminToken();
+        $stars = $this->postJson(self::URL, $this->payload(['course_id' => $course->id]), $admin)->json('result.id');
+        $scale = $this->postJson(self::URL, $this->scalePayload(['name' => ['en' => 'Scale', 'ar' => 'مقياس'], 'course_id' => $course->id]), $admin)->json('result.id');
+        [$s1, $s2] = Evaluation::query()->where('evaluation_category_id', $stars)->orderBy('id')->get()->all();
+        [$c1, $c2] = Evaluation::query()->where('evaluation_category_id', $scale)->orderBy('id')->get()->all();
+        $legacy = EvaluationCategory::query()->create(['name' => ['en' => 'Legacy', 'ar' => 'قديم'], 'course_id' => $course->id]);
+        $ten    = $legacy->evaluations()->create(['type' => 'ten', 'title' => ['en' => 'NPS', 'ar' => 'NPS'], 'is_required' => false]);
+        $text   = $legacy->evaluations()->create(['type' => 'text', 'title' => ['en' => 'Notes', 'ar' => 'ملاحظات'], 'is_required' => false]);
+        $url    = self::BASE."/courses/{$course->id}/evaluate";
+
+        // 4, 5 and 4 average 4.33 -> 4; the 1-10 and text answers are left out.
+        // An earlier rating is replaced and its comment kept.
+        $first = User::factory()->create();
+        $this->enrol($first, $course);
+        DB::table('course_ratings')->insert(['user_id' => $first->id, 'course_id' => $course->id, 'rating' => 1, 'comment' => 'Old note', 'created_at' => now(), 'updated_at' => now()]);
+        ['headers' => $h1] = $this->userToken($first);
+        $this->postJson($url, ['instructor_id' => $instructor->id, 'questions' => [$s1->id => 4, $s2->id => 5, $c1->id => 4, $ten->id => 1, $text->id => 'Fine']], $h1 + ['Accept-Language' => 'en'])
+            ->assertCreated()
+            ->assertJsonPath('result.rating', 4)
+            ->assertJsonPath('result.rate_label', fn ($label) => is_string($label) && $label !== '');
+        $row = DB::table('course_ratings')->where('user_id', $first->id)->where('course_id', $course->id)->get();
+        $this->assertCount(1, $row);
+        $this->assertSame(4, (int) $row[0]->rating);
+        $this->assertSame('Old note', $row[0]->comment);
+
+        // 3, 4, 4, 3 average 3.5: halves round up, to 4. No earlier rating: one is created.
+        $second = User::factory()->create();
+        $this->enrol($second, $course);
+        ['headers' => $h2] = $this->userToken($second);
+        $this->postJson($url, ['instructor_id' => $instructor->id, 'questions' => [$s1->id => 3, $s2->id => 4, $c1->id => 4, $c2->id => 3]], $h2)
+            ->assertCreated()->assertJsonPath('result.rating', 4);
+        $this->assertSame(4, (int) DB::table('course_ratings')->where('user_id', $second->id)->value('rating'));
+        $this->assertNull(DB::table('course_ratings')->where('user_id', $second->id)->value('comment'));
+        $this->assertSame(2, DB::table('course_ratings')->where('course_id', $course->id)->count(), 'One row per learner.');
+    }
+
+    public function test_a_form_without_star_or_scale_answers_leaves_my_rating_alone(): void
+    {
+        $course     = $this->course();
+        $instructor = Instructor::query()->create(['name' => ['en' => 'Teacher', 'ar' => 'معلم'], 'email' => 'teacher'.uniqid().'@example.test']);
+        $course->instructors()->attach($instructor->id);
+        $legacy = EvaluationCategory::query()->create(['name' => ['en' => 'Legacy', 'ar' => 'قديم'], 'course_id' => $course->id]);
+        $ten    = $legacy->evaluations()->create(['type' => 'ten', 'title' => ['en' => 'NPS', 'ar' => 'NPS'], 'is_required' => true]);
+        $learner = User::factory()->create();
+        $this->enrol($learner, $course);
+        DB::table('course_ratings')->insert(['user_id' => $learner->id, 'course_id' => $course->id, 'rating' => 2, 'comment' => null, 'created_at' => now(), 'updated_at' => now()]);
+        ['headers' => $headers] = $this->userToken($learner);
+
+        $this->postJson(self::BASE."/courses/{$course->id}/evaluate", ['instructor_id' => $instructor->id, 'questions' => [$ten->id => 9]], $headers)
+            ->assertCreated()
+            ->assertJsonPath('result.rating', null)
+            ->assertJsonPath('result.rate_label', null);
+        $this->assertSame(2, (int) DB::table('course_ratings')->where('user_id', $learner->id)->value('rating'));
+    }
+
     public function test_a_course_falling_below_the_limit_alerts_admins_and_instructors_once(): void
     {
         Notification::fake();

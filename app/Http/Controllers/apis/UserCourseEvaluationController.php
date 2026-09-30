@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\apis;
 
+use App\Enums\Mobile\RatingSentiment;
 use App\Http\Requests\Api\SubmitCourseEvaluationRequest;
 use App\Http\Resources\EvaluationCategoryResource;
 use App\Models\Course;
+use App\Services\Mobile\MobileSettings;
 use App\Services\UserCourseEvaluationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -88,7 +90,16 @@ class UserCourseEvaluationController extends ApiController
      *             )
      *         )
      *     ),
-     *     @OA\Response(response=201, description="Submitted", @OA\JsonContent(ref="#/components/schemas/EmptyResponse")),
+     *     @OA\Response(response=201, description="Submitted. `rating` is the learner's new My Rating (the rounded average of the star and 1-5 answers), null when the form had none.",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="status", type="string", example="success"),
+     *             @OA\Property(property="message", type="string"),
+     *             @OA\Property(property="result", type="object",
+     *                 @OA\Property(property="rating", type="integer", nullable=true, minimum=1, maximum=5, example=4),
+     *                 @OA\Property(property="rate_label", type="string", nullable=true, example="Satisfied")
+     *             )
+     *         )
+     *     ),
      *     @OA\Response(response=401, ref="#/components/responses/Unauthorized"),
      *     @OA\Response(response=403, ref="#/components/responses/Forbidden", description="Course is not evaluatable"),
      *     @OA\Response(response=409, description="Already evaluated", @OA\JsonContent(ref="#/components/schemas/ErrorResponse")),
@@ -105,13 +116,34 @@ class UserCourseEvaluationController extends ApiController
 
         $validated = $request->validated();
 
-        $this->evalService->submit(
+        $rating = $this->evalService->submit(
             $request->user(),
             $course,
             $validated['instructor_id'],
             $validated['questions'],
         );
 
-        return $this->created(__('messages.created'));
+        return $this->created(__('messages.created'), ['rating' => $rating, 'rate_label' => $this->rateLabel($rating)]);
+    }
+
+    /**
+     * The sentiment label the learnings list shows next to "My Rating". The
+     * evaluation is already saved here, so a missing or broken rating-scale
+     * setting leaves the label out instead of failing the request.
+     */
+    private function rateLabel(?int $rating): ?string
+    {
+        if ($rating === null) {
+            return null;
+        }
+        try {
+            $settings = app(MobileSettings::class);
+
+            return __(RatingSentiment::fromRating($rating, $settings->ratingMinValue(), $settings->ratingMaxValue())->labelKey());
+        } catch (\RuntimeException $e) {
+            report($e);
+
+            return null;
+        }
     }
 }

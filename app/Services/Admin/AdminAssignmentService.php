@@ -207,7 +207,8 @@ class AdminAssignmentService
      *
      * @return array{learners: list<array{id:int,name:string}>, instructors: list<array{id:int,name:string}>, items: list<array{id:int,name:?string}>}
      */
-    public function filterOptions(int $courseId): array
+    /** Learners, instructors and assignments that have submissions: in one course, or in all when null. */
+    public function filterOptions(?int $courseId): array
     {
         $assignmentIds = fn () => $this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->select('course_assignment_id');
         $ar = app()->getLocale() === 'ar';

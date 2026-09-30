@@ -280,7 +280,13 @@ class CourseDetailTabsTest extends ApiTestCase
         $this->assertNotContains($unused->id, array_column($options['items'], 'id'));
         $this->assertNotContains($elsewhere->user_id, array_column($options['learners'], 'id'));
 
-        $this->getJson(self::BASE.'/admin/quizzes/submissions/filter-options', $headers)->assertStatus(422);
+        // Without a course: every course's (the Quizzes / Assignments list pages).
+        $all = $this->getJson(self::BASE.'/admin/quizzes/submissions/filter-options', $headers)->assertOk()->json('result');
+        $this->assertContains($learner->id, array_column($all['learners'], 'id'));
+        $this->assertContains($quiz->id, array_column($all['items'], 'id'));
+        $this->getJson(self::BASE.'/admin/assignments/submissions/filter-options', $headers)->assertOk()->assertJsonStructure(['result' => ['learners', 'instructors', 'items']]);
+        $this->getJson(self::BASE.'/admin/quizzes/submissions/filter-options?course_id=abc', $headers)->assertStatus(422);
+        $this->getJson(self::BASE.'/admin/quizzes/submissions/filter-options', $this->adminWith('view-courses'))->assertStatus(403);
         $this->getJson(self::BASE.'/admin/assignments/submissions/filter-options?course_id=999999', $headers)->assertStatus(422);
         $this->getJson(self::BASE.'/admin/quizzes/submissions/filter-options?course_id='.$this->course->id, $this->adminWith('view-courses'))
             ->assertStatus(403);

@@ -27,16 +27,21 @@ trait SubmissionListParams
         ]);
     }
 
-    /** `course_id` for the Course Details filter options: required, a real course. */
-    protected function validatedCourseId(Request $request): int
+    /**
+     * `course_id` for the submission filter options: one real course (Course
+     * Details tabs), or none for every course (the Quizzes and Assignments
+     * list pages). The options are bounded either way (500 each).
+     */
+    protected function validatedCourseId(Request $request): ?int
     {
-        return (int) $request->validate(['course_id' => ['required', 'integer', 'exists:courses,id']])['course_id'];
+        $id = $request->validate(['course_id' => ['sometimes', 'nullable', 'integer', 'exists:courses,id']])['course_id'] ?? null;
+
+        return $id !== null ? (int) $id : null;
     }
 
     /**
      * Bounded page size (B-21). The cap is 200, not 100: the Quizzes and
-     * Assignments list pages still read up to 200 rows to build their learner
-     * filter.
+     * Assignments lists' "Show All" loads one page of 200.
      */
     protected function submissionsPerPage(Request $request): int
     {

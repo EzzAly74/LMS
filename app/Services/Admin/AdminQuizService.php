@@ -229,7 +229,8 @@ class AdminQuizService
      *
      * @return array{learners: list<array{id:int,name:string}>, instructors: list<array{id:int,name:string}>, items: list<array{id:int,name:?string}>}
      */
-    public function filterOptions(int $courseId): array
+    /** Learners, instructors and quizzes that have submissions: in one course, or in all when null. */
+    public function filterOptions(?int $courseId): array
     {
         $examIds = fn () => $this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->select('exam_id');
 

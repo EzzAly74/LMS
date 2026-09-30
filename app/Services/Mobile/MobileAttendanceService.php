@@ -10,7 +10,9 @@ use App\Models\AttendanceLog;
 use App\Models\Course;
 use App\Models\User;
 use App\Repositories\Contracts\Mobile\MobileAttendanceRepositoryInterface;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 /**
@@ -35,6 +37,16 @@ use Illuminate\Support\Str;
  */
 final class MobileAttendanceService
 {
+    /**
+     * Passcode attempts per learner (B-145). A passcode is 5 digits (90,000
+     * codes) valid for ~30 minutes; under only the general api limit a learner
+     * could try ~9,000 codes in that window and mark themselves present
+     * without attending. 5 a minute is ample for typos; 20 an hour caps a
+     * patient guesser at ~0.02% per session.
+     */
+    public const ATTEMPTS_PER_MINUTE = 5;
+    public const ATTEMPTS_PER_HOUR   = 20;
+
     public function __construct(
         private readonly MobileAttendanceRepositoryInterface $repository,
         private readonly MobileSettings $settings,
@@ -58,6 +70,8 @@ final class MobileAttendanceService
      */
     public function markPresent(User $user, Course $course, ?int $sessionId, string $passcode): array
     {
+        $this->limitAttempts($user);
+
         // Step 0 — machine_code presence. The mobile attendance audit
         // is anchored on the HR-sourced `machine_code`, so a learner
         // without one cannot be marked present without breaking the
@@ -186,6 +200,27 @@ final class MobileAttendanceService
             ],
             'attendance_id'        => $attendanceId,
         ];
+    }
+
+    /**
+     * Counts this attempt against the learner's budget, and refuses it with a
+     * 429 once the budget is spent, before the passcode is looked at. Keyed on
+     * the learner, not the IP: staff share office NAT addresses, and on the
+     * mobile routes the learner is only known once the Employee-Code header is
+     * resolved, so a route-level limiter could only see the IP. hit() is an
+     * atomic increment, so parallel requests cannot slip past the count.
+     */
+    private function limitAttempts(User $user): void
+    {
+        $key = 'attendance-mark:'.$user->getKey();
+
+        foreach ([[':m', self::ATTEMPTS_PER_MINUTE, 60], [':h', self::ATTEMPTS_PER_HOUR, 3600]] as [$suffix, $max, $decay]) {
+            if (RateLimiter::hit($key.$suffix, $decay) > $max) {
+                throw new ThrottleRequestsException(__('messages.mobile.attendance_too_many_attempts', [
+                    'seconds' => max(1, RateLimiter::availableIn($key.$suffix)),
+                ]));
+            }
+        }
     }
 
     /**

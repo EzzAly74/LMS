@@ -32,5 +32,9 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <!-- Tests must never call the real HR system (B-145): an address that cannot resolve; tests fake HRSystemService. -->
+        <env name="HR_BASE_URL" value="http://hr.invalid/"/>
+        <env name="HR_ADMIN_EMAIL" value=""/>
+        <env name="HR_ADMIN_PASSWORD" value=""/>
     </php>
 </phpunit>

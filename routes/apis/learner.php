@@ -72,6 +72,7 @@ Route::middleware(['auth.user', 'role:User'])
         Route::get('schedule',       [ProfileController::class, 'weekSchedule']);
 
         // "Mark as Present" — passcode attendance (browser twin of mobile S-06).
+        // Passcode attempts are limited per learner in MobileAttendanceService (B-145).
         Route::post('attendance/mark', [AttendanceController::class, 'mark']);
 
         Route::get('learnings',    [MyLearningController::class, 'active']);

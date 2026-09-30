@@ -69,11 +69,47 @@ class AttendanceApiTest extends MobileTestCase
                              'passcode'   => '54321',
                          ]);
 
-        $this->assertError($response, 422);
+        // A wrong code is a recoverable re-prompt, not a hard error: HTTP 200
+        // with status "error" (AttendanceMarkFailure::InvalidCode; the mobile
+        // app and the Website profile sidebar both read it that way).
+        $response->assertOk()
+            ->assertJsonPath('status', 'error')
+            ->assertJsonPath('result.success', false)
+            ->assertJsonPath('result.failure', 'invalid_code');
         $this->assertDatabaseMissing('attendances', [
             'user_id'   => $user->id,
             'course_id' => $course->id,
         ]);
+    }
+
+    public function test_passcode_guessing_is_cut_off_after_five_attempts_a_minute(): void
+    {
+        $user = $this->employee();
+        [$course, , $session] = $this->openSessionFor($user);
+        $mark = fn (string $code) => $this->withHeaders($this->headersFor($user))
+            ->postJson(self::BASE . '/mobile/attendance/mark', ['course_id' => $course->id, 'session_id' => $session->id, 'passcode' => $code]);
+
+        foreach (['00001', '00002', '00003', '00004', '00005'] as $guess) {
+            $mark($guess)->assertOk()->assertJsonPath('result.failure', 'invalid_code');
+        }
+
+        // The sixth try is refused before the code is even checked, the right one included.
+        $mark(self::PASSCODE)->assertStatus(429);
+        $this->assertDatabaseMissing('attendances', ['user_id' => $user->id, 'course_id' => $course->id]);
+
+        // The Website route shares the same budget: switching clients buys no more tries.
+        $token = $user->createToken('test')->plainTextToken;
+        $this->withHeaders(['Authorization' => 'Bearer '.$token, 'Accept' => 'application/json'])
+            ->postJson(self::BASE . '/learner/profile/attendance/mark', ['course_id' => $course->id, 'session_id' => $session->id, 'passcode' => self::PASSCODE])
+            ->assertStatus(429)->assertJsonPath('status', 'error');
+        $this->assertDatabaseMissing('attendances', ['user_id' => $user->id, 'course_id' => $course->id]);
+
+        // Another learner's budget is their own.
+        $other = $this->employee();
+        [$otherCourse, , $otherSession] = $this->openSessionFor($other);
+        $this->withHeaders($this->headersFor($other))
+            ->postJson(self::BASE . '/mobile/attendance/mark', ['course_id' => $otherCourse->id, 'session_id' => $otherSession->id, 'passcode' => self::PASSCODE])
+            ->assertCreated();
     }
 
     public function test_mark_present_when_not_enrolled_returns_403(): void

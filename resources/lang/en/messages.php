@@ -164,6 +164,7 @@ return [
         // Mobile — Attendance (S-06)
         'attendance_marked'           => 'Your attendance has been recorded.',
         'attendance_invalid_code'     => 'That code doesn\'t match. Check with your instructor and try again.',
+        'attendance_too_many_attempts' => 'Too many tries. Wait :seconds seconds, then try again.',
         'attendance_expired_code'     => 'This code has expired. Ask your instructor to reissue it.',
         'attendance_no_open_window'   => 'There is no open attendance window for this course right now.',
         'attendance_already_marked'   => 'You have already marked attendance for this session.',

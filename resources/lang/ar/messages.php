@@ -163,6 +163,7 @@ return [
         // الموبايل — الحضور (S-06)
         'attendance_marked'           => 'تم تسجيل حضورك بنجاح.',
         'attendance_invalid_code'     => 'هذا الكود غير صحيح. تحقّق من المدرّب وحاول مرة أخرى.',
+        'attendance_too_many_attempts' => 'محاولات كثيرة. انتظر :seconds ثانية ثم حاول مرة أخرى.',
         'attendance_expired_code'     => 'انتهت صلاحية هذا الكود. اطلب من المدرّب إصدار كود جديد.',
         'attendance_no_open_window'   => 'لا توجد نافذة حضور مفتوحة لهذه الدورة الآن.',
         'attendance_already_marked'   => 'لقد سجّلت حضورك لهذه الجلسة بالفعل.',

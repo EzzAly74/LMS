@@ -74,6 +74,7 @@ Route::middleware(['mobile.token', 'mobile.employee'])
         });
 
         // ── S-06 · Mark Present (passcode flow) ──────────────────────
+        // Passcode attempts are limited per learner in MobileAttendanceService (B-145).
         Route::post('attendance/mark',                   [AttendanceController::class, 'mark']);
 
         // ── S-07 · Certificate detail + download ─────────────────────

@@ -4,6 +4,8 @@ namespace Tests\Feature\Api\Auth;
 
 use App\Models\Admin;
 use App\Models\User;
+use App\Services\HRSystemService;
+use Illuminate\Support\Facades\DB;
 use Tests\Feature\Api\ApiTestCase;
 
 class AuthApiTest extends ApiTestCase
@@ -25,16 +27,69 @@ class AuthApiTest extends ApiTestCase
         $response->assertJsonStructure(['result' => ['token', 'user']]);
     }
 
+    /**
+     * Stand-in for the HR system (B-145): tests never call the real one.
+     * `$error` is what HRSystemService reports: 'invalid' (HR rejected the
+     * credential) or 'unreachable'.
+     */
+    private function fakeHr(string $error): object
+    {
+        $fake = new class($error) extends HRSystemService {
+            /** @var list<string> */
+            public array $calls = [];
+
+            public function __construct(private readonly string $error)
+            {
+                parent::__construct();
+            }
+
+            public function getAccessToken($email, $password, $getUserDetails = false, string $endpoint = 'Auth/login')
+            {
+                $this->calls[]     = (string) $email;
+                $this->lastError   = $this->error;
+                $this->lastMessage = $this->error === 'invalid' ? 'Invalid password' : null;
+
+                return null;
+            }
+        };
+        $this->app->instance(HRSystemService::class, $fake);
+
+        return $fake;
+    }
+
     public function test_user_login_with_wrong_password_returns_401(): void
     {
         $user = User::factory()->create(['password' => bcrypt('correct')]);
+        $hr   = $this->fakeHr('invalid');
 
         $response = $this->postJson(self::BASE . '/auth/user/login', [
             'email'    => $user->email,
             'password' => 'wrong-password',
         ]);
 
-        $response->assertStatus(401)->assertJson(['status' => 'error']);
+        $response->assertStatus(401)->assertJson(['status' => 'error'])->assertJsonMissingPath('result.token');
+        $this->assertSame([$user->email], $hr->calls, 'Neither local check matched, so HR was asked once.');
+        $this->assertSame(0, DB::table('personal_access_tokens')->count(), 'No token for a wrong password.');
+    }
+
+    public function test_user_login_answers_503_when_hr_is_unreachable_and_issues_no_token(): void
+    {
+        $user = User::factory()->create(['password' => bcrypt('correct')]);
+        $this->fakeHr('unreachable');
+
+        $this->postJson(self::BASE . '/auth/user/login', ['email' => $user->email, 'password' => 'wrong-password'])
+            ->assertStatus(503)->assertJson(['status' => 'error']);
+        $this->assertSame(0, DB::table('personal_access_tokens')->count());
+    }
+
+    public function test_user_login_with_the_dashboard_password_does_not_ask_hr(): void
+    {
+        $user = User::factory()->create(['password' => bcrypt('secret123')]);
+        $hr   = $this->fakeHr('unreachable');
+
+        $this->postJson(self::BASE . '/auth/user/login', ['email' => $user->email, 'password' => 'secret123'])
+            ->assertOk()->assertJsonStructure(['result' => ['token', 'user']]);
+        $this->assertSame([], $hr->calls);
     }
 
     public function test_user_login_validation_fails_without_email(): void

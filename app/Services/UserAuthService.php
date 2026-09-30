@@ -68,7 +68,8 @@ class UserAuthService
         // machine code directly, and swapping in an email breaks every learner
         // whose synced row has a blank email, a stale one, or one shared with a
         // second row. Machine code must never silently become email.
-        $hrService = new HRSystemService();
+        // From the container (same no-argument instance) so tests can fake HR.
+        $hrService = app(HRSystemService::class);
         $result    = $hrService->getAccessToken(
             trim($identifier),
             $password,

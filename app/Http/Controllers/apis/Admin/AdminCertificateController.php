@@ -83,7 +83,8 @@ class AdminCertificateController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $paginator = $this->service->paginateIssued(
-            (int) $request->get('per_page', 20),
+            // Bounded (B-21): the Dashboard's Show All asks for 200.
+            min(max((int) $request->get('per_page', 20), 1), 200),
             $request->get('search'),
             $request->integer('course_id') ?: null,
         );

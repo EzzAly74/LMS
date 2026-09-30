@@ -45,4 +45,11 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-external-training
         ->whereNumber('externalTraining')->name('admin.external-training.reopen');
     Route::get('{externalTraining}/certificate', [AdminExternalTrainingController::class, 'certificate'])
         ->whereNumber('externalTraining')->name('admin.external-training.certificate');
+    Route::get('{externalTraining}/certificate-link', [AdminExternalTrainingController::class, 'certificateLink'])
+        ->whereNumber('externalTraining')->name('admin.external-training.certificate.link');
 });
+
+// The file behind a certificate link: the signature (made for an authorized
+// reviewer, a few minutes long, D-071) is the authorization, not a token.
+Route::get('external-training-files/{externalTraining}', [AdminExternalTrainingController::class, 'certificateFile'])
+    ->whereNumber('externalTraining')->middleware(['signed', 'throttle:30,1'])->name('admin.external-training.certificate.file');

@@ -13,6 +13,7 @@ use App\Services\ExternalTrainingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -83,6 +84,35 @@ class AdminExternalTrainingController extends ApiController
         abort_unless($admin !== null && $admin->hasRole('superAdmin'), 403);
 
         return $this->success(__('messages.updated'), $this->detail($this->service->reopen($externalTraining)));
+    }
+
+    /** How long a certificate download link works. */
+    private const LINK_MINUTES = 5;
+
+    /**
+     * GET admin/external-training/{externalTraining}/certificate-link - a
+     * signed link to the file, valid for a few minutes (D-071).
+     *
+     * The Dashboard opens it as a plain browser download instead of fetching
+     * the file with the bearer token: download managers (IDM) take over PDF
+     * responses and abort the page's own request, which then failed with no
+     * file. A link needs no token, so whoever handles the download succeeds.
+     */
+    public function certificateLink(ExternalTrainingRequest $externalTraining): JsonResponse
+    {
+        $this->visible($externalTraining);
+        $expires = now()->addMinutes(self::LINK_MINUTES);
+
+        return $this->success(__('messages.retrieved'), [
+            'url'        => URL::temporarySignedRoute('admin.external-training.certificate.file', $expires, ['externalTraining' => $externalTraining->id]),
+            'expires_at' => $expires->toIso8601String(),
+        ]);
+    }
+
+    /** GET external-training-files/{externalTraining}?expires&signature - the signed link's file. */
+    public function certificateFile(ExternalTrainingRequest $externalTraining): StreamedResponse
+    {
+        return $this->certificate($externalTraining);
     }
 
     /** GET admin/external-training/{externalTraining}/certificate */

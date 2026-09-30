@@ -6,7 +6,6 @@ use App\Enums\Mobile\RatingSentiment;
 use App\Http\Requests\Api\SubmitCourseEvaluationRequest;
 use App\Http\Resources\EvaluationCategoryResource;
 use App\Models\Course;
-use App\Services\Mobile\MobileSettings;
 use App\Services\UserCourseEvaluationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -123,27 +122,10 @@ class UserCourseEvaluationController extends ApiController
             $validated['questions'],
         );
 
-        return $this->created(__('messages.created'), ['rating' => $rating, 'rate_label' => $this->rateLabel($rating)]);
-    }
-
-    /**
-     * The sentiment label the learnings list shows next to "My Rating". The
-     * evaluation is already saved here, so a missing or broken rating-scale
-     * setting leaves the label out instead of failing the request.
-     */
-    private function rateLabel(?int $rating): ?string
-    {
-        if ($rating === null) {
-            return null;
-        }
-        try {
-            $settings = app(MobileSettings::class);
-
-            return __(RatingSentiment::fromRating($rating, $settings->ratingMinValue(), $settings->ratingMaxValue())->labelKey());
-        } catch (\RuntimeException $e) {
-            report($e);
-
-            return null;
-        }
+        // The evaluation is saved by now: the label is best-effort (labelFor never throws).
+        return $this->created(__('messages.created'), [
+            'rating'     => $rating,
+            'rate_label' => $rating !== null ? RatingSentiment::labelFor($rating) : null,
+        ]);
     }
 }

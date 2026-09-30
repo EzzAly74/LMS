@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Learner;
 
+use App\Enums\Mobile\RatingSentiment;
 use App\Models\Course;
 use App\Models\ExternalTrainingRequest;
 use App\Models\User;
@@ -181,10 +182,11 @@ final class ProfileDashboardService
         $certificates   = $this->certificatesByCourse($user, $completedIds);
         $completionDate  = $this->completionDatesByCourse($user, $completedIds);
         $scores          = $this->finalExamScoresByCourse($user, $completedIds);
+        $ratings         = $this->ratingsByCourse($user, $completedIds);
 
         return Course::whereIn('id', $completedIds->all())
             ->get(['id', 'title', 'image', 'course_type', 'certificate'])
-            ->map(function (Course $c) use ($locale, $certificates, $completionDate, $scores) {
+            ->map(function (Course $c) use ($locale, $certificates, $completionDate, $scores, $ratings) {
                 $cid = (int) $c->id;
 
                 return [
@@ -202,6 +204,10 @@ final class ProfileDashboardService
                     // earned) from a neutral "Completed" (never offered one) —
                     // instead of always shaming an un-certifiable course.
                     'certificate_offered' => (bool) $c->certificate,
+                    // "My Rating" (human, 2026-09-30): set by the course
+                    // evaluation; null when the learner has not rated it.
+                    'rate'                => $ratings[$cid] ?? null,
+                    'rate_label'          => isset($ratings[$cid]) ? RatingSentiment::labelFor($ratings[$cid]) : null,
                 ];
             })
             ->concat($external)
@@ -237,6 +243,8 @@ final class ProfileDashboardService
                 'certificate_id'      => null,
                 'certificate_earned'  => false,
                 'certificate_offered' => false,
+                'rate'                => null,
+                'rate_label'          => null,
             ])
             ->values();
     }
@@ -361,6 +369,18 @@ final class ProfileDashboardService
         return Course::whereIn('id', $courseIds->all())
             ->get(['id', 'title'])
             ->mapWithKeys(fn (Course $c) => [(int) $c->id => (string) $c->getTranslation('title', $locale)])
+            ->all();
+    }
+
+    /** @return array<int, int> course_id => the learner's rating (course_ratings, one row per learner and course) */
+    private function ratingsByCourse(User $user, Collection $courseIds): array
+    {
+        return DB::table('course_ratings')
+            ->where('user_id', $user->id)
+            ->whereIn('course_id', $courseIds->all())
+            ->orderBy('id')
+            ->pluck('rating', 'course_id')
+            ->map(fn ($v) => (int) $v)
             ->all();
     }
 

@@ -379,6 +379,16 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $this->assertSame(4, (int) DB::table('course_ratings')->where('user_id', $second->id)->value('rating'));
         $this->assertNull(DB::table('course_ratings')->where('user_id', $second->id)->value('comment'));
         $this->assertSame(2, DB::table('course_ratings')->where('course_id', $course->id)->count(), 'One row per learner.');
+
+        // The Completed tab (the evaluation completed the course) shows each
+        // learner their own rating, never another learner's.
+        DB::table('course_ratings')->where('user_id', $second->id)->update(['rating' => 2]);
+        $row = fn (array $headers) => collect($this->getJson(self::BASE.'/learner/profile/completed', $headers + ['Accept-Language' => 'en'])
+            ->assertOk()->json('result'))->firstWhere('course_id', $course->id);
+        $mine = $row($h1);
+        $this->assertSame(4, $mine['rate']);
+        $this->assertIsString($mine['rate_label']);
+        $this->assertSame(2, $row($h2)['rate']);
     }
 
     public function test_a_form_without_star_or_scale_answers_leaves_my_rating_alone(): void

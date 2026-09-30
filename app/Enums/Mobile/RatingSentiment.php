@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Enums\Mobile;
 
+use App\Services\Mobile\MobileSettings;
+
 /**
  * 5-point emoji sentiment scale used by the cohort feedback bottom
  * sheet (Figma 543:41637 / 543:41844).
@@ -66,6 +68,24 @@ enum RatingSentiment: string
     public function labelKey(): string
     {
         return "enums.rating_sentiment.{$this->value}";
+    }
+
+    /**
+     * The localized label for a stored rating on the configured scale
+     * ("Satisfied"). Null when the scale settings are missing or invalid:
+     * a label is decoration, so it never fails the response it sits in.
+     */
+    public static function labelFor(int $rating): ?string
+    {
+        try {
+            $settings = app(MobileSettings::class);
+
+            return __(self::fromRating($rating, $settings->ratingMinValue(), $settings->ratingMaxValue())->labelKey());
+        } catch (\RuntimeException $e) {
+            report($e);
+
+            return null;
+        }
     }
 
     /**

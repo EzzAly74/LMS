@@ -6,7 +6,6 @@ use App\Http\Traits\TracksLastActive;
 use App\Models\User;
 use App\Repositories\Contracts\UserRepositoryInterface;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -18,57 +17,25 @@ class UserAuthService
         private readonly UserRepositoryInterface $userRepo
     ) {}
 
+    /**
+     * Website learner sign-in (D-075): every learner authenticates through HR,
+     * machine code as the username and national id as the password, exactly
+     * as the production app does. HR is the authority: if HR says no, the
+     * answer is no.
+     *
+     * Only when HR cannot be reached does the locally mirrored national id
+     * (written by `sync:employees` and by every successful HR login) stand in,
+     * so an HR outage does not lock every employee out (Q-013 keeps that
+     * fallback under review). There is no local learner password any more:
+     * the Dashboard no longer creates website learners, and LIVE had none.
+     *
+     * A learner deactivated in the Academy is refused even when HR accepts.
+     */
     public function login(string $identifier, string $password): ?array
     {
-        // Learners sign in with their machine code; the request field is named
-        // "email" only because the frontend and the production app both inherit
-        // that name (LIVE's own form labels it "الكود الوظيفي" — job code — and
-        // types it as text, not email). An email or system id is accepted too,
-        // for admin-managed accounts.
-        //
-        // The local lookup exists ONLY to support the dashboard-password path
-        // below; the HR call never uses it as an identifier.
-        $localUser = $this->resolveLocalUser($identifier);
-
-        // Dashboard-password path: TEST-only addition (LIVE has no local
-        // learner password — 0 of its 1220 users have one). Kept because the
-        // admin dashboard can set one, and it is purely additive: it cannot
-        // block or alter the machine-code + national-id route below.
-        $localHash = $localUser?->getAttribute('password');
-        if ($localUser && !empty($localHash) && Hash::check($password, $localHash)) {
-            return $this->issueToken($localUser, $identifier);
-        }
-
-        // National-id path — the standing fallback for every learner.
-        //
-        // HR already treats the national id as the learner's password. The
-        // HR call below now uses `Auth/Mobilelogin`, which does not gate on
-        // the control-panel permission that made `Auth/login` answer
-        // `ليس لديك صلاحية الوصول إلى لوحة التحكم` for ordinary employees —
-        // but this local path stays as the standing fallback for when HR is
-        // unavailable or has not yet seen a change to the employee's record.
-        //
-        // So accept the same secret locally, compared against the value
-        // `sync:employees` mirrors onto each row (and that the HR-success path
-        // below stores for brand-new employees). Nothing is hardcoded: the
-        // comparison is always against that user's own synced national id, so
-        // a newly synced employee works on first login with no extra setup.
-        // A row with no national id is unaffected and falls through to HR.
-        $nationalId = trim((string) ($localUser?->getAttribute('national_id') ?? ''));
-        if ($localUser && $nationalId !== '' && hash_equals($nationalId, trim($password))) {
-            return $this->issueToken($localUser, $identifier);
-        }
-
-        // HR is the authority for learner credentials — machine code as the
-        // username, national id as the password. The production app
-        // (AuthControllers\LoginController::postLogin) hands HR the value the
-        // learner typed, verbatim, and nothing else. Do the same here.
-        //
-        // Deliberately NOT substituting the locally-stored email: HR accepts a
-        // machine code directly, and swapping in an email breaks every learner
-        // whose synced row has a blank email, a stale one, or one shared with a
-        // second row. Machine code must never silently become email.
         // From the container (same no-argument instance) so tests can fake HR.
+        // Machine code is handed to HR verbatim: it must never silently become
+        // an email (blank, stale or shared emails would break those learners).
         $hrService = app(HRSystemService::class);
         $result    = $hrService->getAccessToken(
             trim($identifier),
@@ -78,6 +45,18 @@ class UserAuthService
         );
 
         if ($hrService->lastError === 'unreachable') {
+            $localUser  = $this->resolveLocalUser($identifier);
+            $nationalId = trim((string) ($localUser?->getAttribute('national_id') ?? ''));
+
+            if ($localUser && $nationalId !== '' && hash_equals($nationalId, trim($password))) {
+                Log::warning('HR unreachable: learner signed in with the mirrored national id', [
+                    'user_id' => $localUser->id,
+                ]);
+                $this->assertActive($localUser);
+
+                return $this->issueToken($localUser, $identifier);
+            }
+
             abort(response()->json([
                 'status'  => 'error',
                 'message' => 'HR service is currently unreachable. Please try again later.',
@@ -92,7 +71,6 @@ class UserAuthService
             // any national id are never written here.
             Log::info('HR learner login rejected', [
                 'machine_code' => trim($identifier),
-                'local_user'   => $localUser?->id,
                 'hr_message'   => $hrService->lastMessage,
             ]);
             return null;
@@ -112,15 +90,24 @@ class UserAuthService
             'department_name' => $employee->departmentName,
         ]);
 
+        $this->assertActive($user);
+
         return $this->issueToken($user, $identifier);
+    }
+
+    /** A learner deactivated in the Academy may not sign in (D-075). */
+    private function assertActive(User $user): void
+    {
+        if (in_array(strtolower((string) ($user->status ?? 'active')), ['inactive', 'deactivated'], true)) {
+            abort(403, __('messages.account_inactive'));
+        }
     }
 
     /**
      * Mint the learner API token and stamp activity.
      *
-     * Shared by all three authentication routes (dashboard password,
-     * national id, HR) so a token is never issued on slightly different
-     * terms depending on which one matched.
+     * Shared by the HR route and the HR-outage fallback, so a token is never
+     * issued on different terms depending on which one matched.
      *
      * @return array{token: string, user: User}
      */
@@ -129,7 +116,7 @@ class UserAuthService
         $token = $user->createToken(
             'user-api-token',
             ['role:user'],
-            Carbon::now()->addDays(30)
+            Carbon::now()->addDays(7)
         )->plainTextToken;
 
         // Register activity on every successful login — across all tables
@@ -142,7 +129,7 @@ class UserAuthService
 
     /**
      * Resolve a login identifier (machine code, email, or system id) to a local
-     * user, for the dashboard-password and national-id paths.
+     * user, for the HR-outage national-id fallback.
      *
      * Resolution is strictly ordered rather than one OR'd query. `machine_code`
      * and `system_id` share a numeric namespace — 61 rows currently hold a

@@ -95,6 +95,12 @@ class AdminUserListResource extends JsonResource
             'job_title'              => $row->job_title ?? null,
             'avatar_initial'         => $this->initial($display ?: 'U'),
             'created_at'             => $row->created_at ? (string) $row->created_at : null,
+
+            // Dashboard accounts (D-075): the instructor record the account
+            // teaches as, and whether its roles limit it to those courses.
+            'instructor_id'          => isset($row->instructor_id) ? (int) $row->instructor_id : null,
+            'course_scope'           => (string) ($row->course_scope ?? 'all'),
+            'is_super_admin'         => (bool) ($row->is_super_admin ?? false),
         ];
     }
 

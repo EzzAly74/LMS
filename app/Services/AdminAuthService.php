@@ -25,10 +25,18 @@ class AdminAuthService
             return null;
         }
 
+        // Correct password, deactivated account: refused, with a message that
+        // says so rather than "invalid credentials" (D-073).
+        if (! $admin->isActive()) {
+            abort(403, __('messages.account_inactive'));
+        }
+
+        // Dashboard tokens last 12 h (D-007), not 30 days.
+
         $token = $admin->createToken(
             'admin-api-token',
             ['role:admin'],
-            Carbon::now()->addDays(30)
+            Carbon::now()->addHours(12)
         )->plainTextToken;
 
         // Register activity on every successful login — across all tables

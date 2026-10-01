@@ -49,6 +49,17 @@ class AuthenticationMiddleware
             ], 401);
         }
 
+        // A deactivated account loses access at once, not when its token
+        // expires (D-073): its tokens are revoked on the first request.
+        if (in_array(strtolower((string) ($tokenable->status ?? 'active')), ['inactive', 'deactivated'], true)) {
+            $tokenable->tokens()->delete();
+
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('messages.account_inactive'),
+            ], 401);
+        }
+
         $accessToken->forceFill(['last_used_at' => now()])->save();
 
         // Stamp activity for ANY authenticated model (learner / instructor /

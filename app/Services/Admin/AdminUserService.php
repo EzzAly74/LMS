@@ -75,10 +75,16 @@ class AdminUserService
         ?array  $instructorIds = null,
         int     $perPage       = 15,
         array   $learnerFilters = [],
+        ?\Closure $constrain  = null,
     ): LengthAwarePaginator {
         $sub = $this->unifiedQuery();
 
         $query = DB::query()->fromSub($sub, 'p');
+
+        // Extra caller constraint on the outer query, e.g. course scope (D-074).
+        if ($constrain !== null) {
+            $constrain($query);
+        }
 
         if ($role) {
             // Accept either a bucketed system role (`admin`/`instructor`/

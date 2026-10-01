@@ -56,7 +56,7 @@ class EnrolmentConfirmationResource extends JsonResource
                 'end_date'            => $cohort->end_date instanceof \Carbon\Carbon
                     ? $cohort->end_date->format('Y-m-d')
                     : $cohort->end_date,
-                'capacity'            => $cohort->capacity !== null ? (int) $cohort->capacity : null,
+                'capacity'            => app(\App\Services\Mobile\AcademyService::class)->effectiveCapacity($cohort),
                 'enrolment_closes_at' => $cohort->enrolment_closes_at instanceof \Carbon\Carbon
                     ? $cohort->enrolment_closes_at->format('Y-m-d')
                     : $cohort->enrolment_closes_at,

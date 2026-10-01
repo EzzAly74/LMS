@@ -53,27 +53,30 @@ final class EnrolmentService
                     $course,
                     $user,
                     now(),
-                    0, // close-offset already applied via the academy default
+                    $this->academyService->closeOffsetDays(),
                     $this->academyService->scheduledVisibilityDays(),
                 );
             if ($cohort === null) {
-                // Re-fetch via the academy service to keep deadline
-                // logic in one place.
-                $cohort = $this->academyService->anchorCohortFor($course, $user);
+                // Every cohort may be full or closed; report the one the
+                // learner would have joined so the reason is precise.
+                $cohort = $this->academyService->anchorCohortFor($course, $user)
+                    ?? $this->nextUpcomingCohort($course);
             }
-            if ($cohort === null) {
+            if ($cohort === null || $cohort->status === 'inactive') {
                 return ['outcome' => EnrolmentOutcome::NoCohort, 'cohort' => null];
             }
 
-            // 3. Deadline still alive?
+            // 3. Deadline still alive? It always ends before the start date,
+            //    so a running cohort is closed too (NEW2B-6091).
             $deadline = $this->academyService->effectiveDeadline($cohort);
-            if ($deadline !== null && $deadline->isPast()) {
+            if ($deadline === null || $deadline->isPast()) {
                 return ['outcome' => EnrolmentOutcome::EnrolmentClosed, 'cohort' => $cohort];
             }
 
-            // 4. Capacity check inside the row lock.
+            // 4. Capacity check inside the row lock; every cohort has a
+            //    limit (NEW2B-6050).
             $enrolled = $this->enrolmentRepository->lockAndCountSeats($cohort->id);
-            if ($cohort->capacity !== null && $enrolled >= (int) $cohort->capacity) {
+            if ($enrolled >= $this->academyService->effectiveCapacity($cohort)) {
                 return ['outcome' => EnrolmentOutcome::CohortFull, 'cohort' => $cohort];
             }
 
@@ -82,6 +85,16 @@ final class EnrolmentService
 
             return ['outcome' => EnrolmentOutcome::Enrolled, 'cohort' => $cohort];
         });
+    }
+
+    /** The course's next cohort that has not started, joinable or not. */
+    private function nextUpcomingCohort(Course $course): ?CourseSection
+    {
+        return CourseSection::query()
+            ->where('course_id', $course->id)
+            ->whereDate('start_date', '>', now()->toDateString())
+            ->orderBy('start_date')
+            ->first();
     }
 
     private function resolveUsersExistingCohort(User $user, Course $course): ?CourseSection

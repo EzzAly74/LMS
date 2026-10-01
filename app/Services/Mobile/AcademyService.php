@@ -407,14 +407,11 @@ final class AcademyService
             return CourseCtaState::GetNotified;
         }
 
-        // Capacity check.
-        $capacity = $anchorCohort->capacity;
-        if ($capacity !== null) {
-            $enrolled = $anchorCohort->enrolled_count ?? \DB::table('users_courses')
-                ->where('group_id', $anchorCohort->id)->count();
-            if ($enrolled >= $capacity) {
-                return CourseCtaState::Unavailable;
-            }
+        // Capacity check (NEW2B-6050): every cohort has a limit.
+        $enrolled = $anchorCohort->enrolled_count ?? \DB::table('users_courses')
+            ->where('group_id', $anchorCohort->id)->count();
+        if ($enrolled >= $this->effectiveCapacity($anchorCohort)) {
+            return CourseCtaState::Unavailable;
         }
 
         return CourseCtaState::EnrolNow;
@@ -430,25 +427,54 @@ final class AcademyService
         return $this->settings->academyScheduledVisibilityDays();
     }
 
+    /** Platform Config "Enrolment closes before start", in days. */
+    public function closeOffsetDays(): int
+    {
+        return $this->settings->academyDefaultCloseOffsetDays();
+    }
+
     /**
      * Effective enrolment deadline = explicit `enrolment_closes_at`
      * if set, otherwise `start_date - mobile_academy.default_close_offset_days`.
      */
     public function effectiveDeadline(CourseSection $cohort): ?Carbon
     {
-        if ($cohort->enrolment_closes_at !== null) {
-            return Carbon::parse($cohort->enrolment_closes_at)->endOfDay();
-        }
-
         if ($cohort->start_date === null) {
-            return null;
+            return $cohort->enrolment_closes_at !== null
+                ? Carbon::parse($cohort->enrolment_closes_at)->endOfDay()
+                : null;
         }
 
-        $offset = $this->settings->academyDefaultCloseOffsetDays();
-
-        return Carbon::parse($cohort->start_date)
-            ->subDays($offset)
+        // Enrolment never runs into the start date (NEW2B-6091): the last
+        // moment is the end of the day before it, minus the offset.
+        $lastDay = Carbon::parse($cohort->start_date)
+            ->subDays($this->settings->academyDefaultCloseOffsetDays() + 1)
             ->endOfDay();
+
+        if ($cohort->enrolment_closes_at !== null) {
+            return Carbon::parse($cohort->enrolment_closes_at)->endOfDay()
+                ->min(Carbon::parse($cohort->start_date)->subDay()->endOfDay());
+        }
+
+        return $lastDay;
+    }
+
+    /**
+     * Seats in a cohort: its own capacity, else the course's "Max per
+     * Cohort", else the Platform Config default cohort size (NEW2B-6050).
+     * Matches the catalogue's SQL rule in AcademyRepository::applyJoinable().
+     */
+    public function effectiveCapacity(CourseSection $cohort): int
+    {
+        if ($cohort->capacity !== null) {
+            return (int) $cohort->capacity;
+        }
+
+        $courseMax = $cohort->relationLoaded('course')
+            ? $cohort->course?->max_learners
+            : \DB::table('courses')->where('id', $cohort->course_id)->value('max_learners');
+
+        return $courseMax !== null ? (int) $courseMax : $this->settings->defaultCohortSize();
     }
 
     /**

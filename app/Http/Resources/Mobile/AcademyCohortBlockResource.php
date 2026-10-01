@@ -26,8 +26,9 @@ class AcademyCohortBlockResource extends JsonResource
         $now       = now();
         $enrolled  = (int) ($cohort->enrolled_count
             ?? \DB::table('users_courses')->where('group_id', $cohort->id)->count());
-        $capacity  = $cohort->capacity !== null ? (int) $cohort->capacity : null;
-        $seatsLeft = $capacity !== null ? max(0, $capacity - $enrolled) : null;
+        // Every cohort has a limit (NEW2B-6050): its own, the course's, or the default.
+        $capacity  = $academy->effectiveCapacity($cohort);
+        $seatsLeft = max(0, $capacity - $enrolled);
         $deadline  = $academy->effectiveDeadline($cohort);
 
         return [
@@ -43,7 +44,7 @@ class AcademyCohortBlockResource extends JsonResource
             'capacity'            => $capacity,
             'enrolled_count'      => $enrolled,
             'seats_left'          => $seatsLeft,
-            'is_full'             => $capacity !== null && $enrolled >= $capacity,
+            'is_full'             => $enrolled >= $capacity,
             'enrolment_closes_at' => $deadline?->toDateString(),
             'days_until_deadline' => $academy->daysUntilDeadline($cohort, $now),
             'deadline_severity'   => $academy->deadlineSeverity($cohort, $now),

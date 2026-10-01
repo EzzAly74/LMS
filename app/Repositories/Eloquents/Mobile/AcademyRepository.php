@@ -10,6 +10,7 @@ use App\Models\Course;
 use App\Models\CourseSection;
 use App\Models\User;
 use App\Repositories\Contracts\Mobile\AcademyRepositoryInterface;
+use App\Services\Mobile\MobileSettings;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -49,6 +50,7 @@ final class AcademyRepository implements AcademyRepositoryInterface
     public function __construct(
         private readonly Course $course,
         private readonly CourseSection $section,
+        private readonly MobileSettings $settings,
     ) {}
 
     public function countAvailableForUser(User $user, Carbon $now, int $defaultCloseOffsetDays, int $scheduledVisibilityDays): int
@@ -137,7 +139,9 @@ final class AcademyRepository implements AcademyRepositoryInterface
                 // pre-trimming so the resource doesn't have to.
                 'sections' => fn ($q) => $q
                     ->orderBy('start_date')
-                    ->select(['id', 'course_id', 'name', 'start_date', 'end_date', 'capacity', 'enrolment_closes_at', 'status']),
+                    ->select(['id', 'course_id', 'name', 'start_date', 'end_date', 'capacity', 'enrolment_closes_at', 'status'])
+                    // Seats taken, in the same query: no count per card.
+                    ->withCount(['enrollments as enrolled_count']),
             ])
             ->withCount(['ratings as rating_count'])
             ->withAvg('ratings as rating_avg', 'rating');
@@ -263,34 +267,7 @@ final class AcademyRepository implements AcademyRepositoryInterface
         return $this->section->newQuery()
             ->withCount(['enrollments as enrolled_count'])
             ->where('course_id', $course->id)
-            ->where(function ($q) {
-                $q->whereNull('status')->orWhere('status', '!=', 'inactive');
-            })
-            ->whereNotNull('start_date')
-            ->whereDate('start_date', '>=', $today)
-            // App-visibility gate: `open_for_enrollment` shows regardless of
-            // how far out it starts; anything else (scheduled) only surfaces
-            // once it is within `$visibility` days of its start date.
-            ->where(function ($q) use ($today, $visibility) {
-                $q->where('status', 'open_for_enrollment')
-                  ->orWhereRaw('DATE_SUB(start_date, INTERVAL ? DAY) <= ?', [$visibility, $today]);
-            })
-            ->where(function ($q) use ($today, $offset) {
-                // Effective deadline = enrolment_closes_at OR start_date - offset.
-                $q->where(function ($q2) use ($today) {
-                    $q2->whereNotNull('enrolment_closes_at')
-                       ->whereDate('enrolment_closes_at', '>=', $today);
-                })->orWhere(function ($q2) use ($today, $offset) {
-                    $q2->whereNull('enrolment_closes_at')
-                       ->whereRaw('DATE_SUB(start_date, INTERVAL ? DAY) >= ?', [$offset, $today]);
-                });
-            })
-            // Capacity check: capacity NULL => unlimited; otherwise
-            // enrolled_count must be < capacity.
-            ->where(function ($q) {
-                $q->whereNull('capacity')
-                  ->orWhereRaw('(SELECT COUNT(*) FROM users_courses uc WHERE uc.group_id = course_sections.id) < course_sections.capacity');
-            })
+            ->where(fn ($q) => $this->applyJoinable($q, $today, $offset, $visibility))
             // Skip cohorts the user is already in (a guest has none).
             ->when($user !== null, fn ($q) => $q->whereNotExists(function ($sub) use ($user) {
                 $sub->from('users_courses')
@@ -659,40 +636,7 @@ final class AcademyRepository implements AcademyRepositoryInterface
         return $q->whereExists(function ($sub) use ($user, $today, $offset, $visibility) {
             $sub->from('course_sections')
                 ->whereColumn('course_sections.course_id', 'courses.id')
-                ->where(function ($q2) {
-                    $q2->whereNull('course_sections.status')
-                       ->orWhere('course_sections.status', '!=', 'inactive');
-                })
-                ->whereNotNull('course_sections.start_date')
-                ->whereDate('course_sections.start_date', '>=', $today)
-                // App-visibility gate (Figma 332:10708): `open_for_enrollment`
-                // cohorts appear immediately; `scheduled` cohorts only appear
-                // once they are within `$visibility` days of their start date.
-                ->where(function ($q2) use ($today, $visibility) {
-                    $q2->where('course_sections.status', 'open_for_enrollment')
-                       ->orWhereRaw(
-                           'DATE_SUB(course_sections.start_date, INTERVAL ? DAY) <= ?',
-                           [$visibility, $today],
-                       );
-                })
-                ->where(function ($q2) use ($today, $offset) {
-                    $q2->where(function ($q3) use ($today) {
-                        $q3->whereNotNull('course_sections.enrolment_closes_at')
-                           ->whereDate('course_sections.enrolment_closes_at', '>=', $today);
-                    })->orWhere(function ($q3) use ($today, $offset) {
-                        $q3->whereNull('course_sections.enrolment_closes_at')
-                           ->whereRaw(
-                               'DATE_SUB(course_sections.start_date, INTERVAL ? DAY) >= ?',
-                               [$offset, $today],
-                           );
-                    });
-                })
-                ->where(function ($q2) {
-                    $q2->whereNull('course_sections.capacity')
-                       ->orWhereRaw(
-                           '(SELECT COUNT(*) FROM users_courses uc WHERE uc.group_id = course_sections.id) < course_sections.capacity',
-                       );
-                });
+                ->where(fn ($q2) => $this->applyJoinable($q2, $today, $offset, $visibility));
 
             // A guest has no enrolments to exclude; the per-cohort
             // "already joined" filter only applies to an authenticated user.
@@ -706,4 +650,46 @@ final class AcademyRepository implements AcademyRepositoryInterface
         });
     }
 
+    /**
+     * The one "a learner may join this cohort today" rule, shared by the
+     * catalogue, course details and enrolment so they never disagree:
+     *
+     * - not inactive, and starting after today: on its start date a cohort
+     *   is running, not open (NEW2B-6091);
+     * - visible: `open_for_enrollment`, or within `$visibility` days of start;
+     * - enrolment still open: an explicit `enrolment_closes_at` is the last
+     *   day to join; otherwise enrolment closes `$offset` days before the
+     *   start, so 0 means "until the day before it starts" (NEW2B-6091);
+     * - a seat left: the cohort's own capacity, else the course's "Max per
+     *   Cohort", else the Platform Config default cohort size (NEW2B-6050).
+     *   Every enrolment holds a seat.
+     */
+    private function applyJoinable(Builder|QueryBuilder $q, string $today, int $offset, int $visibility): Builder|QueryBuilder
+    {
+        return $q
+            ->where(function ($q2) {
+                $q2->whereNull('course_sections.status')
+                   ->orWhere('course_sections.status', '!=', 'inactive');
+            })
+            ->whereNotNull('course_sections.start_date')
+            ->whereDate('course_sections.start_date', '>', $today)
+            ->where(function ($q2) use ($today, $visibility) {
+                $q2->where('course_sections.status', 'open_for_enrollment')
+                   ->orWhereRaw('DATE_SUB(course_sections.start_date, INTERVAL ? DAY) <= ?', [$visibility, $today]);
+            })
+            ->where(function ($q2) use ($today, $offset) {
+                $q2->where(function ($q3) use ($today) {
+                    $q3->whereNotNull('course_sections.enrolment_closes_at')
+                       ->whereDate('course_sections.enrolment_closes_at', '>=', $today);
+                })->orWhere(function ($q3) use ($today, $offset) {
+                    $q3->whereNull('course_sections.enrolment_closes_at')
+                       ->whereRaw('DATE_SUB(course_sections.start_date, INTERVAL ? DAY) > ?', [$offset, $today]);
+                });
+            })
+            ->whereRaw(
+                '(SELECT COUNT(*) FROM users_courses uc WHERE uc.group_id = course_sections.id) < '
+                .'COALESCE(course_sections.capacity, (SELECT c.max_learners FROM courses c WHERE c.id = course_sections.course_id), ?)',
+                [$this->settings->defaultCohortSize()],
+            );
+    }
 }

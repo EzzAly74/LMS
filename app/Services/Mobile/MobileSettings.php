@@ -87,6 +87,18 @@ final class MobileSettings
         return $this->nonNegativeInt('academy_deadline_critical_days');
     }
 
+    /**
+     * Platform Config "Default cohort size": the seat limit for a cohort that
+     * has no capacity of its own and whose course sets no "Max per Cohort"
+     * (NEW2B-6050). At least 1; 30 when the row is missing or invalid.
+     */
+    public function defaultCohortSize(): int
+    {
+        $value = (int) ($this->platformValue('default_cohort_size') ?? 30);
+
+        return $value >= 1 ? $value : 30;
+    }
+
     public function academyDefaultCloseOffsetDays(): int
     {
         return $this->nonNegativeInt('academy_default_close_offset_days');

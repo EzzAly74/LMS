@@ -41,10 +41,17 @@ class AcademyCourseCardResource extends JsonResource
             ->filter(function ($section) use ($now) {
                 if ($section->status === 'inactive') return false;
                 if ($section->start_date === null)   return false;
-                return $section->start_date->gte($now->copy()->startOfDay());
+                // A cohort is open only before its start date (NEW2B-6091).
+                return $section->start_date->gt($now->copy()->endOfDay());
             })
             ->sortBy('start_date')
             ->first();
+
+        // The course is in hand: no per-card query for its "Max per Cohort".
+        $nextCohort?->setRelation('course', $course);
+        $nextCapacity = $nextCohort ? $academy->effectiveCapacity($nextCohort) : 0;
+        $nextEnrolled = $nextCohort ? (int) ($nextCohort->enrolled_count
+            ?? \DB::table('users_courses')->where('group_id', $nextCohort->id)->count()) : 0;
 
         $deadlineSeverity = $nextCohort ? $academy->deadlineSeverity($nextCohort, $now) : 'none';
         $daysUntilStart   = $nextCohort && $nextCohort->start_date
@@ -115,13 +122,9 @@ class AcademyCourseCardResource extends JsonResource
                 'name'           => $nextCohort->getTranslation('name', $locale),
                 'start_date'     => $nextCohort->start_date?->format('Y-m-d'),
                 'end_date'       => $nextCohort->end_date?->format('Y-m-d'),
-                'capacity'       => $nextCohort->capacity !== null ? (int) $nextCohort->capacity : null,
-                'enrolled_count' => (int) ($nextCohort->enrolled_count
-                    ?? \DB::table('users_courses')->where('group_id', $nextCohort->id)->count()),
-                'seats_left'     => $nextCohort->capacity !== null
-                    ? max(0, (int) $nextCohort->capacity - (int) ($nextCohort->enrolled_count
-                        ?? \DB::table('users_courses')->where('group_id', $nextCohort->id)->count()))
-                    : null,
+                'capacity'       => $nextCapacity,
+                'enrolled_count' => $nextEnrolled,
+                'seats_left'     => max(0, $nextCapacity - $nextEnrolled),
                 'enrolment_closes_at' => $academy->effectiveDeadline($nextCohort)?->toDateString(),
                 'days_until_deadline' => $academy->daysUntilDeadline($nextCohort, $now),
                 'days_until_start'    => $daysUntilStart,

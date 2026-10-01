@@ -12,6 +12,10 @@ class CategoryResource extends JsonResource
         return [
             'id'           => $this->id,
             'name'         => $this->getTranslation('name', app()->getLocale()),
+            // Each language as stored, no fallback: the Dashboard edit form
+            // fills its EN and AR fields from these (NEW2B-6104).
+            'name_en'      => $this->getTranslation('name', 'en', false) ?: null,
+            'name_ar'      => $this->getTranslation('name', 'ar', false) ?: null,
             'logo'         => $this->logo ? $this->getFileUrl($this->logo) : null,
             'active'       => (bool) $this->active,
             'courses_count'=> $this->whenCounted('courses'),

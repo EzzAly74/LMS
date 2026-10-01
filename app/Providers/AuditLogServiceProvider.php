@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\Admin;
 use App\Models\Article;
 use App\Models\AuditLog;
+use App\Models\Blog;
 use App\Models\Category;
 use App\Models\Course;
 use App\Models\CourseAssignment;
@@ -86,6 +87,7 @@ class AuditLogServiceProvider extends ServiceProvider
         QualificationSkill::class    => 'qualification',
         ExternalTrainingRequest::class => 'external_training',
         Article::class               => 'article',
+        Blog::class                  => 'blog',
         LmsResource::class           => 'resource',
         PublicNotification::class    => 'notification',
         Setting::class               => 'settings',
@@ -329,10 +331,16 @@ class AuditLogServiceProvider extends ServiceProvider
             return null;
         }
 
-        foreach ($changes as $attr => $newValue) {
+        // A toggle verb ("activated", "published") only when the toggle is
+        // the one real change and it went from off to on; an edit that also
+        // re-sends the flag is an update (NEW2B-6105).
+        $meaningful = array_diff_key($changes, array_flip([$model->getUpdatedAtColumn() ?? 'updated_at']));
+        if (count($meaningful) === 1) {
+            $attr = (string) array_key_first($meaningful);
             if (isset(self::BOOL_VERBS[$attr])) {
-                $cast = filter_var($newValue, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-                if ($cast === true) {
+                $was = filter_var($model->getOriginal($attr), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                $now = filter_var($meaningful[$attr], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                if ($now === true && $was !== true) {
                     return self::BOOL_VERBS[$attr];
                 }
             }
@@ -436,7 +444,11 @@ class AuditLogServiceProvider extends ServiceProvider
     private function roleFor(?\Illuminate\Contracts\Auth\Authenticatable $actor): string
     {
         if ($actor === null)                   return 'system';
-        if ($actor instanceof Admin)           return 'admin';
+        // Instructors sign in to the Dashboard as an admins row linked to
+        // their instructor record, or holding the instructor role (D-074).
+        if ($actor instanceof Admin) {
+            return $actor->instructor_id !== null || $actor->hasRole('instructor') ? 'instructor' : 'admin';
+        }
         if ($actor instanceof Instructor)      return 'instructor';
         return 'learner';
     }

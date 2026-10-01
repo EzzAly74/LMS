@@ -13,7 +13,14 @@ class Category extends Model
 
     public array $translatable = ['name'];
 
-    protected $guarded = ['id'];
+    protected $fillable = ['name', 'logo', 'active'];
+
+    /**
+     * Without the cast a saved `true` never equals the stored `1`, so every
+     * edit re-wrote `active` and the audit log called it "activated"
+     * (NEW2B-6105).
+     */
+    protected $casts = ['active' => 'boolean'];
 
     public function scopeActive($q)
     {

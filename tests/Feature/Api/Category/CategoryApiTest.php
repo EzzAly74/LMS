@@ -140,13 +140,25 @@ class CategoryApiTest extends ApiTestCase
     // PUT /api/v1/categories/{id}
     // =========================================================================
 
+    /** NEW2B-6104: each language comes back as stored, with no fallback. */
+    public function test_each_name_language_is_returned_as_stored(): void
+    {
+        $category = Category::factory()->create(['name' => ['en' => 'Finance']]);
+        ['headers' => $headers] = $this->adminToken();
+
+        $row = $this->withHeaders($headers)->getJson(self::BASE.'/categories/'.$category->id)->assertOk()->json('result');
+
+        $this->assertSame('Finance', $row['name_en']);
+        $this->assertNull($row['name_ar']);
+    }
+
     public function test_update_modifies_category(): void
     {
         $category = Category::factory()->create();
         ['headers' => $headers] = $this->adminToken();
 
         $response = $this->withHeaders($headers)->putJson(self::BASE . '/categories/' . $category->id, [
-            'name'   => 'Updated Name',
+            'name'   => ['en' => 'Updated Name', 'ar' => 'اسم محدث'],
             'active' => false,
         ]);
 

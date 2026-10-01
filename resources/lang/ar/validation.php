@@ -146,5 +146,10 @@ return [
         'name_en'               => 'الاسم بالإنجليزية',
         'name_ar'               => 'الاسم بالعربية',
         'role'                  => 'الدور',
+        'default_cohort_size'   => 'حجم المجموعة الافتراضي',
+        'academy_default_close_offset_days' => 'إغلاق التسجيل قبل البدء',
+        'passcode_reset_seconds' => 'مدة إعادة تعيين رمز الحضور',
+        'min_passing_attendance' => 'الحد الأدنى لنسبة الحضور',
+        'min_passing_score'      => 'الحد الأدنى لدرجة النجاح',
     ],
 ];

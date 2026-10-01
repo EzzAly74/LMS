@@ -193,6 +193,11 @@ return [
         'name_en' => 'English name',
         'name_ar' => 'Arabic name',
         'password_confirmation' => 'password confirmation',
+        'default_cohort_size' => 'default cohort size',
+        'academy_default_close_offset_days' => 'enrolment closes before start',
+        'passcode_reset_seconds' => 'passcode reset interval',
+        'min_passing_attendance' => 'minimum passing attendance',
+        'min_passing_score' => 'minimum passing score',
     ],
 
 ];

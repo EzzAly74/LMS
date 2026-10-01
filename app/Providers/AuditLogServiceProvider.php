@@ -444,13 +444,9 @@ class AuditLogServiceProvider extends ServiceProvider
     private function roleFor(?\Illuminate\Contracts\Auth\Authenticatable $actor): string
     {
         if ($actor === null)                   return 'system';
-        // Instructors sign in to the Dashboard as an admins row linked to
-        // their instructor record, or holding the instructor role (D-074).
-        if ($actor instanceof Admin) {
-            return $actor->instructor_id !== null || $actor->hasRole('instructor') ? 'instructor' : 'admin';
-        }
-        if ($actor instanceof Instructor)      return 'instructor';
-        return 'learner';
+        // One rule for every audit row: instructors sign in to the Dashboard as
+        // an admins row linked to their instructor record (D-074).
+        return \App\Support\Audit\AuditTrail::roleFor($actor);
     }
 
     private function guessUserType(?\Illuminate\Contracts\Auth\Authenticatable $actor): string

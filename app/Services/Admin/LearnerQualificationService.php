@@ -5,6 +5,7 @@ namespace App\Services\Admin;
 use App\Models\Admin;
 use App\Models\QualificationSkill;
 use App\Models\User;
+use App\Support\Audit\AuditTrail;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -94,6 +95,14 @@ class LearnerQualificationService
             }
         });
 
+        // NEW2B-6115: each qualification granted is in the audit log.
+        if ($new !== []) {
+            foreach (QualificationSkill::query()->whereKey($new)->get(['id', 'name']) as $skill) {
+                AuditTrail::record('assigned', QualificationSkill::class, $skill->id,
+                    $this->skillName($skill).' -> '.($learner->name ?? '#'.$learner->id), $by);
+            }
+        }
+
         return ['granted' => count($new), 'already_held' => count($existing)];
     }
 
@@ -143,6 +152,10 @@ class LearnerQualificationService
                     'updated_at'             => $now,
                 ], $new),
             );
+
+            // NEW2B-6115: one row for the bulk grant, with how many learners.
+            AuditTrail::record('assigned', QualificationSkill::class, $skill->id,
+                $this->skillName($skill).' ('.trans_choice('messages.audit_learners', count($new), ['count' => count($new)]).')', $by);
         }
 
         return ['granted' => count($new), 'already_held' => count($existing)];
@@ -158,10 +171,23 @@ class LearnerQualificationService
      */
     public function revoke(User $learner, QualificationSkill $skill): bool
     {
-        return DB::table('user_qualification_skill')
+        $revoked = DB::table('user_qualification_skill')
             ->where('user_id', $learner->id)
             ->where('qualification_skill_id', $skill->id)
             ->delete() > 0;
+
+        if ($revoked) {
+            AuditTrail::record('revoked', QualificationSkill::class, $skill->id,
+                $this->skillName($skill).' -> '.($learner->name ?? '#'.$learner->id));
+        }
+
+        return $revoked;
+    }
+
+    /** The qualification's name for an audit row: English, else Arabic. */
+    private function skillName(QualificationSkill $skill): string
+    {
+        return (string) ($skill->getTranslation('name', 'en', false) ?: $skill->getTranslation('name', 'ar', false) ?: '#'.$skill->id);
     }
 
     /** Direct grants held by one learner, newest first. */

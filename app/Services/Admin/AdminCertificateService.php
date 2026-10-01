@@ -7,6 +7,7 @@ use App\Models\CertificateTemplate;
 use App\Models\UserCertificate;
 use App\Repositories\Contracts\UserCertificateRepositoryInterface;
 use App\Services\CertificateService;
+use App\Support\Audit\AuditTrail;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
@@ -142,7 +143,7 @@ class AdminCertificateService
     {
         $storedPath = $this->storeTemplateFile($file);
 
-        DB::transaction(function () use ($storedPath, $file, $admin) {
+        $template = DB::transaction(function () use ($storedPath, $file, $admin) {
             // Carry the auto-fields list forward from the currently-active
             // row so admins keep whatever they had configured (or the
             // seeded defaults on a fresh install). Captured BEFORE we
@@ -154,7 +155,7 @@ class AdminCertificateService
                 ->active()
                 ->update(['is_active' => false, 'updated_at' => Carbon::now()]);
 
-            CertificateTemplate::query()->create([
+            $template = CertificateTemplate::query()->create([
                 'name'              => 'NAS Standard Certificate',
                 'name_ar'           => 'شهادة NAS القياسية',
                 'description'       => 'Default template — Auto-fills learner name, course, date, instructor',
@@ -174,7 +175,13 @@ class AdminCertificateService
             // `$settings['certificate']` all see the same template.
             // Strictly additive — no MVC controller is touched.
             $this->syncLegacyCertificateSetting($storedPath);
+
+            return $template;
         });
+
+        // NEW2B-6112: replacing the certificate template is in the audit log.
+        AuditTrail::record('replaced', CertificateTemplate::class, $template->id,
+            (string) $file->getClientOriginalName(), $admin);
 
         // Invalidate the cached settings map used by the view composer in
         // AppServiceProvider (10-minute TTL) so the front layouts pick up

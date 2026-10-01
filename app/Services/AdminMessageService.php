@@ -6,6 +6,7 @@ use App\Models\Admin;
 use App\Models\AdminMessage;
 use App\Models\AdminMessageRecipient;
 use App\Models\User;
+use App\Support\Audit\AuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -220,6 +221,11 @@ class AdminMessageService
                     AdminMessageRecipient::insert($chunk);
                 }
             }
+
+            // NEW2B-6109: a sent message appears in the audit log. The subject
+            // and the recipient count only; the body stays out of the log.
+            AuditTrail::record('sent', AdminMessage::class, $message->id,
+                $message->subject.' ('.trans_choice('messages.audit_recipients', count($rows), ['count' => count($rows)]).')');
 
             return $message;
         });

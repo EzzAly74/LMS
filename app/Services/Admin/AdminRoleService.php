@@ -3,13 +3,12 @@
 namespace App\Services\Admin;
 
 use App\Models\Admin;
-use App\Models\AuditLog;
+use App\Support\Audit\AuditTrail;
 use App\Support\Permissions\AdminSections;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\PermissionRegistrar;
-use Throwable;
 
 /**
  * The Roles screen (D-073): bilingual identity, badge colour, course scope
@@ -183,7 +182,8 @@ class AdminRoleService
             $after = $this->authority->resolvePermissions($actor, $this->requested($data), $before);
         }
 
-        DB::transaction(function () use ($row, $data, $after) {
+        $changed = [];
+        DB::transaction(function () use ($row, $data, $after, &$changed) {
             $payload = ['updated_at' => now()];
 
             foreach (['name_en', 'name_ar'] as $column) {
@@ -204,6 +204,13 @@ class AdminRoleService
                 $payload += $this->scopeColumn((string) $data['course_scope']);
             }
 
+            // The fields that really change, for the audit row.
+            foreach ($payload as $column => $value) {
+                if ($column !== 'updated_at' && (string) ($row->{$column} ?? '') !== (string) ($value ?? '')) {
+                    $changed[] = $column;
+                }
+            }
+
             DB::table('roles')->where('id', $row->id)->update($payload);
 
             if ($after !== null) {
@@ -212,8 +219,13 @@ class AdminRoleService
         });
 
         $this->flush();
-        if ($after !== null && $after != $before) {
-            $this->audit($actor, 'permissions_changed', $id, (string) ($row->name_en ?: $row->name), $before, $after);
+        // Every real edit is logged (NEW2B-6111): permission changes with what
+        // was added and removed, other edits with the fields changed.
+        $permissionsChanged = $after !== null && $after != $before;
+        if ($permissionsChanged || $changed !== []) {
+            $label = (string) ($row->name_en ?: $row->name).($changed !== [] ? ' ('.implode(', ', $changed).')' : '');
+            $this->audit($actor, $permissionsChanged ? 'permissions_changed' : 'updated', $id, $label,
+                $permissionsChanged ? $before : [], $permissionsChanged ? $after : []);
         }
 
         return $this->show($actor, $id);
@@ -452,20 +464,8 @@ class AdminRoleService
             $parts[] = '-'.implode(', -', $removed);
         }
 
-        try {
-            (new AuditLog())->forceFill([
-                'user_type'   => 'admin',
-                'user_id'     => $actor->getKey(),
-                'user_name'   => $actor->name,
-                'actor_role'  => 'admin',
-                'action'      => $verb,
-                'model_type'  => \Spatie\Permission\Models\Role::class,
-                'model_id'    => $roleId,
-                'description' => mb_substr(implode(' ', $parts), 0, 1000),
-                'ip_address'  => request()->ip(),
-            ])->save();
-        } catch (Throwable) {
-            // Auditing never breaks the change itself.
-        }
+        // NEW2B-6110 / 6111: role created, edited, deleted, with the
+        // permissions added and removed.
+        AuditTrail::record($verb, \Spatie\Permission\Models\Role::class, $roleId, implode(' ', $parts), $actor);
     }
 }

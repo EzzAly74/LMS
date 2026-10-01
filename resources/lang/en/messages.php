@@ -213,4 +213,6 @@ return [
     'course_out_of_scope' => 'This course is not assigned to you.',
     'section_org_wide' => 'This section covers the whole organisation, so it is not available to roles limited to their own courses.',
     'learner_out_of_scope' => 'This learner is not enrolled in your courses.',
+    'audit_recipients' => '{1} :count recipient|[2,*] :count recipients',
+    'audit_learners' => '{1} :count learner|[2,*] :count learners',
 ];

@@ -8,6 +8,9 @@ use Illuminate\Validation\Rule;
 
 class CourseLectureRequest extends FormRequest
 {
+    /** Longest article body, in characters (the Dashboard checks the same). */
+    public const ARTICLE_MAX = 500000;
+
     public function authorize(): bool { return true; }
 
     public function rules(): array
@@ -30,9 +33,12 @@ class CourseLectureRequest extends FormRequest
             $videoRules[] = 'max:2048';
         }
 
+        // NEW2B-5763: text pasted from Word or a web page keeps its inline
+        // styles, so a few pages of article are well over 64 KB of HTML. The
+        // column is LONGTEXT; the cap stays under the usual 1 MB request limit.
         $contentRules = $isArticle
-            ? ['required', 'string', 'max:65535']
-            : ['nullable', 'string', 'max:65535'];
+            ? ['required', 'string', 'max:'.self::ARTICLE_MAX]
+            : ['nullable', 'string', 'max:'.self::ARTICLE_MAX];
 
         return [
             // `section_id` is optional: the service will fall back to a

@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToAdminCourses;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CourseRating extends Model
 {
+    use ScopedToAdminCourses;
+
     use HasFactory;
     protected $guarded = ['id'];
 

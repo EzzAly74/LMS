@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToAdminCourses;
 use App\Http\Traits\HasFile;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,6 +10,8 @@ use Spatie\Translatable\HasTranslations;
 
 class CourseLecture extends Model
 {
+    use ScopedToAdminCourses;
+
     use HasFactory, HasFile, HasTranslations;
 
     public array $translatable = ['title', 'instructions'];

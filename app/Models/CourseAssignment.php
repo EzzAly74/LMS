@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToAdminCourses;
 use App\Http\Traits\HasFile;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CourseAssignment extends Model
 {
+    use ScopedToAdminCourses;
+
     use HasFactory, HasFile;
     protected $guarded = ['id'];
 

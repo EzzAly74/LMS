@@ -318,6 +318,7 @@ class AdminEvaluationReportService
         // One grouped query for every question in the template, rather than a
         // query per question.
         $answers = DB::table('user_course_evaluations')
+            ->tap(fn (Builder $q) => $this->inCourseScope($q, 'course_id'))
             ->whereIn('evaluation_id', $questions->pluck('id'))
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->select('evaluation_id', 'answer', DB::raw('COUNT(*) as c'))
@@ -352,6 +353,7 @@ class AdminEvaluationReportService
         });
 
         $summary = DB::table('user_course_evaluations as uce')
+            ->tap(fn (Builder $q) => $this->inCourseScope($q, 'uce.course_id'))
             ->where('uce.evaluation_category_id', $template->id)
             ->when($courseId, fn ($q) => $q->where('uce.course_id', $courseId))
             ->first([
@@ -556,6 +558,7 @@ class AdminEvaluationReportService
     public function filterOptions(): array
     {
         $instructors = DB::table('user_course_evaluations as uce')
+            ->tap(fn (Builder $q) => $this->inCourseScope($q, 'uce.course_id'))
             ->leftJoin('instructors as i', 'i.id', '=', 'uce.instructor_id')
             ->groupBy('uce.instructor_id')
             ->orderBy('uce.instructor_id')
@@ -563,6 +566,7 @@ class AdminEvaluationReportService
             ->get(['uce.instructor_id as id', DB::raw('MAX(i.name) as live'), DB::raw('MAX(uce.instructor_name) as snapshot')]);
 
         $courses = DB::table('user_course_evaluations as uce')
+            ->tap(fn (Builder $q) => $this->inCourseScope($q, 'uce.course_id'))
             ->leftJoin('courses as c', 'c.id', '=', 'uce.course_id')
             ->groupBy('uce.course_id')
             ->orderBy('uce.course_id')
@@ -582,7 +586,7 @@ class AdminEvaluationReportService
     public function learnerOptions(?string $search, int $perPage): LengthAwarePaginator
     {
         return DB::table('users as u')
-            ->whereIn('u.id', fn ($q) => $q->select('user_id')->from('user_course_evaluations'))
+            ->whereIn('u.id', fn ($q) => $this->inCourseScope($q->select('user_id')->from('user_course_evaluations'), 'course_id'))
             ->when($search, function ($q, $s) {
                 $like = $this->like($s);
                 $q->where(fn ($w) => $w->where('u.name', 'like', $like)->orWhere('u.machine_code', 'like', $like));
@@ -613,9 +617,21 @@ class AdminEvaluationReportService
             ." THEN CAST({$a}.answer AS DECIMAL(10,4)) / CAST({$a}.evaluation_type AS DECIMAL(10,4)) END) * {$max}, 1)";
     }
 
+    /**
+     * Course scope (D-074): for an account limited to its own courses, only
+     * those courses' responses and learners count, everywhere in this report.
+     */
+    private function inCourseScope(Builder $q, string $courseColumn): Builder
+    {
+        app(\App\Services\Admin\CourseScope::class)->constrain($q, request()->user(), $courseColumn);
+
+        return $q;
+    }
+
     /** Course and instructor filters on user_course_evaluations rows. */
     private function applyResponseFilters(Builder $q, array $f, string $alias = 'uce'): void
     {
+        $this->inCourseScope($q, "{$alias}.course_id");
         $q->when($f['course_ids'] ?? null, fn ($q, $ids) => $q->whereIn("{$alias}.course_id", $ids))
             ->when($f['instructor_ids'] ?? null, fn ($q, $ids) => $q->whereIn("{$alias}.instructor_id", $ids));
     }
@@ -664,7 +680,7 @@ class AdminEvaluationReportService
      */
     private function selectEligible(Builder $q, array $f): void
     {
-        $inScope = fn (Builder $w, string $uc) => $w
+        $inScope = fn (Builder $w, string $uc) => $this->inCourseScope($w, "{$uc}.course_id")
             ->where(fn ($x) => $x->whereNull('t.course_id')->orWhereColumn("{$uc}.course_id", 't.course_id'))
             ->where(fn ($x) => $x->whereNull('t.section_id')->orWhereColumn("{$uc}.group_id", 't.section_id'))
             ->when($f['course_ids'] ?? null, fn ($x, $ids) => $x->whereIn("{$uc}.course_id", $ids))

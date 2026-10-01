@@ -40,7 +40,9 @@ class AdminMessageService
         $groups = [];
 
         // ── Learners (website users) ──────────────────────────────────
-        $learners = User::query()
+        // An account limited to its own courses (D-074) reaches only the
+        // learners of those courses.
+        $learners = $this->learnersInScope()
             ->orderBy('name')
             ->get(['id', 'name', 'name_en', 'name_ar'])
             ->map(fn (User $u) => [
@@ -244,8 +246,8 @@ class AdminMessageService
 
             if ($type === 'learner') {
                 $resolved = $all
-                    ? User::query()->pluck('id')->map(fn ($v) => (int) $v)->all()
-                    : User::query()->whereIn('id', $ids)->pluck('id')->map(fn ($v) => (int) $v)->all();
+                    ? $this->learnersInScope()->pluck('id')->map(fn ($v) => (int) $v)->all()
+                    : $this->learnersInScope()->whereIn('id', $ids)->pluck('id')->map(fn ($v) => (int) $v)->all();
 
                 $userIds = array_merge($userIds, $resolved);
 
@@ -332,5 +334,14 @@ class AdminMessageService
         $display = $locale === 'ar' ? ($ar ?: $en) : ($en ?: $ar);
 
         return (string) ($display ?: ucwords(str_replace(['_', '-'], ' ', (string) $role->name)));
+    }
+
+    /** Learners the signed-in account may message (D-074). */
+    private function learnersInScope(): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = User::query();
+        app(\App\Services\Admin\CourseScope::class)->constrainLearners($query, request()->user(), 'users.id');
+
+        return $query;
     }
 }

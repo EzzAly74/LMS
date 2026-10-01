@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToAdminCourses;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Translatable\HasTranslations;
 
 class CourseSection extends Model
 {
+    use ScopedToAdminCourses;
+
     use HasFactory, HasTranslations;
 
     public array $translatable = ['name'];

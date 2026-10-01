@@ -2,12 +2,24 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToAdminCourses;
 use App\Http\Traits\HasFile;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class UserCourseAssignment extends Model
 {
+    use ScopedToAdminCourses;
+
+    /** A submission is in scope through its assignment's course (D-074). */
+    protected static function constrainToCourses(\Illuminate\Database\Eloquent\Builder $query, array $courseIds): void
+    {
+        $query->whereIn(
+            $query->getModel()->qualifyColumn('course_assignment_id'),
+            \Illuminate\Support\Facades\DB::table('course_assignments')->select('id')->whereIn('course_id', $courseIds),
+        );
+    }
+
     use HasFactory, HasFile;
     protected $guarded = ['id'];
 

@@ -34,20 +34,20 @@ class AdminLearnerProfileService
     /** Profile card + the five summary tiles. */
     public function profile(User $learner): array
     {
-        $enrolled = DB::table('users_courses')->where('user_id', $learner->id);
+        $enrolled = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')->where('user_id', $learner->id);
 
         $passedCourseIds = CourseCompletion::courseIdsFor($learner->id);
 
         $enrolledCount  = (clone $enrolled)->count();
         $completedCount = $passedCourseIds->count();
 
-        $lastQuiz = DB::table('user_exams')
+        $lastQuiz = $this->inScope(DB::table('user_exams'), 'user_exams.course_id')
             ->where('user_id', $learner->id)
             ->orderByDesc('submitted_at')
             ->orderByDesc('id')
             ->first(['user_degree', 'max_score', 'total_score', 'status', 'submitted_at']);
 
-        $lastActiveCourse = DB::table('users_courses')
+        $lastActiveCourse = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')
             ->join('courses', 'users_courses.course_id', '=', 'courses.id')
             ->where('users_courses.user_id', $learner->id)
             ->orderByDesc('users_courses.updated_at')
@@ -110,7 +110,7 @@ class AdminLearnerProfileService
      */
     private function activeCourseProgress(User $learner, array $passedCourseIds): ?float
     {
-        $activeCourseIds = DB::table('users_courses')
+        $activeCourseIds = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')
             ->where('user_id', $learner->id)
             ->when($passedCourseIds !== [], fn ($q) => $q->whereNotIn('course_id', $passedCourseIds))
             ->pluck('course_id');
@@ -144,7 +144,7 @@ class AdminLearnerProfileService
      */
     public function courses(User $learner, int $perPage): LengthAwarePaginator
     {
-        $passedCourseIds = DB::table('user_exams')
+        $passedCourseIds = $this->inScope(DB::table('user_exams'), 'user_exams.course_id')
             ->where('user_id', $learner->id)
             ->whereRaw('LOWER(COALESCE(status, "")) IN (?, ?)', ['passed', 'completed'])
             ->distinct()
@@ -162,7 +162,7 @@ class AdminLearnerProfileService
             ->whereColumn('attendances.user_id', 'users_courses.user_id')
             ->whereColumn('attendances.course_id', 'users_courses.course_id');
 
-        $page = DB::table('users_courses')
+        $page = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')
             ->join('courses', 'users_courses.course_id', '=', 'courses.id')
             ->leftJoin('course_sections', 'users_courses.group_id', '=', 'course_sections.id')
             ->where('users_courses.user_id', $learner->id)
@@ -228,7 +228,7 @@ class AdminLearnerProfileService
      */
     public function performance(User $learner, int $perPage): LengthAwarePaginator
     {
-        $quizzes = DB::table('user_exams')
+        $quizzes = $this->inScope(DB::table('user_exams'), 'user_exams.course_id')
             ->join('course_exams', 'user_exams.exam_id', '=', 'course_exams.id')
             ->join('courses', 'user_exams.course_id', '=', 'courses.id')
             ->where('user_exams.user_id', $learner->id)
@@ -246,6 +246,7 @@ class AdminLearnerProfileService
 
         $assignments = DB::table('user_course_assignments')
             ->join('course_assignments', 'user_course_assignments.course_assignment_id', '=', 'course_assignments.id')
+            ->tap(fn ($q) => $this->inScope($q, 'course_assignments.course_id'))
             ->join('courses', 'course_assignments.course_id', '=', 'courses.id')
             ->where('user_course_assignments.user_id', $learner->id)
             ->selectRaw('"assignment" as kind')
@@ -274,5 +275,16 @@ class AdminLearnerProfileService
             ->fromSub($quizzes->unionAll($assignments), 'perf')
             ->orderByDesc('perf.last_updated')
             ->paginate($perPage);
+    }
+
+    /**
+     * Course scope (D-074): an account limited to its own courses sees this
+     * learner's enrolments, quizzes and assignments in those courses only.
+     */
+    private function inScope(\Illuminate\Database\Query\Builder $q, string $courseColumn): \Illuminate\Database\Query\Builder
+    {
+        app(CourseScope::class)->constrain($q, request()->user(), $courseColumn);
+
+        return $q;
     }
 }

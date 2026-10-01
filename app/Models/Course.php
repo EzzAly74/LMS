@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ScopedToAdminCourses;
 use App\Http\Traits\HasFile;
 use App\Http\Traits\HelperTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,6 +12,14 @@ use Spatie\Translatable\HasTranslations;
 
 class Course extends Model
 {
+    use ScopedToAdminCourses;
+
+    /** A course is in scope by its own id (D-074). */
+    protected static function constrainToCourses(\Illuminate\Database\Eloquent\Builder $query, array $courseIds): void
+    {
+        $query->whereIn($query->getModel()->qualifyColumn('id'), $courseIds);
+    }
+
     use HasFactory, HasFile, HasTranslations;
 
     public array $translatable = ['title', 'description', 'title_for_certificate', 'notification_text'];

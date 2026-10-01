@@ -42,6 +42,6 @@ class DashboardController extends ApiController
         $range = $request->query('range');
         $range = is_string($range) ? $range : null;
 
-        return $this->success(__('messages.retrieved'), $this->service->getSummary($range));
+        return $this->success(__('messages.retrieved'), $this->service->getSummary($range, $request->user()));
     }
 }

@@ -11,16 +11,30 @@ use Illuminate\Support\Facades\Schema;
 
 class DashboardRepository implements DashboardRepositoryInterface
 {
-    public function getStatistics(): array
+    /**
+     * `$courseIds` (D-074): null for every course, or the ids a scoped
+     * Dashboard account teaches. Then each figure counts only those courses
+     * and their learners, and the platform-wide ones (instructors, articles)
+     * are null, which the Dashboard hides.
+     *
+     * @param list<int>|null $courseIds
+     */
+    public function getStatistics(?array $courseIds = null): array
     {
         $hasLearnerType = Schema::hasColumn('users', 'learner_type');
+        $scoped = $courseIds !== null;
+        // Integers only, so the list is safe to inline.
+        $in = $scoped ? implode(',', array_map('intval', $courseIds ?: [0])) : '';
+        $courseWhere = $scoped ? " AND courses.id IN ({$in})" : '';
+        $byCourse = $scoped ? " AND course_id IN ({$in})" : '';
+        $learners = $scoped ? " AND users.id IN (SELECT user_id FROM users_courses WHERE course_id IN ({$in}))" : '';
 
         $onlineLearnersSql = $hasLearnerType
-            ? "(SELECT COUNT(*) FROM users WHERE learner_type = 'online')"
-            : '(SELECT COUNT(*) FROM users)';
+            ? "(SELECT COUNT(*) FROM users WHERE learner_type = 'online'{$learners})"
+            : "(SELECT COUNT(*) FROM users WHERE 1 = 1{$learners})";
 
         $offlineLearnersSql = $hasLearnerType
-            ? "(SELECT COUNT(*) FROM users WHERE learner_type = 'offline')"
+            ? "(SELECT COUNT(*) FROM users WHERE learner_type = 'offline'{$learners})"
             : '0';
 
         // "Active courses" must mean the same thing here as it does on the
@@ -33,7 +47,7 @@ class DashboardRepository implements DashboardRepositoryInterface
         // matching the tabCounts convention.
         $today = now()->toDateString();
 
-        $hasActiveCohortSql = "(SELECT COUNT(*) FROM courses WHERE EXISTS (
+        $hasActiveCohortSql = "(SELECT COUNT(*) FROM courses WHERE 1 = 1{$courseWhere} AND EXISTS (
             SELECT 1 FROM course_sections cs
             WHERE cs.course_id = courses.id
               AND (cs.status IS NULL OR cs.status <> 'inactive')
@@ -41,23 +55,35 @@ class DashboardRepository implements DashboardRepositoryInterface
               AND cs.start_date <= '{$today}' AND cs.end_date >= '{$today}'
         ))";
 
-        return (array) DB::selectOne("
+        $assignmentsSql = $scoped
+            ? "(SELECT COUNT(*) FROM user_course_assignments WHERE course_assignment_id IN (SELECT id FROM course_assignments WHERE course_id IN ({$in})))"
+            : '(SELECT COUNT(*) FROM user_course_assignments)';
+
+        $row = (array) DB::selectOne("
             SELECT
-                {$hasActiveCohortSql}                                                     AS active_courses,
-                (SELECT COUNT(*) FROM courses WHERE active = 0)                          AS awaiting_publish,
-                (SELECT COUNT(*) FROM courses)                                            AS courses,
-                (SELECT COUNT(*) FROM users)                                              AS users,
-                (SELECT COUNT(*) FROM users)                                              AS active_learners,
-                {$onlineLearnersSql}                                                      AS active_learners_online,
-                {$offlineLearnersSql}                                                     AS active_learners_offline,
-                (SELECT COUNT(*) FROM instructors)                                        AS instructors,
-                (SELECT COUNT(*) FROM articles WHERE active = 1)                         AS articles,
-                (SELECT COUNT(*) FROM course_lecture_questions)                          AS lecture_questions,
-                (SELECT COUNT(*) FROM course_lecture_questions WHERE answer IS NULL)     AS unanswered_questions,
-                (SELECT COUNT(*) FROM user_course_assignments)                           AS user_assignments
+                {$hasActiveCohortSql}                                                              AS active_courses,
+                (SELECT COUNT(*) FROM courses WHERE active = 0{$courseWhere})                     AS awaiting_publish,
+                (SELECT COUNT(*) FROM courses WHERE 1 = 1{$courseWhere})                          AS courses,
+                (SELECT COUNT(*) FROM users WHERE 1 = 1{$learners})                               AS users,
+                (SELECT COUNT(*) FROM users WHERE 1 = 1{$learners})                               AS active_learners,
+                {$onlineLearnersSql}                                                               AS active_learners_online,
+                {$offlineLearnersSql}                                                              AS active_learners_offline,
+                (SELECT COUNT(*) FROM instructors)                                                 AS instructors,
+                (SELECT COUNT(*) FROM articles WHERE active = 1)                                  AS articles,
+                (SELECT COUNT(*) FROM course_lecture_questions WHERE 1 = 1{$byCourse})            AS lecture_questions,
+                (SELECT COUNT(*) FROM course_lecture_questions WHERE answer IS NULL{$byCourse})   AS unanswered_questions,
+                {$assignmentsSql}                                                                  AS user_assignments
         ");
+
+        if ($scoped) {
+            $row['instructors'] = null;
+            $row['articles'] = null;
+        }
+
+        return $row;
     }
 
+    /** Course::query() carries the course-scope global scope (D-074). */
     public function getTopCourses(int $limit): Collection
     {
         return Course::query()
@@ -80,8 +106,12 @@ class DashboardRepository implements DashboardRepositoryInterface
             ->get();
     }
 
-    public function getEnrollmentTrend(int $days = 30): array
+    /** @param list<int>|null $courseIds see getStatistics() */
+    public function getEnrollmentTrend(int $days = 30, ?array $courseIds = null): array
     {
+        $in = $courseIds === null ? null : implode(',', array_map('intval', $courseIds ?: [0]));
+        $enrolWhere = $in === null ? '' : " AND course_id IN ({$in})";
+
         $rows = DB::select("
             SELECT
                 d.gen_date AS date,
@@ -102,7 +132,7 @@ class DashboardRepository implements DashboardRepositoryInterface
             LEFT JOIN (
                 SELECT DATE(created_at) AS dt, COUNT(*) AS enrollments
                 FROM users_courses
-                WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+                WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY){$enrolWhere}
                 GROUP BY DATE(created_at)
             ) e ON e.dt = d.gen_date
             LEFT JOIN (
@@ -115,7 +145,7 @@ class DashboardRepository implements DashboardRepositoryInterface
                     SELECT user_id, course_id, MIN(COALESCE(submitted_at, updated_at)) AS completed_at
                     FROM user_exams
                     WHERE LOWER(COALESCE(status, '')) IN ('passed', 'completed')
-                      AND course_id IS NOT NULL
+                      AND course_id IS NOT NULL{$enrolWhere}
                     GROUP BY user_id, course_id
                 ) cc
                 WHERE cc.completed_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
@@ -146,22 +176,22 @@ class DashboardRepository implements DashboardRepositoryInterface
      * @param  'week'|'month'|'quarter'|'year'  $range
      * @return array<int, array{date:string,label:string,enrollments:int,completions:int}>
      */
-    public function getEnrollmentTrendByRange(string $range): array
+    public function getEnrollmentTrendByRange(string $range, ?array $courseIds = null): array
     {
         return match ($range) {
-            'week'    => $this->buildDailyTrend(7),
-            'quarter' => $this->buildWeeklyTrend(13),
-            'year'    => $this->buildMonthlyTrend(12),
-            default   => $this->buildDailyTrend(30),
+            'week'    => $this->buildDailyTrend(7, $courseIds),
+            'quarter' => $this->buildWeeklyTrend(13, $courseIds),
+            'year'    => $this->buildMonthlyTrend(12, $courseIds),
+            default   => $this->buildDailyTrend(30, $courseIds),
         };
     }
 
     /**
      * @return array<int, array{date:string,label:string,enrollments:int,completions:int}>
      */
-    private function buildDailyTrend(int $days): array
+    private function buildDailyTrend(int $days, ?array $courseIds): array
     {
-        $rows = $this->getEnrollmentTrend($days);
+        $rows = $this->getEnrollmentTrend($days, $courseIds);
 
         return array_map(static function (array $r): array {
             $d = \Illuminate\Support\Carbon::parse($r['date']);
@@ -177,14 +207,16 @@ class DashboardRepository implements DashboardRepositoryInterface
     /**
      * @return array<int, array{date:string,label:string,enrollments:int,completions:int}>
      */
-    private function buildWeeklyTrend(int $weeks): array
+    private function buildWeeklyTrend(int $weeks, ?array $courseIds): array
     {
+        $ids = $courseIds === null ? null : ($courseIds ?: [0]);
         $days = $weeks * 7;
         $start = \Illuminate\Support\Carbon::today()->subDays($days - 1)->startOfDay();
 
         $enrollments = DB::table('users_courses')
             ->selectRaw('YEARWEEK(created_at, 3) AS yw, COUNT(*) AS total')
             ->where('created_at', '>=', $start)
+            ->when($ids !== null, fn ($q) => $q->whereIn('course_id', $ids))
             ->groupBy('yw')
             ->pluck('total', 'yw');
 
@@ -192,6 +224,7 @@ class DashboardRepository implements DashboardRepositoryInterface
             ->fromSub(CourseCompletion::query(), 'cc')
             ->selectRaw('YEARWEEK(cc.completed_at, 3) AS yw, COUNT(*) AS total')
             ->where('cc.completed_at', '>=', $start)
+            ->when($ids !== null, fn ($q) => $q->whereIn('cc.course_id', $ids))
             ->groupBy('yw')
             ->pluck('total', 'yw');
 
@@ -213,13 +246,15 @@ class DashboardRepository implements DashboardRepositoryInterface
     /**
      * @return array<int, array{date:string,label:string,enrollments:int,completions:int}>
      */
-    private function buildMonthlyTrend(int $months): array
+    private function buildMonthlyTrend(int $months, ?array $courseIds): array
     {
+        $ids = $courseIds === null ? null : ($courseIds ?: [0]);
         $start = \Illuminate\Support\Carbon::today()->subMonthsNoOverflow($months - 1)->startOfMonth();
 
         $enrollments = DB::table('users_courses')
             ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') AS ym, COUNT(*) AS total")
             ->where('created_at', '>=', $start)
+            ->when($ids !== null, fn ($q) => $q->whereIn('course_id', $ids))
             ->groupBy('ym')
             ->pluck('total', 'ym');
 
@@ -227,6 +262,7 @@ class DashboardRepository implements DashboardRepositoryInterface
             ->fromSub(CourseCompletion::query(), 'cc')
             ->selectRaw("DATE_FORMAT(cc.completed_at, '%Y-%m') AS ym, COUNT(*) AS total")
             ->where('cc.completed_at', '>=', $start)
+            ->when($ids !== null, fn ($q) => $q->whereIn('cc.course_id', $ids))
             ->groupBy('ym')
             ->pluck('total', 'ym');
 

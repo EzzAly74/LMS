@@ -8,17 +8,22 @@ use Illuminate\Support\Collection;
 class DashboardService
 {
     public function __construct(
-        private readonly DashboardRepositoryInterface $repo
+        private readonly DashboardRepositoryInterface $repo,
+        private readonly \App\Services\Admin\CourseScope $scope,
     ) {}
 
     /**
+     * The Dashboard home. For an account limited to its own courses (D-074)
+     * every figure, the trend and the top courses cover only those courses.
+     *
      * @param  'week'|'month'|'quarter'|'year'|null  $range
      */
-    public function getSummary(?string $range = null): array
+    public function getSummary(?string $range = null, mixed $principal = null): array
     {
-        $statistics      = $this->repo->getStatistics();
+        $courseIds       = $this->scope->courseIds($principal);
+        $statistics      = $this->repo->getStatistics($courseIds);
         $resolvedRange   = $this->resolveRange($range);
-        $enrollmentTrend = $this->repo->getEnrollmentTrendByRange($resolvedRange);
+        $enrollmentTrend = $this->repo->getEnrollmentTrendByRange($resolvedRange, $courseIds);
         $locale     = app()->getLocale();
         $topCourses = $this->repo->getTopCourses(10)
             ->map(function ($c) use ($locale) {
@@ -51,6 +56,7 @@ class DashboardService
             'top_courses'      => $topCourses,
             'enrollment_trend' => $enrollmentTrend,
             'trend_range'      => $resolvedRange,
+            'course_scope'     => $courseIds === null ? 'all' : 'assigned',
         ];
     }
 

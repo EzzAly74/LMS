@@ -233,8 +233,7 @@ class DashboardPasscodeController extends ApiController
     /**
      * Resolve the courses the authenticated back-office user teaches.
      *
-     * Instructors are matched to the `instructors` catalogue by email
-     * (the unified admin Users view keeps the two personas in sync). A
+     * The account's linked instructor (`admins.instructor_id`, D-074). A
      * `null` return means "not an instructor / teaches nothing" — the
      * widget is then hidden and generation is forbidden.
      *
@@ -244,13 +243,13 @@ class DashboardPasscodeController extends ApiController
     {
         $user = $request->user();
 
-        if ($user === null || empty($user->email)) {
+        // The explicit account -> instructor link (D-074), not a match on
+        // email: renaming an email can no longer hand someone's courses over.
+        if (! $user instanceof \App\Models\Admin || $user->instructor_id === null) {
             return null;
         }
 
-        $instructor = Instructor::query()
-            ->where('email', $user->email)
-            ->first();
+        $instructor = Instructor::query()->find($user->instructor_id);
 
         if ($instructor === null) {
             return null;

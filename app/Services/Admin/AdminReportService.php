@@ -31,8 +31,10 @@ class AdminReportService
         'certificate-status',
     ];
 
+    public function __construct(private readonly CourseScope $scope) {}
+
     /* ------------------------------------------------------------------ *
-     |  SUMMARY (cards)                                                   |
+     |  SUMMARY (cards)                                                 |
      * ------------------------------------------------------------------ */
 
     /**
@@ -157,10 +159,17 @@ class AdminReportService
                     $locale === 'ar' ? 'name_ar' : 'name_en',
                 )),
             );
+        $this->scope->constrainLearners($usersSub, $this->principal(), 'users.id');
+        $courseIds = $this->courseIds();
 
         $rows = DB::query()
             ->fromSub($usersSub, 'u')
-            ->leftJoin('users_courses AS uc', 'uc.user_id', '=', 'u.user_id')
+            ->leftJoin('users_courses AS uc', function ($j) use ($courseIds) {
+                $j->on('uc.user_id', '=', 'u.user_id');
+                if ($courseIds !== null) {
+                    $j->whereIn('uc.course_id', $courseIds ?: [0]);
+                }
+            })
             ->select(
                 'u.role_key AS role',
                 DB::raw('COUNT(DISTINCT u.user_id) AS learners'),
@@ -278,8 +287,15 @@ class AdminReportService
         $userClass = User::class;
         $roleNameExpr = $locale === 'ar' ? 'roles.name_ar' : 'roles.name_en';
 
+        $courseIds = $this->courseIds();
         $rows = DB::table('users')
-            ->leftJoin('users_courses AS uc', 'uc.user_id', '=', 'users.id')
+            ->leftJoin('users_courses AS uc', function ($j) use ($courseIds) {
+                $j->on('uc.user_id', '=', 'users.id');
+                if ($courseIds !== null) {
+                    $j->whereIn('uc.course_id', $courseIds ?: [0]);
+                }
+            })
+            ->tap(fn ($q) => $this->scope->constrainLearners($q, $this->principal(), 'users.id'))
             ->leftJoin('model_has_roles AS mhr', function ($j) use ($userClass) {
                 $j->on('mhr.model_id', '=', 'users.id')
                   ->where('mhr.model_type', '=', $userClass);
@@ -326,6 +342,7 @@ class AdminReportService
     {
         $rows = DB::table('attendances')
             ->leftJoin('users', 'users.id', '=', 'attendances.user_id')
+            ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'attendances.course_id'))
             ->select(
                 'users.name AS learner',
                 'users.email AS email',
@@ -360,6 +377,7 @@ class AdminReportService
         $rows = DB::table('users_courses')
             ->leftJoin('users',   'users.id',   '=', 'users_courses.user_id')
             ->leftJoin('courses', 'courses.id', '=', 'users_courses.course_id')
+            ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'users_courses.course_id'))
             ->select(
                 'users.name  AS learner',
                 'users.email AS email',
@@ -390,6 +408,7 @@ class AdminReportService
     private function buildScores(): array
     {
         $rows = DB::table('user_exams')
+            ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'user_exams.course_id'))
             ->leftJoin('users',        'users.id',        '=', 'user_exams.user_id')
             ->leftJoin('courses',      'courses.id',      '=', 'user_exams.course_id')
             ->leftJoin('course_exams', 'course_exams.id', '=', 'user_exams.exam_id')
@@ -430,6 +449,7 @@ class AdminReportService
         $rows = DB::table('users_courses')
             ->leftJoin('users',   'users.id',   '=', 'users_courses.user_id')
             ->leftJoin('courses', 'courses.id', '=', 'users_courses.course_id')
+            ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'users_courses.course_id'))
             ->select(
                 'users.name    AS learner',
                 'users.email   AS email',
@@ -448,5 +468,21 @@ class AdminReportService
                 $r->issued_at    ? Carbon::parse($r->issued_at)->format('Y-m-d') : '',
             ])->all(),
         ];
+    }
+
+    /* ------------------------------------------------------------------ *
+     |  COURSE SCOPE (D-074)                                              |
+     * ------------------------------------------------------------------ */
+
+    /** The signed-in account; every dataset is limited to its courses when it is scoped. */
+    private function principal(): mixed
+    {
+        return request()->user();
+    }
+
+    /** @return list<int>|null */
+    private function courseIds(): ?array
+    {
+        return $this->scope->courseIds($this->principal());
     }
 }

@@ -57,7 +57,8 @@ class AdminRouteGatingTest extends ApiTestCase
             'forms'         => ['view-forms',         self::BASE.'/forms'],
             'notifications' => ['view-notifications', self::BASE.'/notifications'],
             'audit log'     => ['view-audit-log',     self::BASE.'/audit-log'],
-            'content'       => ['view-content',       self::BASE.'/admin/blogs'],
+            'blogs'         => ['view-resources',     self::BASE.'/admin/blogs'],
+            'dashboard'     => ['view-dashboard',     self::BASE.'/dashboard'],
             'reports'       => ['view-reports',       self::BASE.'/progress'],
             // NOT /courses or /categories: both have a public listing route
             // that matches first, so they would prove nothing about the gate.
@@ -106,7 +107,7 @@ class AdminRouteGatingTest extends ApiTestCase
             if (! str_contains($middleware, 'RoleMiddleware:Admin')) {
                 continue;
             }
-            if (str_contains($middleware, 'AdminPermissionMiddleware:')) {
+            if (str_contains($middleware, 'AdminSectionMiddleware:') || str_contains($middleware, 'AdminPermissionMiddleware:')) {
                 continue;
             }
             if (in_array($route->uri(), self::EXEMPT, true)) {
@@ -120,7 +121,7 @@ class AdminRouteGatingTest extends ApiTestCase
             [],
             $ungated,
             "These admin routes are reachable by any admin regardless of their role.\n"
-            ."Add 'permission:view-<section>' to the route group, or add the route to\n"
+            ."Add 'section:<section>' to the route group, or add the route to\n"
             ."AdminRouteGatingTest::EXEMPT with a written reason.\n\n"
             .implode("\n", $ungated)
         );
@@ -145,7 +146,7 @@ class AdminRouteGatingTest extends ApiTestCase
     {
         // A permission that exists but is not the one this route needs, so the
         // refusal is about the specific key and not about holding none at all.
-        $headers = $this->adminWith('view-dashboard');
+        $headers = $this->adminWith($permission === 'view-dashboard' ? 'view-inbox' : 'view-dashboard');
 
         $this->getJson($url, $headers)->assertStatus(403);
     }

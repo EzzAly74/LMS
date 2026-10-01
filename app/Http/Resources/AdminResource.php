@@ -29,6 +29,15 @@ class AdminResource extends JsonResource
             'view_keys'      => $this->viewKeys(),
             'is_super_admin' => $this->isSuperAdmin(),
 
+            // The full matrix (D-073): view / create / edit / delete per
+            // section, e.g. `edit-courses`. The Dashboard hides the actions
+            // a role lacks; the server enforces them regardless.
+            'permissions'    => $this->matrixPermissionNames(),
+
+            // `assigned`: this account sees only the courses it teaches
+            // (D-074); `all` otherwise.
+            'course_scope'   => $this->courseScope(),
+
             // Display payload for table badges — see roleChip() below.
             'role_chip'      => $this->roleChip($locale),
 
@@ -66,6 +75,40 @@ class AdminResource extends JsonResource
             ->unique()
             ->values()
             ->all();
+    }
+
+    /**
+     * Matrix permissions held through roles; only when `roles.permissions`
+     * is eager-loaded, like viewKeys(), so list pages never lazy-load.
+     *
+     * @return array<int,string>
+     */
+    private function matrixPermissionNames(): array
+    {
+        if (! $this->relationLoaded('roles')) {
+            return [];
+        }
+        if ($this->isSuperAdmin()) {
+            return \App\Support\Permissions\AdminSections::permissionNames();
+        }
+
+        $matrix = \App\Support\Permissions\AdminSections::permissionNames();
+
+        return $this->roles
+            ->flatMap(fn ($role) => $role->relationLoaded('permissions') ? $role->permissions->pluck('name') : collect())
+            ->filter(fn (string $name) => in_array($name, $matrix, true))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function courseScope(): string
+    {
+        if (! $this->relationLoaded('roles') || $this->isSuperAdmin()) {
+            return 'all';
+        }
+
+        return app(\App\Services\Admin\CourseScope::class)->scopeOf($this->resource);
     }
 
     /**

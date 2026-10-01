@@ -32,12 +32,12 @@ Route::middleware('auth.user')->group(function () {
 | Export and import are expensive routes, so they carry a tighter limiter than
 | the group-wide throttle:api (B-06).
 */
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:qualifications'])->prefix('admin')->group(function () {
     Route::get('qualification-skills/export',          [QualificationSkillTransferController::class, 'export'])
         ->middleware('throttle:10,1')->name('admin.qualifications.export');
     Route::get('qualification-skills/import-template', [QualificationSkillTransferController::class, 'template'])
         ->middleware('throttle:10,1')->name('admin.qualifications.template');
-    Route::post('qualification-skills/import',         [QualificationSkillTransferController::class, 'import'])
+    Route::post('qualification-skills/import',         [QualificationSkillTransferController::class, 'import'])->ability('create')
         ->middleware('throttle:10,1')->name('admin.qualifications.import');
 });
 
@@ -50,12 +50,12 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])
 | whose only caller was this page: they allowed duplicate names and could not
 | assign learners (D-056). Static segments come before {qualification_skill}.
 */
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:qualifications'])->prefix('admin')->group(function () {
     Route::get('qualification-skills', [AdminQualificationController::class, 'index'])
         ->name('admin.qualifications.index');
     Route::get('qualification-skills/assignees', [AdminQualificationController::class, 'assignees'])
         ->name('admin.qualifications.assignees');
-    Route::post('qualification-skills', [AdminQualificationController::class, 'store'])
+    Route::post('qualification-skills', [AdminQualificationController::class, 'store'])->ability('create')
         ->name('admin.qualifications.store');
     Route::get('qualification-skills/{qualification_skill}', [AdminQualificationController::class, 'show'])
         ->whereNumber('qualification_skill')->name('admin.qualifications.show');
@@ -76,18 +76,18 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])
 | The bulk route carries a tighter limiter. It is one INSERT, so this is not
 | about query cost — it bounds how fast a mistake can be repeated.
 */
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-qualifications'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:qualifications'])->prefix('admin')->group(function () {
     Route::get('learners/{learner}/qualifications',
         [LearnerQualificationController::class, 'index'])->name('admin.learners.qualifications.index');
 
     Route::post('learners/{learner}/qualifications',
-        [LearnerQualificationController::class, 'store'])->name('admin.learners.qualifications.store');
+        [LearnerQualificationController::class, 'store'])->ability('edit')->name('admin.learners.qualifications.store');
 
     Route::delete('learners/{learner}/qualifications/{qualification_skill}',
-        [LearnerQualificationController::class, 'destroy'])->name('admin.learners.qualifications.destroy');
+        [LearnerQualificationController::class, 'destroy'])->ability('edit')->name('admin.learners.qualifications.destroy');
 
     Route::post('qualification-skills/{qualification_skill}/learners',
-        [LearnerQualificationController::class, 'bulkStore'])
+        [LearnerQualificationController::class, 'bulkStore'])->ability('edit')
         ->middleware('throttle:20,1')
         ->name('admin.qualifications.learners.bulk');
 });

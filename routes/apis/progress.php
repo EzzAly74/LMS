@@ -9,6 +9,6 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-reports'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:reports', 'course.scope:deny'])->group(function () {
     Route::get('progress', [UserCourseProgressController::class, 'index']);
 });

@@ -99,7 +99,13 @@ return [
     'not_in'               => 'عنصر الحقل :attribute غير صحيح.',
     'not_regex'            => 'صيغة حقل :attribute غير صحيحة.',
     'numeric'              => 'يجب على حقل :attribute أن يكون رقمًا.',
-    'password'             => 'كلمة المرور غير صحيحة.',
+    'password'             => [
+        'letters'       => 'يجب أن يحتوي حقل :attribute على حرف واحد على الأقل.',
+        'mixed'         => 'يجب أن يحتوي حقل :attribute على حرف كبير وحرف صغير على الأقل.',
+        'numbers'       => 'يجب أن يحتوي حقل :attribute على رقم واحد على الأقل.',
+        'symbols'       => 'يجب أن يحتوي حقل :attribute على رمز واحد على الأقل.',
+        'uncompromised' => 'ظهرت قيمة حقل :attribute في تسريب بيانات. يرجى اختيار قيمة أخرى.',
+    ],
     'present'              => 'يجب تقديم حقل :attribute.',
     'prohibited'           => 'حقل :attribute محظور.',
     'prohibited_if'        => 'حقل :attribute محظور إذا كان :other هو :value.',
@@ -132,5 +138,13 @@ return [
         'attribute-name' => [
             'rule-name' => 'custom-message',
         ],
+    ],
+    'attributes'           => [
+        'password'              => 'كلمة المرور',
+        'password_confirmation' => 'تأكيد كلمة المرور',
+        'email'                 => 'البريد الإلكتروني',
+        'name_en'               => 'الاسم بالإنجليزية',
+        'name_ar'               => 'الاسم بالعربية',
+        'role'                  => 'الدور',
     ],
 ];

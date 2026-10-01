@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 | learner-facing API.
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-assignments'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:assignments'])->prefix('admin')->group(function () {
 
     // Lookup endpoints (declared before the resource routes so the URI
     // segments don't get matched as integer ids).
@@ -34,13 +34,13 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-assignments'])->p
     Route::get('assignments/{assignment}/questions/{question}/attachment',
         [AdminAssignmentController::class, 'questionAttachment'])->name('admin.assignments.question-attachment');
     Route::post('assignments/{assignment}/questions/{question}/attachment',
-        [AdminAssignmentController::class, 'uploadQuestionAttachment'])->middleware('throttle:30,1');
+        [AdminAssignmentController::class, 'uploadQuestionAttachment'])->ability('edit')->middleware('throttle:30,1');
     Route::delete('assignments/{assignment}/questions/{question}/attachment',
-        [AdminAssignmentController::class, 'removeQuestionAttachment']);
+        [AdminAssignmentController::class, 'removeQuestionAttachment'])->ability('edit');
 
     // Assignment resource
     Route::get('assignments',                 [AdminAssignmentController::class, 'index']);
-    Route::post('assignments',                [AdminAssignmentController::class, 'store']);
+    Route::post('assignments',                [AdminAssignmentController::class, 'store'])->ability('create');
     Route::get('assignments/{assignment}',    [AdminAssignmentController::class, 'show']);
     Route::put('assignments/{assignment}',    [AdminAssignmentController::class, 'update']);
     Route::delete('assignments/{assignment}', [AdminAssignmentController::class, 'destroy']);

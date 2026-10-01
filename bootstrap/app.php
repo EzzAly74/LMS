@@ -82,6 +82,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // which were removed with the Blade surface in Phase 4 / Stage A.
         $middleware->redirectGuestsTo(fn (Request $request) => null);
 
+        // Authorization before route-model binding (D-073): an admin without
+        // the permission gets 403 whether or not the id exists, so ids are
+        // not disclosed and no model is loaded for a refused request.
+        foreach ([AuthenticationMiddleware::class, RoleMiddleware::class, \App\Http\Middleware\AdminSectionMiddleware::class, \App\Http\Middleware\CourseScopeMiddleware::class] as $gate) {
+            $middleware->prependToPriorityList(\Illuminate\Routing\Middleware\SubstituteBindings::class, $gate);
+        }
+
         // Named middleware aliases
         $middleware->alias([
             // API authentication — validates Sanctum bearer token
@@ -102,6 +109,11 @@ return Application::configure(basePath: dirname(__DIR__))
             // the app and defers the check to Spatie's HasRoles trait, so the
             // permission data and caching remain Spatie's.
             'permission'         => AdminPermissionMiddleware::class,
+            // Per-action section check (D-073): `section:courses` needs
+            // view/create/edit/delete-courses by method or `->ability()`.
+            'section'            => \App\Http\Middleware\AdminSectionMiddleware::class,
+            // Course scope (D-074) for course routes without a section gate.
+            'course.scope'       => \App\Http\Middleware\CourseScopeMiddleware::class,
             // `role_or_permission` (Spatie) was registered here but used by no
             // route. It has the same Auth::guard() incompatibility described
             // above, so it would silently 403 anything it was applied to.

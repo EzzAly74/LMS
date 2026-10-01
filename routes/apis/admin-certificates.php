@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\Route;
 | remain untouched and continue to serve their original consumers.
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-certificates'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:certificates'])->prefix('admin')->group(function () {
     Route::get('certificates/template/overview', [AdminCertificateController::class, 'templateOverview']);
-    Route::post('certificates/template',         [AdminCertificateController::class, 'uploadTemplate']);
+    Route::post('certificates/template',         [AdminCertificateController::class, 'uploadTemplate'])->ability('edit');
     Route::get('certificates/template/file',     [AdminCertificateController::class, 'templateFile']);
 
     Route::get('certificates',                                       [AdminCertificateController::class, 'index']);
@@ -23,7 +23,7 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-certificates'])->
     // First-class certificate operations (by certificate id).
     Route::get('certificates/{certificate}/download',                [AdminCertificateController::class, 'download'])
         ->whereNumber('certificate');
-    Route::post('certificates/{certificate}/revoke',                 [AdminCertificateController::class, 'revoke'])
+    Route::post('certificates/{certificate}/revoke',                 [AdminCertificateController::class, 'revoke'])->ability('delete')
         ->whereNumber('certificate');
 
     // Backward-compatible download by learner + course (legacy dashboard anchor).

@@ -22,6 +22,6 @@ Route::middleware(['auth.user'])->prefix('notifications/mine')->group(function (
 
 // Admin oversight — instructors have no authentication of their own yet,
 // so this lets Admins inspect what an instructor received.
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-inbox'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:inbox'])->group(function () {
     Route::get('instructors/{instructor}/notifications', [NotificationInboxController::class, 'forInstructor']);
 });

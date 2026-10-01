@@ -10,11 +10,11 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Admin: full management + submission review
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-assignments'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:assignments'])->group(function () {
     Route::get('assignments',                                                                           [CourseAssignmentController::class, 'indexAll']);
     Route::get('assignments/submissions',                                                               [CourseAssignmentController::class, 'allSubmissions']);
     Route::get('courses/{course}/assignments',                                                          [CourseAssignmentController::class, 'index']);
-    Route::post('courses/{course}/assignments',                                                        [CourseAssignmentController::class, 'store']);
+    Route::post('courses/{course}/assignments',                                                        [CourseAssignmentController::class, 'store'])->ability('create');
     Route::put('courses/{course}/assignments/{assignment}',                                            [CourseAssignmentController::class, 'update']);
     Route::delete('courses/{course}/assignments/{assignment}',                                         [CourseAssignmentController::class, 'destroy']);
     Route::get('courses/{course}/assignments/{assignment}/submissions',                                [CourseAssignmentController::class, 'submissions']);

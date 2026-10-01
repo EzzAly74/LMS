@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 | and continues to serve its original consumers.
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-audit-log'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:audit-log'])->prefix('admin')->group(function () {
     Route::get('audit-log/filter-options', [AdminAuditLogController::class, 'filterOptions']);
     Route::get('audit-log/export',         [AdminAuditLogController::class, 'export']);
     Route::get('audit-log',                [AdminAuditLogController::class, 'index']);

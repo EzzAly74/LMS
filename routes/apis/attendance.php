@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\Route;
 |        GET  /api/v1/courses/{course}/cohorts/{cohort}/attendance       — full cohort rollup for the drawer
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-attendance'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:attendance'])->group(function () {
     Route::get('attendance',  [AttendanceController::class, 'index']);
-    Route::post('attendance', [AttendanceController::class, 'store']);
+    Route::post('attendance', [AttendanceController::class, 'store'])->ability('create');
 
     // Drives the "Attendance Record" drawer on the course detail screen.
     // `{cohort}` is a course_sections.id; the controller enforces the

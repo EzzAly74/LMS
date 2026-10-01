@@ -2,515 +2,470 @@
 
 namespace App\Services\Admin;
 
+use App\Models\Admin;
+use App\Models\AuditLog;
+use App\Support\Permissions\AdminSections;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Validation\ValidationException;
+use Spatie\Permission\PermissionRegistrar;
+use Throwable;
 
 /**
- * Service backing the 2026 admin Roles redesign.
+ * The Roles screen (D-073): bilingual identity, badge colour, course scope
+ * and the permission matrix, view / create / edit / delete per section, from
+ * the AdminSections catalogue.
  *
- * The legacy public role endpoints (App\Http\Controllers\apis\RoleController
- * @ /api/v1/roles) remain untouched and continue to serve their original
- * consumers. This service exposes a focused, additive surface for the new
- * admin overview:
- *
- *   - bilingual identity (name_en / name_ar / description_en / description_ar)
- *   - 5-swatch color palette
- *   - a curated 16-section "dashboard view" catalog (Spatie permissions
- *     under the `admin` guard, grouped by Figma section)
- *   - live `user_count` per role (counted from Spatie's model_has_roles
- *     pivot — works for admins and any other model using HasRoles).
- *
- * No legacy MVC code is touched.
+ * Every change goes through RoleAuthority (no self-escalation, no granting
+ * what you do not hold, super-admin roles untouchable), flushes Spatie's
+ * permission cache so it applies on the next request, and leaves an audit
+ * row naming who changed which permissions.
  */
 class AdminRoleService
 {
     /** @var array<int,string> Allowed badge colors. */
     public const COLORS = ['teal', 'green', 'orange', 'red', 'blue'];
 
-    /** @var array<int,string> Groups in their Figma display order. */
-    public const SECTION_GROUPS = ['Main', 'Learning Operation', 'Manage Competency', 'System'];
+    /** Course scope values (D-074). */
+    public const SCOPES = ['all', 'assigned'];
 
-    /** @var array<string,string> view-key → English label (mirrors the seed migration). */
-    private const SECTION_LABELS_EN = [
-        'view-dashboard'       => 'Dashboard',
-        'view-inbox'           => 'Inbox',
-        'view-courses'         => 'Courses',
-        'view-assignments'     => 'Assignments',
-        'view-quizzes'         => 'Quizzes',
-        'view-evaluations'     => 'Evaluation',
-        'view-external-training' => 'External Courses',
-        'view-resources'       => 'Resources',
-        'view-job-titles'      => 'Job Titles',
-        'view-qualifications'  => 'Qualifications',
-        'view-certificates'    => 'Certificates',
-        'view-categories'      => 'Categories',
-        'view-reports'         => 'Reports',
-        'view-users'           => 'Users',
-        'view-platform-config' => 'Platform Config',
-        'view-audit-log'       => 'Audit Log',
-        'view-roles'           => 'Roles',
-        'view-controllers'     => 'Controllers',
-    ];
-
-    /** @var array<string,string> view-key → Arabic label. */
-    private const SECTION_LABELS_AR = [
-        'view-dashboard'       => 'لوحة التحكم',
-        'view-inbox'           => 'الوارد',
-        'view-courses'         => 'الدورات',
-        'view-assignments'     => 'الواجبات',
-        'view-quizzes'         => 'الاختبارات',
-        'view-evaluations'     => 'التقييم',
-        'view-external-training' => 'الدورات الخارجية',
-        'view-resources'       => 'الموارد',
-        'view-job-titles'      => 'المسميات الوظيفية',
-        'view-qualifications'  => 'المؤهلات',
-        'view-certificates'    => 'الشهادات',
-        'view-categories'      => 'الفئات',
-        'view-reports'         => 'التقارير',
-        'view-users'           => 'المستخدمون',
-        'view-platform-config' => 'إعدادات المنصة',
-        'view-audit-log'       => 'سجل التدقيق',
-        'view-roles'           => 'الأدوار',
-        'view-controllers'     => 'المشرفون',
-    ];
+    public function __construct(private readonly RoleAuthority $authority) {}
 
     /* ------------------------------------------------------------------ *
-     |  CATALOG                                                           |
+     |  CATALOGUE                                                         |
      * ------------------------------------------------------------------ */
 
     /**
-     * Return every view-* permission grouped exactly as the Figma form
-     * lays them out: 4 groups × N items.
+     * The matrix the Roles form draws: the action columns, then the sections
+     * of each sidebar group with the actions each one supports.
      *
      * @return array{
-     *   total:int,
-     *   groups:array<int,array{
-     *     key:string,
-     *     label:string,
-     *     items:array<int,array{key:string,label:string}>
-     *   }>
+     *   total:int, sections_total:int,
+     *   actions:list<array{key:string,label:string}>,
+     *   groups:list<array{key:string,label:string,items:list<array{key:string,label:string,actions:list<string>}>}>
      * }
      */
     public function sectionCatalog(): array
     {
         $locale = app()->getLocale();
-        $labels = $locale === 'ar' ? self::SECTION_LABELS_AR : self::SECTION_LABELS_EN;
-
-        $perms = DB::table('permissions')
-            ->where('guard_name', 'admin')
-            ->whereIn('name', array_keys(self::SECTION_LABELS_EN))
-            ->orderBy('table_name')->orderBy('name')
-            ->get(['name', 'table_name']);
-
-        $byGroup = [];
-        foreach ($perms as $p) {
-            $group = $p->table_name ?: 'System';
-            $byGroup[$group][] = [
-                'key'   => (string) $p->name,
-                'label' => $labels[$p->name] ?? $this->humanise((string) $p->name),
-            ];
-        }
 
         $groups = [];
-        $total  = 0;
-        foreach (self::SECTION_GROUPS as $group) {
-            $items   = $byGroup[$group] ?? [];
-            $total  += count($items);
+        foreach (AdminSections::GROUPS as $group) {
+            $items = [];
+            foreach (AdminSections::SECTIONS as $key => $row) {
+                if ($row['group'] !== $group || ! $row['catalog']) {
+                    continue;
+                }
+                $items[] = [
+                    'key'      => $key,
+                    'label'    => AdminSections::label($key, $locale),
+                    'actions'  => $row['actions'],
+                    // Not available to roles limited to their own courses (D-074).
+                    'org_wide' => ! AdminSections::availableToScoped($key),
+                ];
+            }
             $groups[] = [
-                'key'   => $this->groupKey($group),
-                'label' => $this->translateGroupLabel($group, $locale),
+                'key'   => strtolower(str_replace(' ', '_', $group)),
+                'label' => AdminSections::groupLabel($group, $locale),
                 'items' => $items,
             ];
         }
 
-        return ['total' => $total, 'groups' => $groups];
-    }
-
-    /* ------------------------------------------------------------------ *
-     |  LIST                                                              |
-     * ------------------------------------------------------------------ */
-
-    /**
-     * Return every admin-guard role with its bilingual identity, color,
-     * `is_system` flag, `user_count`, and the list of selected view
-     * sections.
-     *
-     * The endpoint is intentionally NOT paginated — the Figma renders a
-     * card-grid that the admin scans at a glance, and the total number of
-     * roles is bounded.
-     *
-     * @param  string|null  $search  Free-text on name / description.
-     * @return array{
-     *   total_views:int,
-     *   roles:array<int,array<string,mixed>>
-     * }
-     */
-    public function list(?string $search = null): array
-    {
-        $locale  = app()->getLocale();
-        $catalog = $this->sectionCatalog();
-
-        $query = DB::table('roles')->where('guard_name', 'admin');
-
-        if ($search) {
-            $needle = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
-            $query->where(function ($w) use ($needle) {
-                $w->where('name',           'LIKE', $needle)
-                  ->orWhere('name_en',        'LIKE', $needle)
-                  ->orWhere('name_ar',        'LIKE', $needle)
-                  ->orWhere('description_en', 'LIKE', $needle)
-                  ->orWhere('description_ar', 'LIKE', $needle);
-            });
-        }
-
-        $rows = $query
-            ->orderByDesc('is_system')
-            ->orderBy('name_en')
-            ->get();
-
-        $roleIds = $rows->pluck('id')->all();
-
-        // Selected view-* permissions per role.
-        $sectionsByRole = $this->loadSectionsByRole($roleIds);
-
-        // User counts per role from Spatie's pivot.
-        $userCountByRole = $this->loadUserCounts($roleIds);
-
-        $roles = $rows->map(function ($r) use ($locale, $sectionsByRole, $userCountByRole, $catalog) {
-            $selected = $sectionsByRole[$r->id] ?? [];
-            return $this->shape($r, $selected, (int) ($userCountByRole[$r->id] ?? 0), $catalog['total'], $locale);
-        })->all();
-
         return [
-            'total_views' => $catalog['total'],
-            'roles'       => $roles,
+            'total'          => count(AdminSections::permissionNames(catalogOnly: true)),
+            'sections_total' => array_sum(array_map(static fn ($g) => count($g['items']), $groups)),
+            'actions'        => array_map(
+                static fn (string $a) => ['key' => $a, 'label' => AdminSections::actionLabel($a, $locale)],
+                AdminSections::ACTIONS,
+            ),
+            'groups'         => $groups,
         ];
     }
 
     /* ------------------------------------------------------------------ *
-     |  SHOW                                                              |
+     |  READ                                                              |
      * ------------------------------------------------------------------ */
 
-    public function show(int $id): array
+    /**
+     * Every admin-guard role (not paginated: the screen is a card grid over a
+     * small, bounded set).
+     *
+     * @return array{total_views:int,total_permissions:int,roles:list<array<string,mixed>>}
+     */
+    public function list(Admin $actor, ?string $search = null): array
     {
-        $row = DB::table('roles')->where('id', $id)->where('guard_name', 'admin')->first();
-        if (!$row) {
-            throw (new ModelNotFoundException())->setModel(\Spatie\Permission\Models\Role::class, [$id]);
+        $query = DB::table('roles')->where('guard_name', 'admin');
+
+        if ($search) {
+            $needle = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $search).'%';
+            $query->where(function ($w) use ($needle) {
+                foreach (['name', 'name_en', 'name_ar', 'description_en', 'description_ar'] as $column) {
+                    $w->orWhere($column, 'LIKE', $needle);
+                }
+            });
         }
 
-        $catalog = $this->sectionCatalog();
-        $sections = $this->loadSectionsByRole([$row->id])[$row->id] ?? [];
-        $userCount = (int) ($this->loadUserCounts([$row->id])[$row->id] ?? 0);
+        $rows = $query->orderByDesc('is_system')->orderBy('name_en')->get();
+        $ids = $rows->pluck('id')->map(fn ($v) => (int) $v)->all();
+        $permissions = $this->loadPermissionsByRole($ids);
+        $users = $this->loadUserCounts($ids);
+        $held = $actor->roles()->pluck('roles.id')->map(fn ($v) => (int) $v)->all();
 
-        return $this->shape($row, $sections, $userCount, $catalog['total'], app()->getLocale());
+        return [
+            'total_views'       => $this->sectionCount(),
+            'total_permissions' => count(AdminSections::permissionNames(catalogOnly: true)),
+            'roles'             => $rows->map(fn ($r) => $this->shape(
+                $r, $permissions[$r->id] ?? [], (int) ($users[$r->id] ?? 0), $actor, $held,
+            ))->all(),
+        ];
+    }
+
+    public function show(Admin $actor, int $id): array
+    {
+        $row = $this->find($id);
+        $held = $actor->roles()->pluck('roles.id')->map(fn ($v) => (int) $v)->all();
+
+        return $this->shape(
+            $row,
+            $this->loadPermissionsByRole([$id])[$id] ?? [],
+            (int) ($this->loadUserCounts([$id])[$id] ?? 0),
+            $actor,
+            $held,
+        );
     }
 
     /* ------------------------------------------------------------------ *
-     |  CREATE / UPDATE                                                   |
+     |  WRITE                                                             |
      * ------------------------------------------------------------------ */
 
-    /**
-     * @param  array{
-     *   name_en:string, name_ar:string,
-     *   description_en?:string|null, description_ar?:string|null,
-     *   color?:string|null, view_keys?:array<int,string>|null
-     * }  $data
-     */
-    public function create(array $data): array
+    /** @param array<string,mixed> $data validated AdminRoleStoreRequest */
+    public function create(Admin $actor, array $data): array
     {
-        $color = $this->normaliseColor($data['color'] ?? null);
-        $name  = $this->machineNameFor($data['name_en']);
+        $permissions = $this->authority->resolvePermissions($actor, $this->requested($data));
 
-        return DB::transaction(function () use ($data, $color, $name) {
+        $id = DB::transaction(function () use ($data, $permissions) {
             $now = now();
-
-            $id = (int) DB::table('roles')->insertGetId([
-                'name'           => $name,
+            $id = (int) DB::table('roles')->insertGetId(array_merge([
+                'name'           => $this->machineNameFor((string) $data['name_en']),
                 'guard_name'     => 'admin',
-                'name_en'        => trim($data['name_en']),
-                'name_ar'        => trim($data['name_ar']),
+                'name_en'        => trim((string) $data['name_en']),
+                'name_ar'        => trim((string) $data['name_ar']),
                 'description_en' => $data['description_en'] ?? null,
                 'description_ar' => $data['description_ar'] ?? null,
-                'color'          => $color,
+                'color'          => $this->normaliseColor($data['color'] ?? null),
                 'is_system'      => false,
                 'created_at'     => $now,
                 'updated_at'     => $now,
-            ]);
+            ], $this->scopeColumn($data['course_scope'] ?? 'all')));
 
-            $this->syncSections($id, $data['view_keys'] ?? []);
+            $this->syncPermissions($id, $permissions);
 
-            return $this->show($id);
+            return $id;
         });
+
+        $this->flush();
+        $this->audit($actor, 'created', $id, (string) $data['name_en'], [], $permissions);
+
+        return $this->show($actor, $id);
     }
 
-    /**
-     * @param  array<string,mixed>  $data
-     */
-    public function update(int $id, array $data): array
+    /** @param array<string,mixed> $data validated AdminRoleUpdateRequest */
+    public function update(Admin $actor, int $id, array $data): array
     {
-        $row = DB::table('roles')->where('id', $id)->where('guard_name', 'admin')->first();
-        if (!$row) {
-            throw (new ModelNotFoundException())->setModel(\Spatie\Permission\Models\Role::class, [$id]);
+        $row = $this->find($id);
+        $this->authority->assertCanManageRole($actor, $row);
+
+        $before = $this->loadPermissionsByRole([$id])[$id] ?? [];
+        $after = null;
+
+        if (! AdminSections::isSuperAdminRole((string) $row->name)
+            && (array_key_exists('permissions', $data) || array_key_exists('view_keys', $data))) {
+            $after = $this->authority->resolvePermissions($actor, $this->requested($data), $before);
         }
 
-        DB::transaction(function () use ($row, $data) {
-            $payload = [
-                'updated_at' => now(),
-            ];
+        DB::transaction(function () use ($row, $data, $after) {
+            $payload = ['updated_at' => now()];
 
-            // System roles preserve their canonical machine `name` and
-            // their `is_system` flag — only the cosmetic fields and
-            // section assignments may change.
-            if (!$row->is_system && array_key_exists('name_en', $data) && trim((string) $data['name_en']) !== '') {
-                $payload['name_en'] = trim((string) $data['name_en']);
+            foreach (['name_en', 'name_ar'] as $column) {
+                if (array_key_exists($column, $data) && trim((string) $data[$column]) !== '') {
+                    $payload[$column] = trim((string) $data[$column]);
+                }
             }
-            if (!$row->is_system && array_key_exists('name_ar', $data)) {
-                $payload['name_ar'] = trim((string) $data['name_ar']);
-            }
-
-            if ($row->is_system && array_key_exists('name_en', $data) && trim((string) $data['name_en']) !== '') {
-                $payload['name_en'] = trim((string) $data['name_en']);
-            }
-            if ($row->is_system && array_key_exists('name_ar', $data)) {
-                $payload['name_ar'] = trim((string) $data['name_ar']);
-            }
-
-            if (array_key_exists('description_en', $data)) {
-                $payload['description_en'] = $data['description_en'] ?: null;
-            }
-            if (array_key_exists('description_ar', $data)) {
-                $payload['description_ar'] = $data['description_ar'] ?: null;
+            foreach (['description_en', 'description_ar'] as $column) {
+                if (array_key_exists($column, $data)) {
+                    $payload[$column] = $data[$column] ?: null;
+                }
             }
             if (array_key_exists('color', $data) && $data['color'] !== null) {
                 $payload['color'] = $this->normaliseColor((string) $data['color']);
             }
+            // A super-admin role always sees every course.
+            if (array_key_exists('course_scope', $data) && ! AdminSections::isSuperAdminRole((string) $row->name)) {
+                $payload += $this->scopeColumn((string) $data['course_scope']);
+            }
 
             DB::table('roles')->where('id', $row->id)->update($payload);
 
-            if (array_key_exists('view_keys', $data)) {
-                $this->syncSections((int) $row->id, $data['view_keys'] ?? []);
+            if ($after !== null) {
+                $this->syncPermissions((int) $row->id, $after);
             }
         });
 
-        return $this->show($id);
+        $this->flush();
+        if ($after !== null && $after != $before) {
+            $this->audit($actor, 'permissions_changed', $id, (string) ($row->name_en ?: $row->name), $before, $after);
+        }
+
+        return $this->show($actor, $id);
     }
 
-    /* ------------------------------------------------------------------ *
-     |  DELETE                                                            |
-     * ------------------------------------------------------------------ */
-
-    public function delete(int $id): void
+    public function delete(Admin $actor, int $id): void
     {
-        $row = DB::table('roles')->where('id', $id)->where('guard_name', 'admin')->first();
-        if (!$row) {
-            throw (new ModelNotFoundException())->setModel(\Spatie\Permission\Models\Role::class, [$id]);
-        }
+        $row = $this->find($id);
+        $this->authority->assertCanManageRole($actor, $row);
 
         if ($row->is_system) {
-            throw ValidationException::withMessages([
-                'role' => ['System roles cannot be deleted.'],
-            ]);
+            abort(422, __('messages.role_system_delete'));
         }
 
-        // Surface a clear 422 if the role is still assigned — Spatie
-        // would otherwise leave dangling rows in model_has_roles.
-        $usersAttached = DB::table('model_has_roles')->where('role_id', $row->id)->count();
-        if ($usersAttached > 0) {
-            throw ValidationException::withMessages([
-                'role' => ["Unassign all {$usersAttached} users before deleting this role."],
-            ]);
+        $users = DB::table('model_has_roles')->where('role_id', $row->id)->count();
+        if ($users > 0) {
+            abort(422, __('messages.role_in_use', ['count' => $users]));
         }
+
+        $before = $this->loadPermissionsByRole([$id])[$id] ?? [];
 
         DB::transaction(function () use ($row) {
             DB::table('role_has_permissions')->where('role_id', $row->id)->delete();
             DB::table('roles')->where('id', $row->id)->delete();
         });
+
+        $this->flush();
+        $this->audit($actor, 'deleted', $id, (string) ($row->name_en ?: $row->name), $before, []);
     }
 
     /* ------------------------------------------------------------------ *
      |  INTERNALS                                                         |
      * ------------------------------------------------------------------ */
 
-    /**
-     * Persist the role↔view-permission selection without touching any of
-     * the role's *other* (legacy CRUD) permission assignments.  Only the
-     * 16 view-* keys are mutated, so admins can keep their granular
-     * "courses-create"/"users-edit"/… permissions intact.
-     *
-     * @param  array<int,string>  $viewKeys
-     */
-    private function syncSections(int $roleId, array $viewKeys): void
+    private function find(int $id): object
     {
-        $allViewIds = DB::table('permissions')
-            ->where('guard_name', 'admin')
-            ->whereIn('name', array_keys(self::SECTION_LABELS_EN))
+        $row = DB::table('roles')->where('id', $id)->where('guard_name', 'admin')->first();
+        if (! $row) {
+            throw (new ModelNotFoundException())->setModel(\Spatie\Permission\Models\Role::class, [$id]);
+        }
+
+        return $row;
+    }
+
+    /**
+     * The requested matrix: `permissions`, or the older `view_keys` (view
+     * only) from a client that predates the matrix.
+     *
+     * @return list<string>
+     */
+    private function requested(array $data): array
+    {
+        $list = $data['permissions'] ?? $data['view_keys'] ?? [];
+
+        return array_values(array_map('strval', is_array($list) ? $list : []));
+    }
+
+    /**
+     * Replace the role's matrix permissions with `$names`. Permissions outside
+     * the matrix (the legacy Blade `courses-create` style rows) are untouched.
+     *
+     * @param list<string> $names
+     */
+    private function syncPermissions(int $roleId, array $names): void
+    {
+        $ids = DB::table('permissions')->where('guard_name', 'admin')
+            ->whereIn('name', AdminSections::permissionNames())
             ->pluck('id', 'name');
 
-        $desired = collect($viewKeys)
-            ->map(static fn ($v) => (string) $v)
-            ->unique()
-            ->filter(fn ($key) => isset($allViewIds[$key]))
-            ->map(fn ($key) => (int) $allViewIds[$key])
-            ->values()
-            ->all();
+        $desired = array_values(array_filter(array_map(fn ($n) => isset($ids[$n]) ? (int) $ids[$n] : null, $names)));
+        $current = DB::table('role_has_permissions')->where('role_id', $roleId)
+            ->whereIn('permission_id', $ids->values()->all())
+            ->pluck('permission_id')->map(fn ($v) => (int) $v)->all();
 
-        $currentView = DB::table('role_has_permissions')
-            ->where('role_id', $roleId)
-            ->whereIn('permission_id', $allViewIds->values()->all())
-            ->pluck('permission_id')
-            ->map(fn ($v) => (int) $v)
-            ->all();
+        $add = array_diff($desired, $current);
+        $remove = array_diff($current, $desired);
 
-        $toAdd    = array_diff($desired,     $currentView);
-        $toRemove = array_diff($currentView, $desired);
-
-        foreach ($toAdd as $pid) {
-            DB::table('role_has_permissions')->insert([
-                'role_id'       => $roleId,
-                'permission_id' => $pid,
-            ]);
+        if ($add !== []) {
+            DB::table('role_has_permissions')->insert(
+                array_map(fn ($pid) => ['role_id' => $roleId, 'permission_id' => $pid], array_values($add)),
+            );
         }
-        if (!empty($toRemove)) {
-            DB::table('role_has_permissions')
-                ->where('role_id', $roleId)
-                ->whereIn('permission_id', $toRemove)
-                ->delete();
+        if ($remove !== []) {
+            DB::table('role_has_permissions')->where('role_id', $roleId)->whereIn('permission_id', $remove)->delete();
         }
     }
 
     /**
-     * @param  array<int,int>  $roleIds
-     * @return array<int,array<int,string>>  role_id => list of view-* keys
+     * @param list<int> $roleIds
+     * @return array<int,list<string>> role_id => matrix permission names
      */
-    private function loadSectionsByRole(array $roleIds): array
+    private function loadPermissionsByRole(array $roleIds): array
     {
-        if (empty($roleIds)) return [];
+        if ($roleIds === []) {
+            return [];
+        }
 
         return DB::table('role_has_permissions as rhp')
             ->join('permissions as p', 'p.id', '=', 'rhp.permission_id')
             ->whereIn('rhp.role_id', $roleIds)
-            ->whereIn('p.name', array_keys(self::SECTION_LABELS_EN))
             ->where('p.guard_name', 'admin')
-            ->select('rhp.role_id', 'p.name')
-            ->get()
+            ->whereIn('p.name', AdminSections::permissionNames())
+            ->get(['rhp.role_id', 'p.name'])
             ->groupBy('role_id')
-            ->map(fn ($group) => $group->pluck('name')->map(fn ($v) => (string) $v)->all())
+            ->map(fn ($g) => $g->pluck('name')->map(fn ($v) => (string) $v)->values()->all())
             ->all();
     }
 
     /**
-     * @param  array<int,int>  $roleIds
-     * @return array<int,int>  role_id => user_count
+     * @param list<int> $roleIds
+     * @return array<int,int>
      */
     private function loadUserCounts(array $roleIds): array
     {
-        if (empty($roleIds)) return [];
+        if ($roleIds === []) {
+            return [];
+        }
 
-        return DB::table('model_has_roles')
-            ->whereIn('role_id', $roleIds)
-            ->select('role_id', DB::raw('COUNT(*) AS c'))
-            ->groupBy('role_id')
-            ->pluck('c', 'role_id')
-            ->map(fn ($v) => (int) $v)
-            ->all();
+        return DB::table('model_has_roles')->whereIn('role_id', $roleIds)
+            ->select('role_id', DB::raw('COUNT(*) AS c'))->groupBy('role_id')
+            ->pluck('c', 'role_id')->map(fn ($v) => (int) $v)->all();
     }
 
     /**
-     * Build the API row shape for a single role.
-     *
-     * @param  array<int,string>  $selectedKeys
-     * @return array<string,mixed>
+     * @param list<string> $permissions
+     * @param list<int>    $actorRoleIds
      */
-    private function shape(object $r, array $selectedKeys, int $userCount, int $totalViews, string $locale): array
+    private function shape(object $r, array $permissions, int $userCount, Admin $actor, array $actorRoleIds): array
     {
-        $nameEn = $r->name_en ?: $this->humanise((string) $r->name);
-        $nameAr = $r->name_ar ?: null;
-        $display = $locale === 'ar' ? ($nameAr ?: $nameEn) : ($nameEn ?: $nameAr);
+        $locale = app()->getLocale();
+        $isSuper = AdminSections::isSuperAdminRole((string) $r->name);
+        if ($isSuper) {
+            $permissions = AdminSections::permissionNames();
+        }
 
+        $catalogue = AdminSections::permissionNames(catalogOnly: true);
+        $onForm = array_values(array_intersect($permissions, $catalogue));
+        $viewKeys = array_values(array_filter($onForm, static fn ($n) => str_starts_with($n, 'view-')));
+
+        $nameEn = $r->name_en ?: ucwords(str_replace(['_', '-'], ' ', (string) $r->name));
+        $nameAr = $r->name_ar ?: null;
+        $display = $locale === 'ar' ? ($nameAr ?: $nameEn) : $nameEn;
         $descEn = $r->description_en ?: null;
         $descAr = $r->description_ar ?: null;
-        $descDisplay = $locale === 'ar' ? ($descAr ?: $descEn) : ($descEn ?: $descAr);
 
-        $color = (string) ($r->color ?? 'teal');
+        $manageable = $actor->isSuperAdmin() || (! $isSuper && ! in_array((int) $r->id, $actorRoleIds, true));
+        $sections = $this->sectionCount();
+        $total = count($catalogue);
 
         return [
-            'id'              => (int) $r->id,
-            'machine_name'    => (string) $r->name,
-            'guard_name'      => (string) $r->guard_name,
-            'name'            => (string) $display,
-            'name_en'         => $nameEn ?: null,
-            'name_ar'         => $nameAr,
-            'description'     => $descDisplay,
-            'description_en'  => $descEn,
-            'description_ar'  => $descAr,
-            'color'           => $color,
-            'is_system'       => (bool) $r->is_system,
-            'user_count'      => $userCount,
-            'view_keys'       => array_values($selectedKeys),
-            'view_count'      => count($selectedKeys),
-            'view_total'      => $totalViews,
-            'view_percentage' => $totalViews > 0 ? (int) round((count($selectedKeys) / $totalViews) * 100) : 0,
-            'avatar_initial'  => $this->initial($display ?: 'R'),
-            'created_at'      => isset($r->created_at) ? (string) $r->created_at : null,
+            'id'                 => (int) $r->id,
+            'machine_name'       => (string) $r->name,
+            'guard_name'         => (string) $r->guard_name,
+            'name'               => (string) $display,
+            'name_en'            => $nameEn ?: null,
+            'name_ar'            => $nameAr,
+            'description'        => $locale === 'ar' ? ($descAr ?: $descEn) : ($descEn ?: $descAr),
+            'description_en'     => $descEn,
+            'description_ar'     => $descAr,
+            'color'              => (string) ($r->color ?? 'teal'),
+            'course_scope'       => $isSuper ? 'all' : (string) ($r->course_scope ?? 'all'),
+            'is_system'          => (bool) $r->is_system,
+            'is_super_admin'     => $isSuper,
+            'can_manage'         => $manageable,
+            'can_delete'         => $manageable && ! $r->is_system && $userCount === 0,
+            'user_count'         => $userCount,
+            'permissions'        => $onForm,
+            'permission_count'   => count($onForm),
+            'permission_total'   => $total,
+            'view_keys'          => $viewKeys,
+            'view_count'         => count($viewKeys),
+            'view_total'         => $sections,
+            'view_percentage'    => $total > 0 ? (int) round(count($onForm) / $total * 100) : 0,
+            'avatar_initial'     => mb_strtoupper(mb_substr(trim($display ?: 'R'), 0, 1)) ?: 'R',
+            'created_at'         => isset($r->created_at) ? (string) $r->created_at : null,
         ];
+    }
+
+    private function sectionCount(): int
+    {
+        return count(array_filter(AdminSections::SECTIONS, static fn ($s) => $s['catalog']));
+    }
+
+    /** @return array<string,string> */
+    private function scopeColumn(string $scope): array
+    {
+        if (! Schema::hasColumn('roles', 'course_scope')) {
+            return [];
+        }
+
+        return ['course_scope' => in_array($scope, self::SCOPES, true) ? $scope : 'all'];
     }
 
     private function normaliseColor(?string $color): string
     {
         $color = strtolower(trim((string) $color));
+
         return in_array($color, self::COLORS, true) ? $color : 'teal';
     }
 
     private function machineNameFor(string $nameEn): string
     {
-        $base = trim($nameEn) !== '' ? trim($nameEn) : 'role';
-        $slug = preg_replace('/[^A-Za-z0-9]+/', '-', $base) ?? 'role';
-        $slug = strtolower(trim($slug, '-')) ?: 'role';
+        $slug = strtolower(trim((string) preg_replace('/[^A-Za-z0-9]+/', '-', trim($nameEn)), '-')) ?: 'role';
 
-        // Ensure uniqueness (Spatie unique key is name+guard).
+        // A custom role may never take a super-admin name.
+        if (AdminSections::isSuperAdminRole($slug)) {
+            $slug .= '-role';
+        }
+
         $candidate = $slug;
-        $i = 2;
-        while (DB::table('roles')
-            ->where('name', $candidate)
-            ->where('guard_name', 'admin')
-            ->exists()
-        ) {
+        for ($i = 2; DB::table('roles')->where('name', $candidate)->where('guard_name', 'admin')->exists(); $i++) {
             $candidate = "{$slug}-{$i}";
-            $i++;
         }
 
         return $candidate;
     }
 
-    private function groupKey(string $group): string
+    private function flush(): void
     {
-        return strtolower(str_replace(' ', '_', $group));
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
-    private function translateGroupLabel(string $group, string $locale): string
+    /**
+     * @param list<string> $before
+     * @param list<string> $after
+     */
+    private function audit(Admin $actor, string $verb, int $roleId, string $name, array $before, array $after): void
     {
-        if ($locale !== 'ar') return $group;
+        $added = array_values(array_diff($after, $before));
+        $removed = array_values(array_diff($before, $after));
+        $parts = [$name];
+        if ($added !== []) {
+            $parts[] = '+'.implode(', +', $added);
+        }
+        if ($removed !== []) {
+            $parts[] = '-'.implode(', -', $removed);
+        }
 
-        return match ($group) {
-            'Main'                => 'الرئيسية',
-            'Learning Operation'  => 'العمليات التعليمية',
-            'Manage Competency'   => 'إدارة الكفاءات',
-            'System'              => 'النظام',
-            default               => $group,
-        };
-    }
-
-    private function humanise(string $machine): string
-    {
-        return ucwords(str_replace(['_', '-'], ' ', $machine));
-    }
-
-    private function initial(string $name): string
-    {
-        $first = mb_substr(trim($name), 0, 1);
-        return $first === '' ? 'R' : mb_strtoupper($first);
+        try {
+            (new AuditLog())->forceFill([
+                'user_type'   => 'admin',
+                'user_id'     => $actor->getKey(),
+                'user_name'   => $actor->name,
+                'actor_role'  => 'admin',
+                'action'      => $verb,
+                'model_type'  => \Spatie\Permission\Models\Role::class,
+                'model_id'    => $roleId,
+                'description' => mb_substr(implode(' ', $parts), 0, 1000),
+                'ip_address'  => request()->ip(),
+            ])->save();
+        } catch (Throwable) {
+            // Auditing never breaks the change itself.
+        }
     }
 }

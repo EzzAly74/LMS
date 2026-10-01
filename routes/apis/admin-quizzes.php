@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 | continue to serve the existing learner-facing API.
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-quizzes'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:quizzes'])->prefix('admin')->group(function () {
 
     // Lookup endpoints (declared before the resource routes so the URI
     // segments don't get matched as integer ids).
@@ -31,7 +31,7 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-quizzes'])->prefi
 
     // Quiz resource
     Route::get('quizzes',           [AdminQuizController::class, 'index']);
-    Route::post('quizzes',          [AdminQuizController::class, 'store']);
+    Route::post('quizzes',          [AdminQuizController::class, 'store'])->ability('create');
     Route::get('quizzes/{quiz}',    [AdminQuizController::class, 'show']);
     Route::put('quizzes/{quiz}',    [AdminQuizController::class, 'update']);
     Route::delete('quizzes/{quiz}', [AdminQuizController::class, 'destroy']);

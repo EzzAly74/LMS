@@ -13,8 +13,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('articles',          [ArticleController::class, 'index']);
 Route::get('articles/{article}', [ArticleController::class, 'show']);
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-content'])->group(function () {
-    Route::post('articles',             [ArticleController::class, 'store']);
+Route::middleware(['auth.user', 'role:Admin', 'section:content'])->group(function () {
+    Route::post('articles',             [ArticleController::class, 'store'])->ability('create');
     Route::put('articles/{article}',    [ArticleController::class, 'update']);
     Route::delete('articles/{article}', [ArticleController::class, 'destroy']);
 });

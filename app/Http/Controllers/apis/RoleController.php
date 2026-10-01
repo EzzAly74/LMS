@@ -4,7 +4,10 @@ namespace App\Http\Controllers\apis;
 
 use App\Http\Requests\Api\RoleRequest;
 use App\Http\Resources\RoleResource;
+use App\Services\Admin\RoleAuthority;
 use App\Services\RoleService;
+use App\Support\Permissions\AdminSections;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use OpenApi\Annotations as OA;
@@ -13,7 +16,38 @@ use Spatie\Permission\Models\Role;
 
 class RoleController extends ApiController
 {
-    public function __construct(private readonly RoleService $service) {}
+    public function __construct(
+        private readonly RoleService $service,
+        private readonly RoleAuthority $authority,
+    ) {}
+
+    /**
+     * The legacy endpoints follow the Roles screen's rules (D-073): a role's
+     * matrix permissions go through RoleAuthority, and only a super admin
+     * may set the legacy non-matrix names.
+     *
+     * @param list<string> $requested
+     * @param list<string> $current
+     * @return list<string>
+     */
+    private function permittedPermissions(Request $request, array $requested, array $current = []): array
+    {
+        $actor = $request->user();
+        $matrix = AdminSections::permissionNames();
+        $legacy = array_values(array_diff($requested, $matrix));
+
+        if ($legacy !== [] && ! $actor->isSuperAdmin()) {
+            abort(403, __('messages.role_escalation'));
+        }
+
+        $resolved = $this->authority->resolvePermissions(
+            $actor,
+            array_values(array_intersect($requested, $matrix)),
+            array_values(array_intersect($current, $matrix)),
+        );
+
+        return array_values(array_unique(array_merge($resolved, $legacy)));
+    }
 
     /**
      * @OA\Get(
@@ -197,9 +231,12 @@ class RoleController extends ApiController
     public function store(RoleRequest $request): JsonResponse
     {
         $data = $request->validated();
+        if (AdminSections::isSuperAdminRole((string) $data['name']) && ! $request->user()->isSuperAdmin()) {
+            abort(403, __('messages.role_super_admin_locked'));
+        }
         $role = $this->service->create(
             $data['name'],
-            $data['permissions'] ?? [],
+            $this->permittedPermissions($request, $data['permissions'] ?? []),
             $data['guard_name'] ?? 'admin',
         );
         return $this->created(__('messages.created'), new RoleResource($role));
@@ -244,7 +281,9 @@ class RoleController extends ApiController
     public function update(Role $role, RoleRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $role = $this->service->update($role, $data['name'], $data['permissions'] ?? []);
+        $this->authority->assertCanManageRole($request->user(), $role);
+        $current = $role->permissions()->pluck('name')->all();
+        $role = $this->service->update($role, $data['name'], $this->permittedPermissions($request, $data['permissions'] ?? [], $current));
         return $this->success(__('messages.updated'), new RoleResource($role));
     }
 
@@ -261,8 +300,16 @@ class RoleController extends ApiController
      *     @OA\Response(response=404, ref="#/components/responses/NotFound")
      * )
      */
-    public function destroy(Role $role): JsonResponse
+    public function destroy(Request $request, Role $role): JsonResponse
     {
+        $this->authority->assertCanManageRole($request->user(), $role);
+        if ($role->is_system) {
+            abort(422, __('messages.role_system_delete'));
+        }
+        $users = DB::table('model_has_roles')->where('role_id', $role->id)->count();
+        if ($users > 0) {
+            abort(422, __('messages.role_in_use', ['count' => $users]));
+        }
         $this->service->delete($role);
         return $this->deleted(__('messages.deleted'));
     }

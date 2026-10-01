@@ -17,17 +17,17 @@ use Illuminate\Support\Facades\Route;
 | Import and export are expensive, so they carry the same tighter limiter as
 | the qualifications import (B-06). Static segments come before {template}.
 */
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-evaluations'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:evaluations'])->prefix('admin')->group(function () {
     Route::get('evaluations/templates/export', [AdminEvaluationTransferController::class, 'export'])
         ->middleware('throttle:10,1')->name('admin.evaluations.export');
     Route::get('evaluations/templates/import-template', [AdminEvaluationTransferController::class, 'template'])
         ->middleware('throttle:10,1')->name('admin.evaluations.import-template');
-    Route::post('evaluations/templates/import', [AdminEvaluationTransferController::class, 'import'])
+    Route::post('evaluations/templates/import', [AdminEvaluationTransferController::class, 'import'])->ability('create')
         ->middleware('throttle:10,1')->name('admin.evaluations.import');
 
     Route::get('evaluations/templates/options', [AdminEvaluationTemplateController::class, 'options'])
         ->name('admin.evaluations.templates.options');
-    Route::post('evaluations/templates', [AdminEvaluationTemplateController::class, 'store'])
+    Route::post('evaluations/templates', [AdminEvaluationTemplateController::class, 'store'])->ability('create')
         ->name('admin.evaluations.templates.store');
     Route::get('evaluations/templates/{template}', [AdminEvaluationTemplateController::class, 'show'])
         ->whereNumber('template')->name('admin.evaluations.templates.show');
@@ -47,7 +47,7 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-evaluations'])->p
 | (learner, course, question), so the detail route addresses it by the natural
 | key rather than by a surrogate.
 */
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-evaluations'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:evaluations'])->prefix('admin')->group(function () {
     Route::get('courses/{course}/evaluation-summary', [AdminEvaluationReportController::class, 'courseSummary'])
         ->name('admin.evaluations.course-summary');
 

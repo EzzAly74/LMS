@@ -197,4 +197,19 @@ return [
         'cohort_created_title'                => 'تمت إضافة دفعة جديدة',
         'cohort_created_body'                 => 'تمت إضافة دفعة جديدة ":cohort" إلى الدورة ":course".',
     ],
+
+    // Roles, permissions and course scope (D-073, D-074)
+    'role_super_admin_locked' => 'لا يمكن تعديل دور المدير العام إلا من قِبل مدير عام.',
+    'role_own_locked' => 'لا يمكنك تعديل دور تحمله. اطلب ذلك من مسؤول آخر.',
+    'role_escalation' => 'لا يمكنك منح صلاحيات لا تملكها.',
+    'role_assign_escalation' => 'لا يمكنك تعيين دور بصلاحيات أكثر من صلاحياتك.',
+    'role_system_delete' => 'لا يمكن حذف أدوار النظام.',
+    'role_in_use' => 'ألغِ تعيين هذا الدور من :count مستخدم قبل حذفه.',
+    'role_unknown_permission' => 'صلاحية غير معروفة: :name.',
+    'account_self_locked' => 'لا يمكنك تغيير دورك أو تعطيل حسابك.',
+    'account_super_admin_locked' => 'لا يمكن تعديل حساب المدير العام إلا من قِبل مدير عام.',
+    'account_inactive' => 'هذا الحساب معطّل. تواصل مع المسؤول.',
+    'course_out_of_scope' => 'هذه الدورة غير مسندة إليك.',
+    'section_org_wide' => 'هذا القسم يشمل المؤسسة بأكملها، لذا لا يتاح للأدوار المقصورة على دوراتها.',
+    'learner_out_of_scope' => 'هذا المتعلم غير مسجل في دوراتك.',
 ];

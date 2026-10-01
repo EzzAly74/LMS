@@ -33,7 +33,8 @@ class AdminRoleController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $payload = $this->service->list(
-            $request->string('search')->toString() ?: null,
+            $request->user(),
+            mb_substr($request->string('search')->toString(), 0, 100) ?: null,
         );
 
         return $this->success(__('messages.retrieved'), $payload);
@@ -46,10 +47,10 @@ class AdminRoleController extends ApiController
     }
 
     /** GET /api/v1/admin/roles/{id} */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
         try {
-            return $this->success(__('messages.retrieved'), $this->service->show($id));
+            return $this->success(__('messages.retrieved'), $this->service->show($request->user(), $id));
         } catch (ModelNotFoundException) {
             return $this->notFound();
         }
@@ -58,7 +59,7 @@ class AdminRoleController extends ApiController
     /** POST /api/v1/admin/roles */
     public function store(AdminRoleStoreRequest $request): JsonResponse
     {
-        $row = $this->service->create($request->validated());
+        $row = $this->service->create($request->user(), $request->validated());
         return $this->created(__('messages.created'), $row);
     }
 
@@ -66,7 +67,7 @@ class AdminRoleController extends ApiController
     public function update(AdminRoleUpdateRequest $request, int $id): JsonResponse
     {
         try {
-            $row = $this->service->update($id, $request->validated());
+            $row = $this->service->update($request->user(), $id, $request->validated());
             return $this->success(__('messages.updated'), $row);
         } catch (ModelNotFoundException) {
             return $this->notFound();
@@ -74,10 +75,10 @@ class AdminRoleController extends ApiController
     }
 
     /** DELETE /api/v1/admin/roles/{id} */
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
         try {
-            $this->service->delete($id);
+            $this->service->delete($request->user(), $id);
             return $this->success(__('messages.deleted'), null);
         } catch (ModelNotFoundException) {
             return $this->notFound();

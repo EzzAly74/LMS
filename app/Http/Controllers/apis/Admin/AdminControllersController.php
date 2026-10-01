@@ -56,7 +56,7 @@ class AdminControllersController extends ApiController
     /** POST /api/v1/admin/controllers */
     public function store(AdminRequest $request): JsonResponse
     {
-        $admin = $this->service->create($request->validated());
+        $admin = $this->service->create($request->user(), $request->validated());
         return $this->created(__('messages.created'), new AdminResource($admin));
     }
 
@@ -64,7 +64,7 @@ class AdminControllersController extends ApiController
     public function update(AdminRequest $request, Admin $admin): JsonResponse
     {
         try {
-            $admin = $this->service->update($admin, $request->validated());
+            $admin = $this->service->update($request->user(), $admin, $request->validated());
             return $this->success(__('messages.updated'), new AdminResource($admin));
         } catch (ModelNotFoundException) {
             return $this->notFound();
@@ -72,9 +72,9 @@ class AdminControllersController extends ApiController
     }
 
     /** DELETE /api/v1/admin/controllers/{admin} */
-    public function destroy(Admin $admin): JsonResponse
+    public function destroy(\Illuminate\Http\Request $request, Admin $admin): JsonResponse
     {
-        $this->service->delete($admin);
+        $this->service->delete($request->user(), $admin);
         return $this->success(__('messages.deleted'), null);
     }
 }

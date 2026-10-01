@@ -11,7 +11,11 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-controllers'])->group(function () {
+// Dashboard home and its passcode widget: the Dashboard section (D-073).
+// The widget's writes declare 'view': running a live session needs no more
+// than seeing the Dashboard, because DashboardPasscodeController only acts on
+// courses the signed-in instructor teaches.
+Route::middleware(['auth.user', 'role:Admin', 'section:dashboard'])->group(function () {
 
     // Dashboard statistics
     Route::get('dashboard', [DashboardController::class, 'index']);
@@ -20,14 +24,16 @@ Route::middleware(['auth.user', 'role:Admin', 'permission:view-controllers'])->g
     // generate a passcode for it in one tap (drives mobile S-06).
     Route::get('dashboard/passcode',          [DashboardPasscodeController::class, 'current']);
     Route::get('dashboard/passcode/courses',  [DashboardPasscodeController::class, 'courses']);
-    Route::post('dashboard/passcode',         [DashboardPasscodeController::class, 'generate']);
-    Route::post('dashboard/passcode/regenerate', [DashboardPasscodeController::class, 'regenerate']);
-    Route::post('dashboard/passcode/end',        [DashboardPasscodeController::class, 'end']);
+    Route::post('dashboard/passcode',         [DashboardPasscodeController::class, 'generate'])->ability('view');
+    Route::post('dashboard/passcode/regenerate', [DashboardPasscodeController::class, 'regenerate'])->ability('view');
+    Route::post('dashboard/passcode/end',        [DashboardPasscodeController::class, 'end'])->ability('view');
+});
 
+Route::middleware(['auth.user', 'role:Admin', 'section:controllers'])->group(function () {
     // Admin CRUD
     Route::get('admins',           [AdminController::class, 'index']);
     Route::get('admins/{admin}',   [AdminController::class, 'show']);
-    Route::post('admins',          [AdminController::class, 'store']);
+    Route::post('admins',          [AdminController::class, 'store'])->ability('create');
     Route::put('admins/{admin}',   [AdminController::class, 'update']);
     Route::delete('admins/{admin}', [AdminController::class, 'destroy']);
 });

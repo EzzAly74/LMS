@@ -15,10 +15,10 @@ Route::get('testimonials/active',      [CmsController::class, 'testimonialActive
 Route::get('testimonials',             [CmsController::class, 'testimonialIndex']);
 Route::get('testimonials/{testimonial}', [CmsController::class, 'testimonialShow']);
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-content'])->group(function () {
-    Route::post('about',                   [CmsController::class, 'aboutUpdate']);
+Route::middleware(['auth.user', 'role:Admin', 'section:content'])->group(function () {
+    Route::post('about',                   [CmsController::class, 'aboutUpdate'])->ability('edit');
 
-    Route::post('testimonials',                        [CmsController::class, 'testimonialStore']);
+    Route::post('testimonials',                        [CmsController::class, 'testimonialStore'])->ability('create');
     Route::put('testimonials/{testimonial}',           [CmsController::class, 'testimonialUpdate']);
     Route::delete('testimonials/{testimonial}',        [CmsController::class, 'testimonialDestroy']);
 });

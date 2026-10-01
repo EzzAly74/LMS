@@ -10,16 +10,16 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:courses'])->group(function () {
 
     // Session management
     Route::get('courses/{course}/sessions',                  [CourseSessionController::class, 'index']);
-    Route::post('courses/{course}/sessions',                 [CourseSessionController::class, 'store']);
+    Route::post('courses/{course}/sessions',                 [CourseSessionController::class, 'store'])->ability('edit');
     Route::put('courses/{course}/sessions/{session}',        [CourseSessionController::class, 'update']);
-    Route::delete('courses/{course}/sessions/{session}',     [CourseSessionController::class, 'destroy']);
+    Route::delete('courses/{course}/sessions/{session}',     [CourseSessionController::class, 'destroy'])->ability('edit');
 
     // Offline enrollment management
     Route::get('courses/{course}/enrollments',               [UserEnrollmentController::class, 'index']);
-    Route::post('courses/{course}/enrollments',              [UserEnrollmentController::class, 'store']);
-    Route::delete('courses/{course}/enrollments/{enrollment}', [UserEnrollmentController::class, 'destroy']);
+    Route::post('courses/{course}/enrollments',              [UserEnrollmentController::class, 'store'])->ability('edit');
+    Route::delete('courses/{course}/enrollments/{enrollment}', [UserEnrollmentController::class, 'destroy'])->ability('edit');
 });

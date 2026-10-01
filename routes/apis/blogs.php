@@ -25,10 +25,10 @@ Route::middleware('auth.user')->group(function () {
 });
 
 // ── Admin (dashboard) ──────────────────────────────────────────────────────
-Route::prefix('admin')->middleware(['auth.user', 'role:Admin', 'permission:view-content'])->group(function () {
+Route::prefix('admin')->middleware(['auth.user', 'role:Admin', 'section:resources'])->group(function () {
     Route::get('blogs',            [BlogController::class, 'adminIndex']);
     Route::get('blogs/{blog}',     [BlogController::class, 'adminShow']);
-    Route::post('blogs',           [BlogController::class, 'store']);
+    Route::post('blogs',           [BlogController::class, 'store'])->ability('create');
     Route::put('blogs/{blog}',     [BlogController::class, 'update']);
     Route::delete('blogs/{blog}',  [BlogController::class, 'destroy']);
 });

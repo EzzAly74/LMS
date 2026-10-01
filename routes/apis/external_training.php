@@ -31,17 +31,17 @@ Route::middleware(['auth.user', 'role:User'])->prefix('learner/external-training
         ->whereNumber('externalTraining')->name('learner.external-training.certificate');
 });
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-external-training'])->prefix('admin/external-training')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:external-training'])->prefix('admin/external-training')->group(function () {
     Route::get('/', [AdminExternalTrainingController::class, 'index'])->name('admin.external-training.index');
     Route::get('stats', [AdminExternalTrainingController::class, 'stats'])->name('admin.external-training.stats');
     Route::get('options', [AdminExternalTrainingController::class, 'options'])->name('admin.external-training.options');
     Route::get('{externalTraining}', [AdminExternalTrainingController::class, 'show'])
         ->whereNumber('externalTraining')->name('admin.external-training.show');
-    Route::post('{externalTraining}/approve', [AdminExternalTrainingController::class, 'approve'])
+    Route::post('{externalTraining}/approve', [AdminExternalTrainingController::class, 'approve'])->ability('edit')
         ->whereNumber('externalTraining')->name('admin.external-training.approve');
-    Route::post('{externalTraining}/reject', [AdminExternalTrainingController::class, 'reject'])
+    Route::post('{externalTraining}/reject', [AdminExternalTrainingController::class, 'reject'])->ability('edit')
         ->whereNumber('externalTraining')->name('admin.external-training.reject');
-    Route::post('{externalTraining}/reopen', [AdminExternalTrainingController::class, 'reopen'])
+    Route::post('{externalTraining}/reopen', [AdminExternalTrainingController::class, 'reopen'])->ability('edit')
         ->whereNumber('externalTraining')->name('admin.external-training.reopen');
     Route::get('{externalTraining}/certificate', [AdminExternalTrainingController::class, 'certificate'])
         ->whereNumber('externalTraining')->name('admin.external-training.certificate');

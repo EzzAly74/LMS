@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-certificates'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:certificates'])->group(function () {
     Route::get('certificates',              [CertificateController::class, 'index']);
     Route::get('certificates/{courseId}',   [CertificateController::class, 'show']);
 });

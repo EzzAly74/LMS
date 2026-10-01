@@ -92,11 +92,11 @@ Route::middleware(['mobile.token', 'mobile.employee'])
 // Mobile-flow admin support — instructors / admins issue & revoke
 // the session passcode that powers the mobile S-06 Mark Present screen.
 // ───────────────────────────────────────────────────────────────────────
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])
+Route::middleware(['auth.user', 'role:Admin', 'section:courses'])
     ->prefix('admin/course-sessions')
     ->group(function () {
-        Route::post('{session}/passcode',   [SessionPasscodeController::class, 'issue'])
+        Route::post('{session}/passcode',   [SessionPasscodeController::class, 'issue'])->ability('edit')
             ->whereNumber('session');
-        Route::delete('{session}/passcode', [SessionPasscodeController::class, 'revoke'])
+        Route::delete('{session}/passcode', [SessionPasscodeController::class, 'revoke'])->ability('edit')
             ->whereNumber('session');
     });

@@ -13,10 +13,10 @@ use Illuminate\Support\Facades\Route;
 | User  : POST /api/v1/courses/{course}/lectures/{lecture}/questions
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:courses'])->group(function () {
     Route::get('lecture-questions',                              [CourseLectureQuestionController::class, 'index']);
     Route::put('lecture-questions/{question}/answer',            [CourseLectureQuestionController::class, 'answer']);
-    Route::delete('lecture-questions/{question}',                [CourseLectureQuestionController::class, 'destroy']);
+    Route::delete('lecture-questions/{question}',                [CourseLectureQuestionController::class, 'destroy'])->ability('edit');
 });
 
 Route::middleware(['auth.user', 'role:User'])->group(function () {

@@ -44,14 +44,14 @@ abstract class ApiTestCase extends TestCase
         return ['model' => $admin, 'headers' => ['Authorization' => 'Bearer ' . $token]];
     }
 
-    /** The seeded `admin` role, created with every `view-*` permission if absent. */
+    /** The seeded `admin` role, holding every matrix permission (D-073). */
     private function fullAccessAdminRole(): \Spatie\Permission\Models\Role
     {
         $role = \Spatie\Permission\Models\Role::findOrCreate('admin', 'admin');
 
         $viewPermissions = \Spatie\Permission\Models\Permission::query()
             ->where('guard_name', 'admin')
-            ->where('name', 'like', 'view-%')
+            ->whereIn('name', \App\Support\Permissions\AdminSections::permissionNames())
             ->pluck('name');
 
         foreach ($viewPermissions as $name) {

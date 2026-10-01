@@ -9,14 +9,14 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-forms'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:forms'])->group(function () {
     Route::get('forms',              [FormController::class, 'index']);
     Route::get('forms/{form}',       [FormController::class, 'show']);
-    Route::post('forms',             [FormController::class, 'store']);
+    Route::post('forms',             [FormController::class, 'store'])->ability('create');
     Route::put('forms/{form}',       [FormController::class, 'update']);
     Route::delete('forms/{form}',    [FormController::class, 'destroy']);
 
     // Question management
-    Route::post('forms/{form}/questions',                      [FormController::class, 'addQuestion']);
-    Route::delete('forms/{form}/questions/{question}',         [FormController::class, 'destroyQuestion']);
+    Route::post('forms/{form}/questions',                      [FormController::class, 'addQuestion'])->ability('edit');
+    Route::delete('forms/{form}/questions/{question}',         [FormController::class, 'destroyQuestion'])->ability('edit');
 });

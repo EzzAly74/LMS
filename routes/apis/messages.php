@@ -10,14 +10,14 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Admin-only routes
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-inbox'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:inbox'])->group(function () {
     Route::get('messages',                         [AdminMessageController::class, 'index']);
     // NOTE: keep `recipients` BEFORE the `{message}` wildcard so it is not
     // swallowed as a model-bound id.
     Route::get('messages/recipients',              [AdminMessageController::class, 'recipients']);
-    Route::post('messages',                        [AdminMessageController::class, 'store']);
+    Route::post('messages',                        [AdminMessageController::class, 'store'])->ability('create');
     Route::get('messages/{message}',               [AdminMessageController::class, 'show']);
-    Route::patch('messages/{message}/mark-all-read', [AdminMessageController::class, 'markAllRead']);
+    Route::patch('messages/{message}/mark-all-read', [AdminMessageController::class, 'markAllRead'])->ability('view');
 });
 
 // Authenticated user — mark message as read (recipient side)

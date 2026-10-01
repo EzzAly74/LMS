@@ -9,12 +9,12 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-roles'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:roles'])->group(function () {
     Route::get('permissions',     [RoleController::class, 'permissions']);
     Route::get('roles/all',       [RoleController::class, 'all']);
     Route::get('roles',           [RoleController::class, 'index']);
     Route::get('roles/{role}',    [RoleController::class, 'show']);
-    Route::post('roles',          [RoleController::class, 'store']);
+    Route::post('roles',          [RoleController::class, 'store'])->ability('create');
     Route::put('roles/{role}',    [RoleController::class, 'update']);
     Route::delete('roles/{role}', [RoleController::class, 'destroy']);
 });

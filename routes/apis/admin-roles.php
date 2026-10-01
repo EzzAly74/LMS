@@ -13,11 +13,11 @@ use Illuminate\Support\Facades\Route;
 | remain untouched and continue to serve their original consumers.
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-roles'])->prefix('admin')->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:roles'])->prefix('admin')->group(function () {
     Route::get('roles/sections', [AdminRoleController::class, 'sections']);
 
     Route::get('roles',           [AdminRoleController::class, 'index']);
-    Route::post('roles',          [AdminRoleController::class, 'store']);
+    Route::post('roles',          [AdminRoleController::class, 'store'])->ability('create');
     Route::get('roles/{id}',      [AdminRoleController::class, 'show'])->whereNumber('id');
     Route::put('roles/{id}',      [AdminRoleController::class, 'update'])->whereNumber('id');
     Route::delete('roles/{id}',   [AdminRoleController::class, 'destroy'])->whereNumber('id');

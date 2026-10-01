@@ -101,6 +101,19 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // `->ability('edit')` names the action a route needs within its
+        // `section:` gate (D-073), for POSTs that are edits and the like.
+        // Registered here, not in boot(): route files load before boot ends.
+        // Per request: caches the signed-in account's course ids (D-074).
+        $this->app->scoped(\App\Services\Admin\CourseScope::class);
+
+        \Illuminate\Routing\Route::macro('ability', function (string $ability) {
+            /** @var \Illuminate\Routing\Route $this */
+            $this->action['ability'] = $ability;
+
+            return $this;
+        });
+
         // The certificate rule is read from Platform Config on every
         // eligibility check (badges, listings, issuance). Sharing one
         // instance keeps that to a single settings query per request.

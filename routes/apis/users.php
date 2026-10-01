@@ -9,11 +9,11 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-users'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:users'])->group(function () {
     Route::get('users/search',       [UserController::class, 'search']);
     Route::get('users',              [UserController::class, 'index']);
     Route::get('users/{user}',       [UserController::class, 'show']);
-    Route::post('users',             [UserController::class, 'store']);
+    Route::post('users',             [UserController::class, 'store'])->ability('create');
     Route::put('users/{user}',       [UserController::class, 'update']);
     Route::delete('users/{user}',    [UserController::class, 'destroy']);
 });

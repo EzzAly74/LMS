@@ -198,4 +198,19 @@ return [
         'cohort_created_title'                => 'New course cohort added',
         'cohort_created_body'                 => 'A new cohort ":cohort" has been added to ":course".',
     ],
+
+    // Roles, permissions and course scope (D-073, D-074)
+    'role_super_admin_locked' => 'Only a super admin can change a super admin role.',
+    'role_own_locked' => 'You cannot change a role you hold. Ask another administrator.',
+    'role_escalation' => 'You cannot give access you do not have yourself.',
+    'role_assign_escalation' => 'You cannot assign a role with more access than you have.',
+    'role_system_delete' => 'System roles cannot be deleted.',
+    'role_in_use' => 'Unassign all :count users before deleting this role.',
+    'role_unknown_permission' => 'Unknown permission: :name.',
+    'account_self_locked' => 'You cannot change your own role or deactivate your own account.',
+    'account_super_admin_locked' => 'Only a super admin can change a super admin account.',
+    'account_inactive' => 'This account is deactivated. Contact your administrator.',
+    'course_out_of_scope' => 'This course is not assigned to you.',
+    'section_org_wide' => 'This section covers the whole organisation, so it is not available to roles limited to their own courses.',
+    'learner_out_of_scope' => 'This learner is not enrolled in your courses.',
 ];

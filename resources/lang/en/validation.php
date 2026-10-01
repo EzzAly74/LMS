@@ -189,6 +189,10 @@ return [
     |
     */
 
-    'attributes' => [],
+    'attributes' => [
+        'name_en' => 'English name',
+        'name_ar' => 'Arabic name',
+        'password_confirmation' => 'password confirmation',
+    ],
 
 ];

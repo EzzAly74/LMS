@@ -9,9 +9,9 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-courses'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:courses'])->group(function () {
     Route::get('courses/{course}/online-users',    [OnlineEnrollmentController::class, 'index']);
-    Route::post('courses/{course}/online-users',   [OnlineEnrollmentController::class, 'store']);
+    Route::post('courses/{course}/online-users',   [OnlineEnrollmentController::class, 'store'])->ability('edit');
     Route::put('courses/{course}/online-users',    [OnlineEnrollmentController::class, 'update']);
-    Route::delete('courses/{course}/online-users', [OnlineEnrollmentController::class, 'destroy']);
+    Route::delete('courses/{course}/online-users', [OnlineEnrollmentController::class, 'destroy'])->ability('edit');
 });

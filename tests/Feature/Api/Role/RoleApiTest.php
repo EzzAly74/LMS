@@ -69,7 +69,10 @@ class RoleApiTest extends ApiTestCase
     public function test_store_creates_role_with_permissions(): void
     {
         $permission = Permission::create(['name' => 'edit-posts', 'guard_name' => 'web']);
-        ['headers' => $headers] = $this->adminToken();
+        // A legacy, non-matrix permission: only a super admin may grant one (D-073).
+        $super = \App\Models\Admin::factory()->create();
+        $super->assignRole(Role::findOrCreate('superAdmin', 'admin'));
+        ['headers' => $headers] = $this->adminToken($super);
 
         $response = $this->withHeaders($headers)->postJson(self::BASE . '/roles', [
             'name'        => 'Writer',
@@ -92,7 +95,8 @@ class RoleApiTest extends ApiTestCase
 
     public function test_store_rejects_duplicate_role_name(): void
     {
-        Role::create(['name' => 'Duplicate', 'guard_name' => 'web']);
+        // Same guard as the request (admin): names are unique per guard.
+        Role::create(['name' => 'Duplicate', 'guard_name' => 'admin']);
         ['headers' => $headers] = $this->adminToken();
 
         $response = $this->withHeaders($headers)->postJson(self::BASE . '/roles', [

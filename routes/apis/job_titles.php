@@ -19,7 +19,7 @@ Route::middleware('auth.user')->group(function () {
 });
 
 // Admin only
-Route::middleware(['auth.user', 'role:Admin', 'permission:view-job-titles'])->group(function () {
+Route::middleware(['auth.user', 'role:Admin', 'section:job-titles'])->group(function () {
     Route::put('job-titles/{job_title}/qualifications', [JobTitleController::class, 'syncQualifications']);
 
     // Admin index with learner search + Filter modal (Figma 2078:102691 / 2463:138054, D1b).

@@ -214,4 +214,5 @@ return [
     'learner_out_of_scope' => 'هذا المتعلم غير مسجل في دوراتك.',
     'audit_recipients' => '{1} مستلم واحد|[2,*] :count مستلمين',
     'audit_learners' => '{1} متعلم واحد|[2,*] :count متعلمين',
+    'audit_message' => 'رسالة',
 ];

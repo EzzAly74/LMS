@@ -8,7 +8,9 @@ use App\Models\Admin;
 use App\Models\Conversation;
 use App\Models\Instructor;
 use App\Models\User;
+use App\Services\Admin\CourseScope;
 use App\Services\MessageService;
+use App\Support\Audit\AuditTrail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -29,7 +31,10 @@ final class ConversationController extends ApiController
         'user'       => User::class,
     ];
 
-    public function __construct(private readonly MessageService $service) {}
+    public function __construct(
+        private readonly MessageService $service,
+        private readonly CourseScope $scope,
+    ) {}
 
     /** GET conversations?role=all|instructors|admins|learners&tab=all|unread|received|sent */
     public function index(Request $request): JsonResponse
@@ -87,14 +92,29 @@ final class ConversationController extends ApiController
             'body'           => ['required', 'string', 'max:5000'],
         ]);
 
+        $type = self::TYPES[$data['recipient_type']];
+        $principal = $request->user();
+
+        // A Dashboard account limited to its own courses writes only to its
+        // own learners (D-074).
+        if ($type === User::class && ! $this->scope->allowsLearner($principal, (int) $data['recipient_id'])) {
+            abort(404);
+        }
+
         $message = $this->service->start(
-            $request->user(),
-            self::TYPES[$data['recipient_type']],
+            $principal,
+            $type,
             (int) $data['recipient_id'],
             isset($data['course_id']) ? (int) $data['course_id'] : null,
             $data['body'],
             $data['subject'] ?? null,
         );
+
+        // NEW2B-6109: messages sent from the Dashboard are in the audit log.
+        if ($principal instanceof Admin) {
+            AuditTrail::record('sent', Conversation::class, (int) $message->conversation_id,
+                ($data['subject'] ?? '') !== '' ? (string) $data['subject'] : __('messages.audit_message'));
+        }
 
         return $this->success(__('messages.sent'), ['conversation_id' => (int) $message->conversation_id]);
     }
@@ -114,16 +134,33 @@ final class ConversationController extends ApiController
             'recipients.*.id'    => ['required', 'integer'],
         ]);
 
+        $principal = $request->user();
         $recipients = collect($data['recipients'])
-            ->map(fn ($r) => ['type' => self::TYPES[$r['type']], 'id' => (int) $r['id']])
-            ->all();
+            ->map(fn ($r) => ['type' => self::TYPES[$r['type']], 'id' => (int) $r['id']]);
+
+        // A Dashboard account limited to its own courses reaches only the
+        // learners of those courses (D-074): one query for the whole list.
+        if ($this->scope->isScoped($principal)) {
+            $learnerIds = $recipients->where('type', User::class)->pluck('id')->all();
+            $allowed = $learnerIds === [] ? [] : array_flip($this->scope
+                ->constrainLearners(User::query()->whereKey($learnerIds), $principal)
+                ->pluck('users.id')->map(fn ($id) => (int) $id)->all());
+            $recipients = $recipients->filter(fn ($r) => $r['type'] !== User::class || isset($allowed[$r['id']]));
+        }
 
         $count = $this->service->startMany(
-            $request->user(),
-            $recipients,
+            $principal,
+            $recipients->values()->all(),
             $data['subject'] ?? null,
             $data['body'],
         );
+
+        // NEW2B-6109: one audit row per broadcast, with how many it reached.
+        if ($count > 0) {
+            AuditTrail::record('sent', Conversation::class, null,
+                (($data['subject'] ?? '') !== '' ? $data['subject'] : __('messages.audit_message'))
+                .' ('.trans_choice('messages.audit_recipients', $count, ['count' => $count]).')');
+        }
 
         return $this->success(__('messages.sent'), ['count' => $count]);
     }

@@ -81,6 +81,12 @@ class QuestionAnswerGrader
             ? ($question->options_ar ?? $question->options_en)
             : ($question->options_en ?? $question->options_ar);
 
+        // A Yes/No question saved before the options were stored still
+        // offers Yes / No, never True / False (NEW2B-5783).
+        if ($question->type === self::TYPE_YES_NO && (! is_array($options) || $options === [])) {
+            return $locale === 'ar' ? ['نعم', 'لا'] : ['Yes', 'No'];
+        }
+
         if ($question->type !== self::TYPE_REORDER || ! is_array($options) || count($options) < 2) {
             return $options;
         }
@@ -109,6 +115,15 @@ class QuestionAnswerGrader
             $this->normalize((string) ($question->correct_answer_en ?? '')),
             $this->normalize((string) ($question->correct_answer_ar ?? '')),
         ], fn ($v) => $v !== '');
+
+        // Yes/No (NEW2B-5783): "Yes", "True", "نعم" and "صح" are one answer,
+        // as are "No", "False", "لا" and "خطأ". Older questions were saved
+        // without options, so the learner saw True/False while the key said
+        // Yes, and a right answer scored zero.
+        if ($question->type === self::TYPE_YES_NO) {
+            $submitted = $this->yesNo($submitted) ?? $submitted;
+            $candidates = array_map(fn (string $c) => $this->yesNo($c) ?? $c, $candidates);
+        }
 
         $isCorrect = $submitted !== '' && in_array($submitted, $candidates, true);
         $score = (int) $question->score;
@@ -169,6 +184,16 @@ class QuestionAnswerGrader
     private function normalize(string $value): string
     {
         return mb_strtolower(trim($value));
+    }
+
+    /** 'yes' | 'no' for any spelling of either, else null. */
+    private function yesNo(string $normalized): ?string
+    {
+        return match ($normalized) {
+            'yes', 'true', 'نعم', 'صح', 'صحيح' => 'yes',
+            'no', 'false', 'لا', 'خطأ', 'خطا' => 'no',
+            default => null,
+        };
     }
 
     /**

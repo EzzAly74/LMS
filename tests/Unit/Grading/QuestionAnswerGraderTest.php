@@ -179,4 +179,25 @@ class QuestionAnswerGraderTest extends TestCase
         $this->assertSame(['A', 'B', 'C'], $this->grader()->optionsForLearner($this->question(['id' => 1]), 'en', 5));
         $this->assertSame(['أ', 'ب', 'ج'], $this->grader()->optionsForLearner($this->question(['id' => 1]), 'ar', 5));
     }
+
+    /** NEW2B-5783: any spelling of yes / no is the same answer. */
+    public function test_yes_no_accepts_true_false_and_arabic_spellings(): void
+    {
+        $q = $this->question(['type' => 'yes_no', 'options_en' => null, 'options_ar' => null, 'correct_answer_en' => 'Yes', 'correct_answer_ar' => 'نعم']);
+
+        foreach (['True', 'yes', 'نعم', 'صح'] as $answer) {
+            $this->assertTrue($this->grader()->grade($q, ['value' => $answer])['is_correct'], $answer);
+        }
+        foreach (['False', 'No', 'لا'] as $answer) {
+            $this->assertFalse($this->grader()->grade($q, ['value' => $answer])['is_correct'], $answer);
+        }
+    }
+
+    public function test_a_yes_no_question_without_options_offers_yes_and_no(): void
+    {
+        $q = $this->question(['id' => 3, 'type' => 'yes_no', 'options_en' => null, 'options_ar' => null]);
+
+        $this->assertSame(['Yes', 'No'], $this->grader()->optionsForLearner($q, 'en', 1));
+        $this->assertSame(['نعم', 'لا'], $this->grader()->optionsForLearner($q, 'ar', 1));
+    }
 }

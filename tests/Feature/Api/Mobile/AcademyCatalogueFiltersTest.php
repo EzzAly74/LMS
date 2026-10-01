@@ -105,11 +105,12 @@ class AcademyCatalogueFiltersTest extends MobileTestCase
 
     public function test_courses_list_filters_by_job_role_via_qualification_skill_join(): void
     {
-        $user = $this->employee();
-
         $skill      = QualificationSkill::factory()->create();
         $jobRole    = JobTitle::factory()->create();
         $jobRole->qualificationSkills()->attach($skill->id);
+        // The catalogue is role-scoped: a course tied to a qualification is
+        // offered only to job titles that need it, so the learner holds one.
+        $user = $this->employee(['job_title_id' => $jobRole->id]);
 
         $matching    = $this->courseWith();
         $matching->qualificationSkills()->attach($skill->id);

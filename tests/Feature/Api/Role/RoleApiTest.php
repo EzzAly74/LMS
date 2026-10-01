@@ -68,7 +68,7 @@ class RoleApiTest extends ApiTestCase
 
     public function test_store_creates_role_with_permissions(): void
     {
-        $permission = Permission::create(['name' => 'edit-posts', 'guard_name' => 'web']);
+        $permission = Permission::create(['name' => 'edit-posts', 'guard_name' => 'admin']);
         // A legacy, non-matrix permission: only a super admin may grant one (D-073).
         $super = \App\Models\Admin::factory()->create();
         $super->assignRole(Role::findOrCreate('superAdmin', 'admin'));

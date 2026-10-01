@@ -40,8 +40,8 @@ class ImageUploadWebpTest extends ApiTestCase
             'name_ar'               => 'مدرب',
             'email'                 => $email,
             'role'                  => 'instructor',
-            'password'              => 'secret-pass-123',
-            'password_confirmation' => 'secret-pass-123',
+            'password'              => 'Secret-pass-123',
+            'password_confirmation' => 'Secret-pass-123',
             'image'                 => $image,
         ], ['Accept' => 'application/json'])->assertCreated();
 
@@ -50,9 +50,10 @@ class ImageUploadWebpTest extends ApiTestCase
 
     public function test_an_uploaded_avatar_is_stored_as_webp(): void
     {
+        // The account's avatar (D-075) is shared with its instructor record.
         $path = $this->createInstructorWithAvatar('webp@example.test', $this->png(640, 480));
 
-        $this->assertStringStartsWith('instructors/', $path);
+        $this->assertStringStartsWith('admins/', $path);
         $this->assertStringEndsWith('.webp', $path);
         Storage::disk('public')->assertExists($path);
 
@@ -79,8 +80,8 @@ class ImageUploadWebpTest extends ApiTestCase
             'name_ar'               => 'مدرب',
             'email'                 => 'svg@example.test',
             'role'                  => 'instructor',
-            'password'              => 'secret-pass-123',
-            'password_confirmation' => 'secret-pass-123',
+            'password'              => 'Secret-pass-123',
+            'password_confirmation' => 'Secret-pass-123',
             'image'                 => UploadedFile::fake()->createWithContent('x.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>'),
         ], ['Accept' => 'application/json'])->assertStatus(422);
 

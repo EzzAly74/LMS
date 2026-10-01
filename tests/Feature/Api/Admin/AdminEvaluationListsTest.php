@@ -473,10 +473,11 @@ class AdminEvaluationListsTest extends ApiTestCase
         $groups = collect($this->fetch('/admin/roles/sections', $headers)['result']['groups'] ?? []);
         $keys   = $groups->flatMap(fn ($g) => array_column($g['items'], 'key'))->all();
 
-        $this->assertContains('view-evaluations', $keys);
-        $this->assertNotContains('view-ratings', $keys);
+        // Items are section keys since the permission matrix (D-073).
+        $this->assertContains('evaluations', $keys);
+        $this->assertNotContains('ratings', $keys);
         $learning = $groups->firstWhere('key', 'learning_operation');
-        $this->assertContains('view-evaluations', array_column($learning['items'] ?? [], 'key'));
+        $this->assertContains('evaluations', array_column($learning['items'] ?? [], 'key'));
     }
 
     // ─────────────────────────────────────────────────────── filter choices

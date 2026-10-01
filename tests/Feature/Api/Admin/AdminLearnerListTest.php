@@ -17,7 +17,7 @@ use Tests\Feature\Api\ApiTestCase;
  * Last Activity".
  *
  * Photo, name, ID, qualification % and last activity already existed on
- * GET admin/users. Job title, Courses Earned and Last Certification Date did
+ * GET admin/learners (D-075). Job title, Courses Earned and Last Certification Date did
  * not, and are added here rather than duplicating the whole endpoint into a
  * parallel /admin/learners list — the existing one already supports
  * `role=learner`, which 02-figma-map.md recorded as "unverified".
@@ -60,7 +60,7 @@ class AdminLearnerListTest extends ApiTestCase
     private function rowFor(array $headers, User $user): ?array
     {
         return collect(
-            $this->getJson(self::BASE.'/admin/users?role=learner&per_page=100', $headers)
+            $this->getJson(self::BASE.'/admin/learners?per_page=100', $headers)
                 ->assertOk()
                 ->json('result')
         )->first(fn ($r) => $r['source'] === 'user' && $r['id'] === $user->id);
@@ -142,17 +142,20 @@ class AdminLearnerListTest extends ApiTestCase
         $this->assertStringStartsWith('2026-06-01', (string) $row['last_certification_at']);
     }
 
-    public function test_non_learner_rows_report_null_rather_than_fake_zeroes(): void
+    public function test_dashboard_accounts_are_not_listed_as_learners(): void
     {
+        // Dashboard accounts live in Users since D-075, where the learner
+        // figures are null rather than fake zeroes.
         ['model' => $admin, 'headers' => $headers] = $this->adminToken();
 
-        $row = collect($this->getJson(self::BASE.'/admin/users?per_page=100', $headers)->assertOk()->json('result'))
-            ->first(fn ($r) => $r['source'] === 'admin' && $r['id'] === $admin->id);
+        $rows = $this->getJson(self::BASE.'/admin/learners?per_page=100', $headers)->assertOk()->json('result');
+        $this->assertNull(collect($rows)->first(fn ($r) => $r['source'] === 'admin' && $r['id'] === $admin->id));
 
-        $this->assertNotNull($row);
-        $this->assertNull($row['job_title']);
-        $this->assertNull($row['compliance_pct']);
-        $this->assertNull($row['last_certification_at']);
+        $account = collect($this->getJson(self::BASE.'/admin/users?per_page=100', $headers)->assertOk()->json('result'))
+            ->firstWhere('id', $admin->id);
+        $this->assertNull($account['job_title']);
+        $this->assertNull($account['compliance_pct']);
+        $this->assertNull($account['last_certification_at']);
     }
 
     // ----------------------------------------------------- B-21 / pagination
@@ -161,9 +164,9 @@ class AdminLearnerListTest extends ApiTestCase
     {
         ['headers' => $headers] = $this->adminToken();
 
-        $this->getJson(self::BASE.'/admin/users?per_page=100000', $headers)->assertStatus(422);
-        $this->getJson(self::BASE.'/admin/users?per_page=0', $headers)->assertStatus(422);
-        $this->getJson(self::BASE.'/admin/users?per_page=50', $headers)->assertOk();
+        $this->getJson(self::BASE.'/admin/learners?per_page=100000', $headers)->assertStatus(422);
+        $this->getJson(self::BASE.'/admin/learners?per_page=0', $headers)->assertStatus(422);
+        $this->getJson(self::BASE.'/admin/learners?per_page=50', $headers)->assertOk();
     }
 
     public function test_existing_filters_still_work_including_the_comma_string_form(): void
@@ -172,10 +175,10 @@ class AdminLearnerListTest extends ApiTestCase
 
         // intArray() accepts a comma-separated string as well as an array;
         // the FormRequest must not have broken that contract.
-        $this->getJson(self::BASE.'/admin/users?instructor_ids=1,2,3', $headers)->assertOk();
-        $this->getJson(self::BASE.'/admin/users?instructor_ids[]=1&instructor_ids[]=2', $headers)->assertOk();
-        $this->getJson(self::BASE.'/admin/users?status=deactivated', $headers)->assertOk();
-        $this->getJson(self::BASE.'/admin/users?status=nonsense', $headers)->assertStatus(422);
+        $this->getJson(self::BASE.'/admin/learners?instructor_ids=1,2,3', $headers)->assertOk();
+        $this->getJson(self::BASE.'/admin/learners?instructor_ids[]=1&instructor_ids[]=2', $headers)->assertOk();
+        $this->getJson(self::BASE.'/admin/learners?status=deactivated', $headers)->assertOk();
+        $this->getJson(self::BASE.'/admin/learners?status=nonsense', $headers)->assertStatus(422);
     }
 
     // ------------------------------------------------------------------- N+1
@@ -187,7 +190,7 @@ class AdminLearnerListTest extends ApiTestCase
         $measure = function () use ($headers): int {
             DB::enableQueryLog();
             DB::flushQueryLog();
-            $this->getJson(self::BASE.'/admin/users?role=learner&per_page=50', $headers)->assertOk();
+            $this->getJson(self::BASE.'/admin/learners?per_page=50', $headers)->assertOk();
             $n = count(DB::getQueryLog());
             DB::disableQueryLog();
 

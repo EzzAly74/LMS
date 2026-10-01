@@ -154,4 +154,40 @@ class DashboardAccountTest extends ApiTestCase
         $this->getJson(self::BASE.'/admin/learners', $learners)->assertOk();
         $this->getJson(self::BASE.'/admin/users', $learners)->assertForbidden();
     }
+    /** NEW2B-6102: a new admin is listed as an admin, not a learner. */
+    public function test_a_new_admin_is_listed_with_the_admin_role(): void
+    {
+        ['headers' => $h] = $this->superAdmin();
+
+        $row = $this->postJson(self::BASE.'/admin/users', $this->payload(['role' => 'admin']), $h)->assertCreated()->json('result');
+        $this->assertSame('admin', $row['role_key']);
+
+        $listed = collect($this->getJson(self::BASE.'/admin/users?role=admin&per_page=100', $h)->assertOk()->json('result'))
+            ->firstWhere('id', $row['id']);
+        $this->assertSame('admin', $listed['role_key'] ?? null);
+    }
+
+    /** NEW2B-5707: a super admin's role change is saved and shown. */
+    public function test_a_super_admin_changes_another_accounts_role(): void
+    {
+        ['headers' => $h] = $this->superAdmin();
+        $target = Admin::factory()->create();
+        $target->assignRole(Role::findOrCreate('admin', 'admin'));
+        Role::findOrCreate('instructor', 'admin');
+
+        $row = $this->putJson(self::BASE."/admin/users/admin/{$target->id}", ['role' => 'instructor'], $h)->assertOk()->json('result');
+
+        $this->assertSame('instructor', $row['role_key']);
+        $this->assertSame(['instructor'], $target->fresh()->getRoleNames()->all());
+        $this->assertSame('instructor', $this->getJson(self::BASE."/admin/users/admin/{$target->id}", $h)->json('result.role_key'));
+    }
+
+    private function superAdmin(): array
+    {
+        $admin = Admin::factory()->create();
+        $admin->assignRole(Role::findOrCreate('superAdmin', 'admin'));
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        return $this->adminToken($admin);
+    }
 }

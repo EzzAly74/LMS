@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Tests\Feature\Api\ApiTestCase;
 
 /**
- * D3 - the Learners-list filters on GET admin/users (Figma 1986:74701, D-053):
+ * D3 - the Learners-list filters on GET admin/learners (D-075) (Figma 1986:74701, D-053):
  * course, the course's instructor, qualification, learner type and a
  * last-activity date range. Within one filter any value matches; filters
  * combine with AND; any of them restricts the list to learners.
@@ -48,7 +48,7 @@ class AdminLearnerFiltersTest extends ApiTestCase
     /** @return list<int> user ids returned for the given query */
     private function ids(array $query): array
     {
-        return collect($this->getJson(self::BASE.'/admin/users?'.http_build_query($query + ['per_page' => 100]), $this->headers)
+        return collect($this->getJson(self::BASE.'/admin/learners?'.http_build_query($query + ['per_page' => 100]), $this->headers)
             ->assertOk()->json('result'))
             ->where('source', 'user')->pluck('id')->sort()->values()->all();
     }
@@ -74,7 +74,7 @@ class AdminLearnerFiltersTest extends ApiTestCase
         $this->enrol($taught, $course);
         $this->enrol($other, Course::factory()->create());
 
-        $rows = $this->getJson(self::BASE.'/admin/users?'.http_build_query(['course_instructor_ids' => [$inst->id]]), $this->headers)
+        $rows = $this->getJson(self::BASE.'/admin/learners?'.http_build_query(['course_instructor_ids' => [$inst->id]]), $this->headers)
             ->assertOk()->json('result');
 
         $this->assertSame([['user', $taught->id]], array_map(fn ($r) => [$r['source'], $r['id']], $rows));
@@ -147,30 +147,29 @@ class AdminLearnerFiltersTest extends ApiTestCase
             ['active_from' => '2026-04-30', 'active_to' => '2026-04-01'],
             ['qualification_ids' => range(1, 101)],                  // bounded
         ] as $query) {
-            $this->getJson(self::BASE.'/admin/users?'.http_build_query($query), $this->headers)
+            $this->getJson(self::BASE.'/admin/learners?'.http_build_query($query), $this->headers)
                 ->assertStatus(422);
         }
     }
 
-    public function test_the_existing_instructor_ids_contract_is_unchanged(): void
+    public function test_the_learners_list_never_returns_instructors(): void
     {
-        // The Users page selects instructors THEMSELVES with instructor_ids,
-        // including as a comma-separated string. The new filters must not
-        // have altered that.
+        // Instructors are Dashboard accounts, listed in Users (D-075); the
+        // learners list holds website learners only, whatever the filters.
         $inst = $this->instructor();
 
-        $rows = $this->getJson(self::BASE.'/admin/users?instructor_ids='.$inst->id, $this->headers)->assertOk()->json('result');
+        $rows = $this->getJson(self::BASE.'/admin/learners?instructor_ids='.$inst->id, $this->headers)->assertOk()->json('result');
 
-        $this->assertSame([['instructor', $inst->id]], array_map(fn ($r) => [$r['source'], $r['id']], $rows));
+        $this->assertNotContains('instructor', array_column($rows, 'source'));
     }
 
     public function test_filters_require_an_authorised_admin(): void
     {
-        $this->getJson(self::BASE.'/admin/users?course_ids[]=1')->assertUnauthorized();
+        $this->getJson(self::BASE.'/admin/learners?course_ids[]=1')->assertUnauthorized();
 
         ['headers' => $learnerHeaders] = $this->userToken();
         $this->assertContains(
-            $this->getJson(self::BASE.'/admin/users?course_ids[]=1', $learnerHeaders)->status(),
+            $this->getJson(self::BASE.'/admin/learners?course_ids[]=1', $learnerHeaders)->status(),
             [401, 403],
         );
     }

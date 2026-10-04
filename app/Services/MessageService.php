@@ -43,37 +43,122 @@ final class MessageService
     {
         $identities = $this->identities($principal);
 
-        $paginator = Conversation::query()
+        // The role and tab filters run in SQL, before the page is taken. They
+        // used to run on the page afterwards, so pages came back short and
+        // the rest of the inbox could not be reached (NEW2B-5905).
+        $query = Conversation::query()
             ->whereHas('participants', fn ($q) => $this->scopeToIdentities($q, $identities))
             ->with(['latestMessage', 'course:id,title', 'participants'])
+            ->withCount(['messages as unread_count' => fn ($q) => $this->scopeUnread($q, $identities)]);
+
+        $roleType = $role !== null ? array_search($role, self::ROLE_BY_TYPE, true) : false;
+        if ($roleType !== false) {
+            // The counterpart is the first participant that is not me (shape()).
+            $query->where(
+                ConversationParticipant::query()
+                    ->select('participant_type')
+                    ->whereColumn('conversation_participants.conversation_id', 'conversations.id')
+                    ->whereNot(fn ($q) => $this->scopeToIdentities($q, $identities))
+                    ->orderBy('id')
+                    ->limit(1),
+                $roleType,
+            );
+        }
+
+        match ($tab) {
+            'unread'   => $query->whereHas('messages', fn ($q) => $this->scopeUnread($q, $identities)),
+            'received' => $query->whereHas('latestMessage', fn ($q) => $this->scopeSenderNotMine($q, $identities)),
+            'sent'     => $query->whereHas('latestMessage', fn ($q) => $this->scopeSenderMine($q, $identities)),
+            default    => null,
+        };
+
+        $paginator = $query
             ->orderByDesc('last_message_at')
             ->orderByDesc('id')
             ->paginate($perPage);
 
-        $paginator->getCollection()->transform(function (Conversation $c) use ($identities, $role) {
-            return $this->shape($c, $identities, $role);
-        });
+        $people = $this->counterparts($paginator->getCollection(), $identities);
 
-        // Drop rows filtered out by role (shape() ⇒ null) or the dashboard tab
-        // (all | unread | received | sent).
-        $paginator->setCollection(
-            $paginator->getCollection()
-                ->filter(fn ($shaped) => $shaped !== null && $this->matchesTab($shaped, $tab))
-                ->values()
-        );
+        $paginator->setCollection($paginator->getCollection()
+            ->map(fn (Conversation $c) => $this->shape($c, $identities, null, $people))
+            ->values());
 
         return $paginator;
     }
 
-    /** Dashboard inbox tab filter over an already-shaped conversation row. */
-    private function matchesTab(array $c, ?string $tab): bool
+    /** Unread messages across every conversation of the principal: one query (the sidebar badge). */
+    public function unreadTotal(Model $principal): int
     {
-        return match ($tab) {
-            'unread'   => (int) ($c['unread_count'] ?? 0) > 0,
-            'received' => ! empty($c['last_message']) && $c['last_message']['mine'] === false,
-            'sent'     => ! empty($c['last_message']) && $c['last_message']['mine'] === true,
-            default    => true,
-        };
+        $identities = $this->identities($principal);
+
+        return Message::query()
+            ->whereIn('conversation_id', ConversationParticipant::query()
+                ->select('conversation_id')
+                ->where(fn ($q) => $this->scopeToIdentities($q, $identities)))
+            ->where(fn ($q) => $this->scopeUnread($q, $identities))
+            ->count();
+    }
+
+    /**
+     * Messages from someone else, newer than my last read of their thread
+     * (all of them when I never opened it). The `messages` rows are matched
+     * on their own conversation, so this works for a count, an exists and a
+     * plain messages query alike.
+     *
+     * @param  array<int, array{0:class-string,1:int}>  $identities
+     */
+    private function scopeUnread($query, array $identities): void
+    {
+        $lastRead = ConversationParticipant::query()
+            ->selectRaw('MAX(last_read_at)')
+            ->whereColumn('conversation_participants.conversation_id', 'messages.conversation_id')
+            ->where(fn ($q) => $this->scopeToIdentities($q, $identities))
+            ->toBase();
+
+        $query->where(fn ($q) => $this->scopeSenderNotMine($q, $identities))
+            ->whereRaw(
+                'messages.created_at > COALESCE(('.$lastRead->toSql().'), ?)',
+                [...$lastRead->getBindings(), '1000-01-01 00:00:00'],
+            );
+    }
+
+    /**
+     * Name and image of every counterpart on a page: one query per
+     * participant table instead of one per row.
+     *
+     * @param  Collection<int, Conversation>  $conversations
+     * @param  array<int, array{0:class-string,1:int}>  $identities
+     * @return array<string, array{name:?string, image:?string}>  keyed "type:id"
+     */
+    private function counterparts(Collection $conversations, array $identities): array
+    {
+        $idsByType = [];
+        foreach ($conversations as $conversation) {
+            $row = $this->counterpartRow($conversation, $identities);
+            if ($row !== null) {
+                $idsByType[$row->participant_type][] = (int) $row->participant_id;
+            }
+        }
+
+        $people = [];
+        foreach ($idsByType as $type => $ids) {
+            if (! in_array($type, [User::class, Instructor::class, Admin::class], true)) {
+                continue;
+            }
+            foreach ($type::query()->whereKey(array_unique($ids))->get() as $model) {
+                $people[$type.':'.$model->getKey()] = $this->identityFromModel($model);
+            }
+        }
+
+        return $people;
+    }
+
+    /** @param array<int, array{0:class-string,1:int}> $identities */
+    private function counterpartRow(Conversation $conversation, array $identities): ?ConversationParticipant
+    {
+        return $conversation->participants->first(
+            fn (ConversationParticipant $p) => ! $this->isMine($p->participant_type, (int) $p->participant_id, $identities),
+        );
     }
 
     /**
@@ -242,34 +327,193 @@ final class MessageService
     public function startMany(Model $principal, array $recipients, ?string $subject, string $body): int
     {
         $identities = $this->identities($principal);
-        $seen = [];
-        $count = 0;
 
+        // Set-based (NEW2B-5904): the old loop ran start() per recipient,
+        // about 25 queries and a Reverb call each, so a send to every learner
+        // took minutes. Now: a fixed few reads, one insert per new thread,
+        // chunked inserts for the rest, and the live pushes after the response.
+        $idsByType = [];
         foreach ($recipients as $r) {
             $type = $r['type'];
-            $id   = (int) $r['id'];
-            $key  = $type . ':' . $id;
-
-            if (isset($seen[$key])) {
-                continue;
+            $id = (int) $r['id'];
+            if (! in_array($type, [Instructor::class, Admin::class, User::class], true)
+                || $this->isMine($type, $id, $identities)) {
+                continue; // unknown type, or myself
             }
-            $seen[$key] = true;
-
-            if (! in_array($type, [Instructor::class, Admin::class, User::class], true)) {
-                continue;
-            }
-            if ($this->isMine($type, $id, $identities)) {
-                continue; // never message yourself
-            }
-            if (! $type::query()->whereKey($id)->exists()) {
-                continue;
-            }
-
-            $this->start($principal, $type, $id, null, $body, $subject);
-            $count++;
+            $idsByType[$type][$id] = true;
         }
 
-        return $count;
+        /** @var array<string, array{type: class-string, id: int, email: ?string}> $targets keyed "type:id", in request order */
+        $targets = [];
+        foreach ($idsByType as $type => $ids) {
+            foreach ($type::query()->whereKey(array_keys($ids))->get(['id', 'email']) as $model) {
+                $targets[$type.':'.$model->id] = ['type' => $type, 'id' => (int) $model->id, 'email' => $model->email];
+            }
+        }
+        if ($targets === []) {
+            return 0;
+        }
+
+        $theirIdentities = $this->identitiesByEmail(array_column($targets, 'email'));
+        $existing = $this->myCourselessThreads($identities);
+
+        $now = now();
+        $sender = [$principal::class, (int) $principal->getKey()];
+        $participants = [];
+        $messages = [];
+        /** @var array<int, array<int, array{0:class-string,1:int}>> $threadIdentities conversation id → both sides */
+        $threadIdentities = [];
+
+        DB::transaction(function () use ($targets, $theirIdentities, $existing, $identities, $subject, $body, $now, $sender, &$participants, &$messages, &$threadIdentities) {
+            foreach ($targets as $key => $t) {
+                // Same rule as findExisting(): any identity of theirs already in a
+                // course-less thread of mine reuses that thread.
+                $theirs = [[$t['type'], $t['id']], ...($t['email'] ? ($theirIdentities[strtolower($t['email'])] ?? []) : [])];
+                $conversationId = null;
+                foreach ($theirs as [$type, $id]) {
+                    if (isset($existing[$type.':'.$id])) {
+                        $conversationId = $existing[$type.':'.$id];
+                        break;
+                    }
+                }
+                $conversationId ??= (int) Conversation::query()->insertGetId([
+                    'course_id' => null, 'subject' => $subject, 'last_message_at' => $now,
+                    'created_at' => $now, 'updated_at' => $now,
+                ]);
+
+                foreach ([$sender, [$t['type'], $t['id']]] as [$type, $id]) {
+                    $participants[] = ['conversation_id' => $conversationId, 'participant_type' => $type, 'participant_id' => $id,
+                        'created_at' => $now, 'updated_at' => $now];
+                }
+                $messages[] = ['conversation_id' => $conversationId, 'sender_type' => $sender[0], 'sender_id' => $sender[1],
+                    'body' => $body, 'created_at' => $now, 'updated_at' => $now];
+                $threadIdentities[$conversationId] = array_values(array_unique([...$identities, ...$theirs], SORT_REGULAR));
+            }
+
+            foreach (array_chunk($participants, 500) as $chunk) {
+                ConversationParticipant::query()->insertOrIgnore($chunk); // conv_participant_unique
+            }
+            foreach (array_chunk($messages, 500) as $chunk) {
+                Message::query()->insert($chunk);
+            }
+            foreach (array_chunk(array_keys($threadIdentities), 500) as $ids) {
+                Conversation::query()->whereKey($ids)->update(['last_message_at' => $now, 'updated_at' => $now]);
+            }
+        });
+
+        $this->broadcastMany($principal, $threadIdentities, $body, $now);
+
+        return count($targets);
+    }
+
+    /**
+     * Every same-email account across the three participant tables, for many
+     * emails at once (identities() for one principal).
+     *
+     * @param  array<int, ?string>  $emails
+     * @return array<string, array<int, array{0:class-string,1:int}>>  lower-cased email → identities
+     */
+    private function identitiesByEmail(array $emails): array
+    {
+        $emails = array_values(array_unique(array_filter($emails)));
+        $out = [];
+        foreach (array_chunk($emails, 1000) as $chunk) {
+            foreach ([User::class, Instructor::class, Admin::class] as $model) {
+                foreach ($model::query()->whereIn('email', $chunk)->get(['id', 'email']) as $row) {
+                    $out[strtolower((string) $row->email)][] = [$model, (int) $row->id];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The other participants of my course-less threads, oldest thread first.
+     *
+     * @param  array<int, array{0:class-string,1:int}>  $identities
+     * @return array<string, int>  "type:id" → conversation id
+     */
+    private function myCourselessThreads(array $identities): array
+    {
+        $mine = ConversationParticipant::query()
+            ->select('conversation_id')
+            ->where(fn ($q) => $this->scopeToIdentities($q, $identities));
+
+        $map = [];
+        ConversationParticipant::query()
+            ->join('conversations', 'conversations.id', '=', 'conversation_participants.conversation_id')
+            ->whereNull('conversations.course_id')
+            ->whereIn('conversation_participants.conversation_id', $mine)
+            ->orderBy('conversation_participants.conversation_id')
+            ->get(['conversation_participants.conversation_id', 'participant_type', 'participant_id'])
+            ->each(function (ConversationParticipant $p) use (&$map, $identities) {
+                if (! $this->isMine($p->participant_type, (int) $p->participant_id, $identities)) {
+                    $map[$p->participant_type.':'.$p->participant_id] ??= (int) $p->conversation_id;
+                }
+            });
+
+        return $map;
+    }
+
+    /**
+     * One live push per thread of a broadcast, sent after the response so a
+     * large send is not held up by Reverb. Same event and channels as
+     * broadcastMessage().
+     *
+     * @param  array<int, array<int, array{0:class-string,1:int}>>  $threadIdentities
+     */
+    private function broadcastMany(Model $principal, array $threadIdentities, string $body, \DateTimeInterface $now): void
+    {
+        if ($threadIdentities === []) {
+            return;
+        }
+
+        $messageIds = Message::query()
+            ->whereIn('conversation_id', array_keys($threadIdentities))
+            ->where('sender_type', $principal::class)
+            ->where('sender_id', $principal->getKey())
+            ->groupBy('conversation_id')
+            ->selectRaw('conversation_id, MAX(id) as id')
+            ->pluck('id', 'conversation_id');
+
+        $senderName = $this->identityFromModel($principal)['name'] ?? '—';
+        $at = \Illuminate\Support\Carbon::instance($now)->toIso8601String();
+        $events = [];
+        foreach ($threadIdentities as $conversationId => $people) {
+            $events[] = new MessageSent(
+                conversationId: $conversationId,
+                channels: array_values(array_unique(array_map(
+                    static fn (array $i) => sprintf('identity.%s.%d', class_basename($i[0]), $i[1]),
+                    $people,
+                ))),
+                payload: [
+                    'id'              => (int) ($messageIds[$conversationId] ?? 0),
+                    'conversation_id' => $conversationId,
+                    'body'            => $body,
+                    'sender_type'     => class_basename($principal::class),
+                    'sender_id'       => (int) $principal->getKey(),
+                    'sender_name'     => $senderName,
+                    'created_at'      => $at,
+                    'last_message_at' => $at,
+                ],
+            );
+        }
+
+        // The X-Socket-ID of the sender is read now, while the request is current.
+        foreach ($events as $event) {
+            $event->dontBroadcastToCurrentUser();
+        }
+
+        \Illuminate\Support\defer(function () use ($events) {
+            foreach ($events as $event) {
+                try {
+                    broadcast($event);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+        });
     }
 
     /**
@@ -311,8 +555,8 @@ final class MessageService
             // Dashboard compose → learners.
             return User::query()
                 ->orderBy('name')
-                ->get(['id', 'name', 'image'])
-                ->map(fn (User $u) => $this->recipientRow('learner', 'learners', (int) $u->id, (string) ($u->name ?? ''), $u->image, $locale))
+                ->get(['id', 'name', 'name_en', 'name_ar', 'image'])
+                ->map(fn (User $u) => $this->recipientRow('learner', 'learners', (int) $u->id, $u->getLocalizedName(), $u->image, $locale))
                 ->all();
         }
 
@@ -345,28 +589,32 @@ final class MessageService
 
     /* ────────────────────────────────────────────────────────────── */
 
-    /** @param array<int, array{0:class-string,1:int}> $identities */
-    private function shape(Conversation $conversation, array $identities, ?string $roleFilter): ?array
+    /**
+     * @param  array<int, array{0:class-string,1:int}>  $identities
+     * @param  array<string, array{name:?string, image:?string}>|null  $people  preloaded counterparts (counterparts())
+     */
+    private function shape(Conversation $conversation, array $identities, ?string $roleFilter, ?array $people = null): ?array
     {
-        $mine = $this->participantRow($conversation, $identities);
-
         // The counterpart = the first participant that isn't one of my identities.
-        $counterpartRow = $conversation->participants->first(
-            fn (ConversationParticipant $p) => ! $this->isMine($p->participant_type, (int) $p->participant_id, $identities),
-        );
+        $counterpartRow = $this->counterpartRow($conversation, $identities);
 
         $role = $counterpartRow ? (self::ROLE_BY_TYPE[$counterpartRow->participant_type] ?? 'learners') : 'learners';
         if ($roleFilter !== null && $roleFilter !== 'all' && $role !== $roleFilter) {
             return null;
         }
 
-        $counterpart = $counterpartRow ? $this->resolveIdentity($counterpartRow->participant_type, (int) $counterpartRow->participant_id) : null;
+        $counterpart = null;
+        if ($counterpartRow) {
+            $key = $counterpartRow->participant_type.':'.$counterpartRow->participant_id;
+            $counterpart = $people !== null && array_key_exists($key, $people)
+                ? $people[$key]
+                : $this->resolveIdentity($counterpartRow->participant_type, (int) $counterpartRow->participant_id);
+        }
         $last = $conversation->latestMessage;
 
-        $unread = $conversation->messages()
-            ->when($mine?->last_read_at, fn ($q) => $q->where('created_at', '>', $mine->last_read_at))
-            ->where(fn ($q) => $this->scopeSenderNotMine($q, $identities))
-            ->count();
+        // The list loads it with withCount(); a single thread counts it here.
+        $unread = $conversation->getAttribute('unread_count')
+            ?? $conversation->messages()->where(fn ($q) => $this->scopeUnread($q, $identities))->count();
 
         return [
             'id'         => (int) $conversation->id,
@@ -385,7 +633,7 @@ final class MessageService
                 'created_at' => optional($last->created_at)->toIso8601String(),
                 'mine'       => $this->isMine($last->sender_type, (int) $last->sender_id, $identities),
             ] : null,
-            'unread_count'    => $unread,
+            'unread_count'    => (int) $unread,
             'last_message_at' => optional($conversation->last_message_at)->toIso8601String(),
         ];
     }
@@ -437,6 +685,16 @@ final class MessageService
         foreach ($identities as [$type, $id]) {
             $query->whereNot(fn ($q) => $q->where('sender_type', $type)->where('sender_id', $id));
         }
+    }
+
+    /** @param array<int, array{0:class-string,1:int}> $identities */
+    private function scopeSenderMine($query, array $identities): void
+    {
+        $query->where(function ($q) use ($identities) {
+            foreach ($identities as [$type, $id]) {
+                $q->orWhere(fn ($inner) => $inner->where('sender_type', $type)->where('sender_id', $id));
+            }
+        });
     }
 
     /** @param array<int, array{0:class-string,1:int}> $identities */
@@ -496,13 +754,18 @@ final class MessageService
     {
         /** @var Model|null $model */
         $model = $type::query()->find($id);
-        if ($model === null) {
-            return null;
-        }
 
-        // Instructor (and some other) `name` fields are translatable JSON —
-        // localize so the UI never shows a raw {"en":..,"ar":..} blob.
-        $name = $model->name ?? null;
+        return $model === null ? null : $this->identityFromModel($model);
+    }
+
+    /** @return array{name:?string, image:?string} */
+    private function identityFromModel(Model $model): array
+    {
+        // A learner's `name` is the HR Arabic name; the language columns come
+        // first (NEW2B-5906). Instructor (and some other) `name` fields are
+        // translatable JSON — localize so the UI never shows a raw
+        // {"en":..,"ar":..} blob.
+        $name = $model instanceof User ? ($model->getLocalizedName() ?: null) : ($model->name ?? null);
 
         return [
             'name'  => $name !== null ? $this->localize((string) $name, app()->getLocale()) : null,

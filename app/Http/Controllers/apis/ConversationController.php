@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\apis;
 
+use App\Http\Requests\Api\ConversationIndexRequest;
 use App\Models\Admin;
 use App\Models\Conversation;
 use App\Models\Instructor;
@@ -36,27 +37,38 @@ final class ConversationController extends ApiController
         private readonly CourseScope $scope,
     ) {}
 
-    /** GET conversations?role=all|instructors|admins|learners&tab=all|unread|received|sent */
-    public function index(Request $request): JsonResponse
+    /**
+     * GET conversations?role=all|instructors|admins|learners&tab=all|unread|received|sent&page=&per_page=
+     *
+     * `result` stays the plain list both apps read; `meta` carries the pages
+     * (NEW2B-5905).
+     */
+    public function index(ConversationIndexRequest $request): JsonResponse
     {
         $conversations = $this->service->conversationsFor(
             $request->user(),
-            $request->get('role'),
-            (int) $request->get('per_page', 30),
-            $request->get('tab'),
+            $request->validated('role'),
+            $request->perPage(),
+            $request->validated('tab'),
         );
 
-        return $this->success(__('messages.retrieved'), $conversations->getCollection()->values());
+        return response()->json([
+            'status'  => 'success',
+            'message' => __('messages.retrieved'),
+            'result'  => $conversations->getCollection()->values(),
+            'meta'    => [
+                'current_page' => $conversations->currentPage(),
+                'last_page'    => $conversations->lastPage(),
+                'per_page'     => $conversations->perPage(),
+                'total'        => $conversations->total(),
+            ],
+        ]);
     }
 
     /** GET conversations/unread-count */
     public function unreadCount(Request $request): JsonResponse
     {
-        $total = $this->service->conversationsFor($request->user(), null, 1000)
-            ->getCollection()
-            ->sum('unread_count');
-
-        return $this->success(__('messages.retrieved'), ['count' => (int) $total]);
+        return $this->success(__('messages.retrieved'), ['count' => $this->service->unreadTotal($request->user())]);
     }
 
     /** GET conversations/recipients */

@@ -43,7 +43,9 @@ class BlogResource extends BlogListResource
         return [
             'name'  => $this->author->getLocalizedName(),
             'image' => $this->author->image ? $this->getFileUrl($this->author->image) : null,
-            'title' => $this->author->department_name ?? null,
+            // The author's job title in the request language (NEW2B-5892). It
+            // used the HR department, an Arabic-only string, on every page.
+            'title' => $this->author->jobTitle?->getLocalizedName() ?: null,
         ];
     }
 }

@@ -1,5 +1,6 @@
 {
   "common": {
+    "download_file": "Download {{name}}",
     "loading": "Loading…",
     "retry": "Try again",
     "cancel": "Cancel",
@@ -28,6 +29,13 @@
     }
   },
   "core": {
+    "toast": {
+      "success": "Done",
+      "info": "For your information",
+      "warn": "Please check",
+      "error": "Something went wrong",
+      "close": "Dismiss notification"
+    },
     "nav": {
       "catalogue": "Catalogue",
       "my_learnings": "My Learnings",
@@ -306,7 +314,8 @@
       "tabs": {
         "overview": "Overview",
         "curriculum": "Curriculum",
-        "instructor": "Instructor"
+        "instructor": "Instructor",
+        "schedule": "Schedule"
       },
       "overview": {
         "what_you_will_learn": "What you'll learn",
@@ -334,7 +343,8 @@
         "sessions": "Sessions",
         "instructor": "Instructor",
         "includes": "This course includes",
-        "remaining_seats": "{{count}} Remaining Seats"
+        "remaining_seats": "Remaining Seats",
+        "seats_left": "{{count}} Left"
       },
       "includes": {
         "sessions": "{{count}} live sessions",
@@ -342,12 +352,50 @@
         "assessments": "Quizzes & assignments",
         "certificate": "Certificate upon completion"
       },
+      "schedule": {
+        "title": "Schedule",
+        "subtitle": "Review upcoming sessions, locations, and status for this course.",
+        "empty": "No sessions have been scheduled for this course yet.",
+        "session": "Session",
+        "session_n": "Session {{n}}",
+        "date": "Date",
+        "from": "From",
+        "to": "To",
+        "duration": "Duration",
+        "location": "Location",
+        "status": "Status",
+        "status_completed": "Completed",
+        "status_upcoming": "Upcoming",
+        "duration_hm": "{{h}}h {{m}}m",
+        "duration_h": "{{h}}h",
+        "duration_m": "{{m}}m"
+      },
       "not_found": {
         "title": "Course not found",
         "message": "This course may have been removed or is no longer available."
       }
     },
     "my_learnings": {
+      "evaluation": {
+        "row_title": "Evaluate course",
+        "row_action": "Add My Feedback",
+        "title": "Learner Evaluation",
+        "subtitle": "Share your experience with the course and instructor. Required fields help us improve future cohorts.",
+        "progress": "Progress",
+        "progress_count": "{{answered}} out of {{total}} questions",
+        "instructor": "Instructor you are evaluating",
+        "instructor_placeholder": "Select instructor",
+        "label_min": "Needs significant improvement",
+        "label_max": "Excellent",
+        "stars": "{{count}} out of 5 stars",
+        "text_placeholder": "Write your answer",
+        "cancel": "Cancel",
+        "submit": "Submit Evaluation",
+        "group_count": "{{answered}}/{{total}} answered",
+        "required_left": "Required answers left: {{count}}",
+        "ready": "All required questions are answered.",
+        "thanks": "Thank you. Your evaluation was submitted."
+      },
       "title": "My Active Courses",
       "search_ph": "Search your courses…",
       "upcoming": "Upcoming",
@@ -504,6 +552,25 @@
       }
     },
     "course_player": {
+      "file": {
+        "title": "Assignment: {{question}}",
+        "template": "Assignment file",
+        "download": "Download",
+        "upload_title": "Upload your completed work",
+        "max_size": "Max. file size: 10 MB",
+        "select": "Select file",
+        "replace": "Replace file",
+        "remove": "Remove {{name}}",
+        "guidance": "Accepted file types:",
+        "guidance_max": "(max 10 MB)",
+        "locked": "Your file has been graded and can no longer be replaced.",
+        "submit": "Submit Assignment",
+        "uploading": "Uploading…",
+        "error_type": "This file type is not accepted.",
+        "error_size": "The file is larger than 10 MB.",
+        "replaced": "Your file was replaced.",
+        "download_failed": "The file could not be downloaded."
+      },
       "back": "My Learnings",
       "modules_completed": "{{completed}} of {{total}} modules completed",
       "curriculum": "Course Curriculum",
@@ -554,6 +621,8 @@
         "false": "False"
       },
       "results": {
+        "score_pending": "Score pending",
+        "out_of_short": "out of {{total}}",
         "title": "Review Results",
         "final_score": "Final Score",
         "out_of": "out of {{total}} points",
@@ -721,6 +790,77 @@
         "kicker": "Get started",
         "title": "Go beyond generic catalogues. Get NAS LMS.",
         "button": "Book a Demo"
+      }
+    },
+    "external_training": {
+      "badge": "External Training",
+      "card_title": "Add External Training",
+      "none": "Log training you completed outside the LMS.",
+      "add": "External Training",
+      "load_failed": "Your requests could not be loaded.",
+      "retry": "Retry",
+      "hours": "{{hours}}h",
+      "status": {
+        "pending": "Pending",
+        "approved": "Accepted",
+        "rejected": "Not accepted"
+      },
+      "reason": "Reason:",
+      "edit": "Edit",
+      "withdraw": "Withdraw",
+      "withdraw_confirm": "Withdraw this request?",
+      "withdraw_yes": "Yes, withdraw",
+      "withdraw_no": "Keep it",
+      "withdrawn": "The request was withdrawn.",
+      "withdraw_failed": "The request could not be withdrawn.",
+      "breadcrumb": "Breadcrumb",
+      "crumb_learning": "My Learning",
+      "add_title": "Add External Training",
+      "edit_title": "Edit External Training",
+      "lead": "Log training you completed outside the LMS. The L&D team will review it before it's added to your history.",
+      "not_found": "This request does not exist, or it was withdrawn.",
+      "decided": "This request has already been reviewed, so it can no longer be changed.",
+      "back": "Back to my profile",
+      "field": {
+        "title": "Course / Training Title",
+        "provider": "Training Provider",
+        "start": "Start Date",
+        "end": "End Date",
+        "hours": "Training Hours",
+        "cost": "Cost (optional)"
+      },
+      "ph": {
+        "title": "e.g. Advanced Excel for Finance",
+        "provider": "e.g. Coursera, LinkedIn Learning",
+        "hours": "e.g. 8",
+        "cost": "e.g. 1500"
+      },
+      "cost_hint": "In EGP.",
+      "upload_title": "Upload certificate",
+      "types": "PDF, JPG, PNG",
+      "max_size": "Max file size: 10 MB",
+      "select_file": "Select file",
+      "replace_file": "Replace file",
+      "remove_file": "Remove",
+      "current_file": "Current certificate:",
+      "accepted": "Accepted file types: .pdf, .jpg, .png (max 10 MB)",
+      "submit": "Submit Request",
+      "save": "Save Changes",
+      "submitting": "Submitting…",
+      "footnote": "Your request will be reviewed by the L&D team before it's added to your training history.",
+      "submitted": "Your request was submitted for review.",
+      "updated": "Your request was updated.",
+      "save_failed": "The request could not be saved. Please try again.",
+      "errors": {
+        "required": "This field is required.",
+        "too_long": "This is too long.",
+        "hours_step": "Enter the hours in steps of 0.5.",
+        "hours_range": "Enter between 0.5 and 2000 hours.",
+        "cost_range": "Enter a cost of 0 or more.",
+        "end_before_start": "The end date must be on or after the start date.",
+        "end_in_future": "The end date cannot be in the future.",
+        "file_type": "Upload a PDF, JPG or PNG file.",
+        "file_size": "The file is larger than 10 MB."
       }
     }
   }

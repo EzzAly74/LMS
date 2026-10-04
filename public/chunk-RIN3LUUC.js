@@ -1,0 +1,1 @@
+import{c as a}from"./chunk-WKXWXVCC.js";import{X as t,gc as o}from"./chunk-LMGGKYHY.js";function g(c){let e=t(a),r=e.current();o(()=>{let n=e.current();n!==r&&(r=n,c())},{allowSignalWrites:!0})}export{g as a};

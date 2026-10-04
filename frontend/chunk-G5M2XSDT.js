@@ -1,0 +1,1 @@
+import"./chunk-4X36HX5K.js";var t=[{path:"",loadComponent:()=>import("./chunk-NIN6O6CC.js").then(e=>e.LearnerListComponent),title:"Learners \u2014 2B Academy"},{path:":id",loadComponent:()=>import("./chunk-7FEM4JNE.js").then(e=>e.LearnerDetailComponent),title:"Learner \u2014 2B Academy"}];export{t as LEARNERS_ROUTES};

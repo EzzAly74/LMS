@@ -182,6 +182,34 @@ class AdminActionPermissionTest extends ApiTestCase
         $this->assertSame('all', $role['course_scope']);
     }
 
+    /**
+     * A database that missed the 2026_10_01 seed had only view-* rows: the
+     * save answered "saved" and kept only the view ticks (reported
+     * 2026-10-04 on Edit Role). The missing rows are now created, never skipped.
+     */
+    public function test_a_save_never_drops_a_permission_whose_row_is_missing(): void
+    {
+        ['headers' => $h] = $this->superAdmin();
+        $target = Role::findOrCreate('editor-'.uniqid(), 'admin');
+        $target->givePermissionTo('view-dashboard');
+        \Illuminate\Support\Facades\DB::table('permissions')->where('guard_name', 'admin')
+            ->whereIn('name', ['create-courses', 'edit-courses', 'delete-courses'])->delete();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $role = $this->putJson(self::BASE."/admin/roles/{$target->id}", [
+            'permissions' => ['view-dashboard', 'create-courses', 'edit-courses', 'delete-courses'],
+        ], $h)->assertOk()->json('result');
+
+        $this->assertEqualsCanonicalizing(
+            ['view-dashboard', 'view-courses', 'create-courses', 'edit-courses', 'delete-courses'], $role['permissions']);
+        $this->assertSame('Learning Operation', \Illuminate\Support\Facades\DB::table('permissions')
+            ->where('name', 'create-courses')->where('guard_name', 'admin')->value('table_name'));
+
+        // Read back, as the page does after the success message.
+        $this->assertEqualsCanonicalizing($role['permissions'],
+            $this->getJson(self::BASE."/admin/roles/{$target->id}", $h)->assertOk()->json('result.permissions'));
+    }
+
     public function test_an_unknown_permission_is_a_validation_error(): void
     {
         ['headers' => $h] = $this->superAdmin();

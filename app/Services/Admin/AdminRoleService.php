@@ -295,7 +295,31 @@ class AdminRoleService
             ->whereIn('name', AdminSections::permissionNames())
             ->pluck('id', 'name');
 
-        $desired = array_values(array_filter(array_map(fn ($n) => isset($ids[$n]) ? (int) $ids[$n] : null, $names)));
+        // A catalogue permission without its row (a database that missed the
+        // 2026_10_01 seed) used to be skipped while the save still said
+        // "saved", so create / edit / delete ticks were lost. The names are
+        // already checked against the catalogue (RoleAuthority), so the row
+        // is created here as the seed would, and nothing is ever skipped.
+        $names = array_values(array_intersect($names, AdminSections::permissionNames()));
+        $missing = array_values(array_diff($names, $ids->keys()->all()));
+        if ($missing !== []) {
+            $now = now();
+            foreach ($missing as $name) {
+                $parsed = AdminSections::parse($name);
+                if ($parsed === null) {
+                    throw new \LogicException("Permission {$name} is not in the matrix catalogue.");
+                }
+                DB::table('permissions')->insertOrIgnore([
+                    'name' => $name, 'guard_name' => 'admin', 'table_name' => AdminSections::SECTIONS[$parsed[0]]['group'],
+                    'created_at' => $now, 'updated_at' => $now,
+                ]);
+            }
+            $ids = DB::table('permissions')->where('guard_name', 'admin')
+                ->whereIn('name', AdminSections::permissionNames())
+                ->pluck('id', 'name');
+        }
+
+        $desired = array_map(fn ($n) => (int) $ids[$n], $names);
         $current = DB::table('role_has_permissions')->where('role_id', $roleId)
             ->whereIn('permission_id', $ids->values()->all())
             ->pluck('permission_id')->map(fn ($v) => (int) $v)->all();

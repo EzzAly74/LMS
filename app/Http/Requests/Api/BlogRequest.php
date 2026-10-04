@@ -68,4 +68,31 @@ class BlogRequest extends FormRequest
             'sections.*.sort_order'   => 'nullable|integer|min:0',
         ];
     }
+
+    /**
+     * Field names in the messages (NEW2B-5877 / 5878 / 5890): "The English
+     * subtitle must not be greater than 1000 characters", not "subtitle.en".
+     */
+    public function attributes(): array
+    {
+        $f = fn (string $key) => __('messages.blog_fields.'.$key);
+
+        return [
+            'title.en'            => $f('title_en'),
+            'title.ar'            => $f('title_ar'),
+            'subtitle.en'         => $f('subtitle_en'),
+            'subtitle.ar'         => $f('subtitle_ar'),
+            'image'               => $f('image'),
+            'level'               => $f('level'),
+            'author_user_id'      => $f('author'),
+            'reading_time'        => $f('reading_time'),
+            'sections'            => $f('sections'),
+            'sections.*.title.en' => $f('section_title_en'),
+            'sections.*.title.ar' => $f('section_title_ar'),
+            'sections.*.body.en'  => $f('section_body_en'),
+            'sections.*.body.ar'  => $f('section_body_ar'),
+            'sections.*.quote.en' => $f('section_quote_en'),
+            'sections.*.quote.ar' => $f('section_quote_ar'),
+        ];
+    }
 }

@@ -220,4 +220,13 @@ return [
     'audit_learners' => '{1} :count learner|[2,*] :count learners',
     'audit_message' => 'Message',
     'contact_guest_email' => 'guest email',
+    'blog_fields' => [
+        'title_en' => 'English title', 'title_ar' => 'Arabic title',
+        'subtitle_en' => 'English subtitle', 'subtitle_ar' => 'Arabic subtitle',
+        'image' => 'cover image', 'level' => 'level', 'author' => 'owner', 'reading_time' => 'reading time',
+        'sections' => 'sections',
+        'section_title_en' => 'section English title', 'section_title_ar' => 'section Arabic title',
+        'section_body_en' => 'section English body', 'section_body_ar' => 'section Arabic body',
+        'section_quote_en' => 'section English quote', 'section_quote_ar' => 'section Arabic quote',
+    ],
 ];

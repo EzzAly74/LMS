@@ -219,4 +219,13 @@ return [
     'audit_learners' => '{1} متعلم واحد|[2,*] :count متعلمين',
     'audit_message' => 'رسالة',
     'contact_guest_email' => 'بريد الضيف',
+    'blog_fields' => [
+        'title_en' => 'العنوان بالإنجليزية', 'title_ar' => 'العنوان بالعربية',
+        'subtitle_en' => 'العنوان الفرعي بالإنجليزية', 'subtitle_ar' => 'العنوان الفرعي بالعربية',
+        'image' => 'صورة الغلاف', 'level' => 'المستوى', 'author' => 'الكاتب', 'reading_time' => 'وقت القراءة',
+        'sections' => 'الأقسام',
+        'section_title_en' => 'عنوان القسم بالإنجليزية', 'section_title_ar' => 'عنوان القسم بالعربية',
+        'section_body_en' => 'نص القسم بالإنجليزية', 'section_body_ar' => 'نص القسم بالعربية',
+        'section_quote_en' => 'اقتباس القسم بالإنجليزية', 'section_quote_ar' => 'اقتباس القسم بالعربية',
+    ],
 ];

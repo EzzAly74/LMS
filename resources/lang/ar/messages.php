@@ -177,6 +177,9 @@ return [
 
     // إشعارات النظام التلقائية (المدرب / المشرف)
     'notifications' => [
+        'cohort_opened_title' => 'فُتح التسجيل في دورة طلبت إشعارًا عنها',
+        'cohort_opened_body' => 'التسجيل مفتوح الآن في ":course". تبدأ المجموعة القادمة في :date. سجّل قبل اكتمال المقاعد.',
+        'cohort_opened_action' => 'عرض الدورة',
         'external_training_submitted_title' => 'طلب تدريب خارجي جديد',
         'external_training_submitted_body' => 'قدّم :learner طلب ":title" للمراجعة.',
         'external_training_approved_title' => 'تم قبول التدريب الخارجي',

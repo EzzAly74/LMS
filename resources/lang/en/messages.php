@@ -178,6 +178,9 @@ return [
 
     // Event-driven system notifications (Instructor / Admin)
     'notifications' => [
+        'cohort_opened_title' => 'A course you asked about is open',
+        'cohort_opened_body' => 'Enrolment is open for ":course". The next cohort starts on :date. Enrol before the seats fill up.',
+        'cohort_opened_action' => 'View the course',
         'external_training_submitted_title' => 'New external training request',
         'external_training_submitted_body' => ':learner submitted ":title" for review.',
         'external_training_approved_title' => 'External training accepted',

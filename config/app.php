@@ -28,6 +28,9 @@ return [
     */
     'url'       => env('APP_URL', 'http://localhost'),
     'asset_url' => env('ASSET_URL'),
+    // The learner Website, for links in emails (e.g. "a cohort is open").
+    // Optional: without it the email carries no link.
+    'website_url' => env('WEBSITE_URL'),
 
     /*
     |--------------------------------------------------------------------------

@@ -16,3 +16,5 @@ Schedule::command('sync:employees')->daily();
 // also derive these on the fly for live reads — this job exists so
 // raw SQL consumers (reports, dashboards) stay in sync.
 Schedule::command('cohorts:sync-statuses')->dailyAt('00:05');
+// After the status sync: tell learners waiting for a course that a cohort opened (NEW2B-5780).
+Schedule::command('cohorts:notify-interests')->dailyAt('00:15');

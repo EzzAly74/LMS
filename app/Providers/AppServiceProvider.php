@@ -79,7 +79,9 @@ use App\Repositories\Eloquents\UserProgressRepository;
 use App\Repositories\Eloquents\UserRepository;
 use App\Models\Category;
 use App\Models\CourseRating;
+use App\Models\CourseSection;
 use App\Models\User;
+use App\Observers\CourseSectionObserver;
 use App\Observers\UserObserver;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
@@ -257,6 +259,7 @@ class AppServiceProvider extends ServiceProvider
         // (users.department_name is the source of truth — see
         // App\Services\JobTitleSyncService for the full rationale).
         User::observe(UserObserver::class);
+        CourseSection::observe(CourseSectionObserver::class);
 
         $this->shareGlobalFrontData();
     }

@@ -101,10 +101,16 @@ final class ProfileDashboardService
         $certificates   = $this->certificatesByCourse($user, $allCourseIds);
         $completionDate  = $this->completionDatesByCourse($user, $allCourseIds);
         $scheduledCohort = $this->coursesWithScheduledCohort($allCourseIds);
+        // "Notify me" already pressed for these courses (NEW2B-5780).
+        $notifyRequested = DB::table('course_notify_interests')
+            ->where('user_id', $user->id)
+            ->whereIn('course_id', $allCourseIds)
+            ->pluck('course_id')
+            ->map(fn ($v) => (int) $v);
 
         return $qualifications->map(function ($q) use (
             $courseToQualifications, $completedIds, $titles, $qualNames,
-            $certificates, $completionDate, $scheduledCohort
+            $certificates, $completionDate, $scheduledCohort, $notifyRequested
         ) {
             $qid = (int) $q->id;
 
@@ -138,6 +144,7 @@ final class ProfileDashboardService
                         'course_id'        => $cid,
                         'title'            => $titles[$cid] ?? '',
                         'cohort_scheduled' => $scheduledCohort->contains($cid),
+                        'notify_requested' => $notifyRequested->contains($cid),
                         'also_in'          => $alsoIn,
                     ]);
                 }

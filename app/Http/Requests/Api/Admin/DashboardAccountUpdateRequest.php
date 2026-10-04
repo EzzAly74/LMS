@@ -28,6 +28,8 @@ class DashboardAccountUpdateRequest extends FormRequest
             'password'              => ['sometimes', 'nullable', 'string', 'confirmed', DashboardAccountStoreRequest::passwordRule()],
             'password_confirmation' => ['sometimes', 'nullable', 'string'],
             'status'                => ['sometimes', 'nullable', Rule::in(['active', 'inactive', 'deactivated'])],
+            'title_en'              => ['sometimes', 'nullable', 'string', 'max:150'],
+            'title_ar'              => ['sometimes', 'nullable', 'string', 'max:150'],
             'brief_en'              => ['sometimes', 'nullable', 'string', 'max:2000'],
             'brief_ar'              => ['sometimes', 'nullable', 'string', 'max:2000'],
             'image'                 => ['sometimes', 'nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:3072'],

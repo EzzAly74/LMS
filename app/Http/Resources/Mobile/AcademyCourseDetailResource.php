@@ -34,6 +34,7 @@ class AcademyCourseDetailResource extends JsonResource
 
         $anchorCohort = $this->additional['anchor_cohort'] ?? null;
         $ctaState     = $this->additional['cta_state'] ?? CourseCtaState::Unavailable;
+        $profiles     = $this->additional['instructor_profiles'] ?? [];
 
         $ratingAvg   = (float) ($course->rating_avg ?? 0);
         $ratingCount = (int)   ($course->rating_count ?? 0);
@@ -69,12 +70,31 @@ class AcademyCourseDetailResource extends JsonResource
                 'name' => $course->category->getTranslation('name', $locale),
             ] : null,
 
-            'instructors'     => $course->instructors->map(fn ($i) => [
-                'id'    => (int) $i->id,
-                'name'  => (string) $i->name,
-                'bio'   => (string) ($i->bio ?? ''),
-                'image' => $this->absoluteUrl($i->image),
-            ])->values(),
+            // The Instructor tab (NEW2B-5926, Figma 818:40243): title, the
+            // instructor's own rating / learners / courses, and other courses.
+            'instructors'     => $course->instructors->map(function ($i) use ($profiles, $locale) {
+                $p = $profiles[(int) $i->id] ?? null;
+
+                return [
+                    'id'             => (int) $i->id,
+                    'name'           => (string) $i->name,
+                    'title'          => ($i->getTranslation('title', $locale, true) ?: null),
+                    'bio'            => (string) ($i->bio ?? ''),
+                    'image'          => $this->absoluteUrl($i->image),
+                    'rating_avg'     => $p['rating_avg'] ?? null,
+                    'rating_count'   => (int) ($p['rating_count'] ?? 0),
+                    'learners_count' => (int) ($p['learners_count'] ?? 0),
+                    'courses_count'  => (int) ($p['courses_count'] ?? 0),
+                    'other_courses'  => collect($p['other_courses'] ?? [])->map(fn (Course $c) => [
+                        'id'             => (int) $c->id,
+                        'title'          => $c->getTranslation('title', $locale),
+                        'image'          => $this->absoluteUrl($c->image),
+                        'course_type'    => $c->course_type,
+                        'level'          => $c->level,
+                        'duration_weeks' => $c->duration_weeks !== null ? (int) $c->duration_weeks : null,
+                    ])->values(),
+                ];
+            })->values(),
 
             'qualifications'  => $course->qualificationSkills->map(fn ($q) => [
                 'id'   => (int) $q->id,

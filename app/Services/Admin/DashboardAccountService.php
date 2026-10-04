@@ -263,6 +263,11 @@ class DashboardAccountService
 
         $instructor->setTranslation('name', 'en', $admin->name);
         $instructor->setTranslation('name', 'ar', $admin->name_ar ?: $admin->name);
+        foreach (['en', 'ar'] as $lang) {
+            if (array_key_exists("title_{$lang}", $data)) {
+                $instructor->setTranslation('title', $lang, trim((string) ($data["title_{$lang}"] ?? '')));
+            }
+        }
         if (array_key_exists('brief_en', $data)) {
             $instructor->setTranslation('bio', 'en', (string) ($data['brief_en'] ?? ''));
         }
@@ -292,6 +297,8 @@ class DashboardAccountService
             'name_en'                => $admin->name,
             'name_ar'                => $admin->name_ar,
             'name_fallback'          => $admin->email,
+            'title_en'               => $instructor?->getTranslation('title', 'en', false) ?: null,
+            'title_ar'               => $instructor?->getTranslation('title', 'ar', false) ?: null,
             'bio_en'                 => $instructor?->getTranslation('bio', 'en', false) ?: null,
             'bio_ar'                 => $instructor?->getTranslation('bio', 'ar', false) ?: null,
             'email'                  => $admin->email,

@@ -125,7 +125,15 @@ interface AcademyRepositoryInterface
     /**
      * Is the user already enrolled in this course?
      */
-    public function isEnrolledInCourse(User $user, int $courseId): bool;
+    /**
+     * Instructor tab stats and other courses (NEW2B-5926), keyed by instructor id.
+     *
+     * @param  list<int>  $instructorIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function instructorProfiles(array $instructorIds, int $courseId, ?User $user, Carbon $now, int $defaultCloseOffsetDays, int $scheduledVisibilityDays, int $limit): array;
+
+        public function isEnrolledInCourse(User $user, int $courseId): bool;
 
     /**
      * Is the user already enrolled in this specific cohort?

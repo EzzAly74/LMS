@@ -35,6 +35,9 @@ class DashboardAccountStoreRequest extends FormRequest
                 ->where(fn ($q) => $q->where('guard_name', 'admin')->where('name', '!=', 'learner'))],
             'password'              => ['required', 'string', 'confirmed', self::passwordRule()],
             'password_confirmation' => ['required', 'string'],
+            // Shown under the instructor's name on the Website (NEW2B-5926).
+            'title_en'              => ['nullable', 'string', 'max:150'],
+            'title_ar'              => ['nullable', 'string', 'max:150'],
             'brief_en'              => ['nullable', 'string', 'max:2000'],
             'brief_ar'              => ['nullable', 'string', 'max:2000'],
             'image'                 => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:3072'],

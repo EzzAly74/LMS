@@ -320,6 +320,27 @@ final class AcademyService
         return $this->repository->findForDetail($courseId);
     }
 
+    /** Other courses shown per instructor on the Instructor tab (Figma 818:40243 shows two). */
+    public const INSTRUCTOR_OTHER_COURSES = 3;
+
+    /**
+     * Instructor tab data for a course's instructors (NEW2B-5926).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function instructorProfiles(Course $course, ?User $user): array
+    {
+        return $this->repository->instructorProfiles(
+            $course->instructors->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            (int) $course->id,
+            $user,
+            now(),
+            $this->settings->academyDefaultCloseOffsetDays(),
+            $this->settings->academyScheduledVisibilityDays(),
+            self::INSTRUCTOR_OTHER_COURSES,
+        );
+    }
+
     /**
      * Resolve the cohort the S-03 detail screen should anchor on for
      * THIS user — either the next joinable cohort, or the one they're

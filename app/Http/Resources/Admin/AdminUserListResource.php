@@ -65,6 +65,9 @@ class AdminUserListResource extends JsonResource
             'name'                   => $display,
             'name_en'                => $nameEn ?: null,
             'name_ar'                => $nameAr ?: null,
+            // Instructor job title (NEW2B-5926); null for other rows.
+            'title_en'               => isset($row->title_en) && $row->title_en !== '' ? (string) $row->title_en : null,
+            'title_ar'               => isset($row->title_ar) && $row->title_ar !== '' ? (string) $row->title_ar : null,
             'brief_en'               => $briefEn ?: null,
             'brief_ar'               => $briefAr ?: null,
             'brief'                  => $brief ?: null,

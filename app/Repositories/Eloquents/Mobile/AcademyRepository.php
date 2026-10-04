@@ -239,7 +239,7 @@ final class AcademyRepository implements AcademyRepositoryInterface
             ->selectRaw($this->durationWeeksSql() . ' as duration_weeks', [$today])
             ->with([
                 'category:id,name',
-                'instructors:id,name,image,bio',
+                'instructors:id,name,title,image,bio',
                 'qualificationSkills:id,name',
                 'sections' => fn ($q) => $q
                     ->orderBy('start_date')
@@ -256,6 +256,73 @@ final class AcademyRepository implements AcademyRepositoryInterface
             ])
             ->withAvg('ratings as rating_avg', 'rating')
             ->findOrFail($courseId);
+    }
+
+    /**
+     * The Instructor tab of S-03 / the Website course details (NEW2B-5926,
+     * Figma 818:40243): per instructor, the rating across their courses,
+     * how many learners and active courses they have, and up to `$limit`
+     * of their other courses this viewer can browse (the catalogue rule,
+     * so nothing hidden from the viewer is linked). Three grouped queries
+     * for all instructors, plus one per instructor for the other courses.
+     *
+     * @param  list<int>  $instructorIds
+     * @return array<int, array{rating_avg: float|null, rating_count: int, learners_count: int, courses_count: int, other_courses: Collection<int, Course>}>
+     */
+    public function instructorProfiles(array $instructorIds, int $courseId, ?User $user, Carbon $now, int $defaultCloseOffsetDays, int $scheduledVisibilityDays, int $limit): array
+    {
+        if ($instructorIds === []) {
+            return [];
+        }
+
+        $learners = DB::table('courses_instructors as ci')
+            ->join('users_courses as uc', 'uc.course_id', '=', 'ci.course_id')
+            ->whereIn('ci.instructor_id', $instructorIds)
+            ->groupBy('ci.instructor_id')
+            ->selectRaw('ci.instructor_id, COUNT(DISTINCT uc.user_id) as n')
+            ->pluck('n', 'instructor_id');
+
+        $courses = DB::table('courses_instructors as ci')
+            ->join('courses as c', 'c.id', '=', 'ci.course_id')
+            ->whereIn('ci.instructor_id', $instructorIds)
+            ->where('c.active', true)
+            ->groupBy('ci.instructor_id')
+            ->selectRaw('ci.instructor_id, COUNT(DISTINCT ci.course_id) as n')
+            ->pluck('n', 'instructor_id');
+
+        $ratings = DB::table('courses_instructors as ci')
+            ->join('course_ratings as r', 'r.course_id', '=', 'ci.course_id')
+            ->whereIn('ci.instructor_id', $instructorIds)
+            ->groupBy('ci.instructor_id')
+            ->selectRaw('ci.instructor_id, AVG(r.rating) as avg_rating, COUNT(*) as n')
+            ->get()
+            ->keyBy('instructor_id');
+
+        $today = $now->toDateString();
+        $out = [];
+        foreach ($instructorIds as $id) {
+            $other = $this->baseAvailableQuery($user, $now, $defaultCloseOffsetDays, $scheduledVisibilityDays)
+                ->select(['courses.id', 'courses.title', 'courses.image', 'courses.course_type', 'courses.level'])
+                ->selectRaw($this->durationWeeksSql().' as duration_weeks', [$today])
+                ->whereKeyNot($courseId)
+                ->whereExists(fn ($sub) => $sub->from('courses_instructors')
+                    ->whereColumn('courses_instructors.course_id', 'courses.id')
+                    ->where('courses_instructors.instructor_id', $id))
+                ->orderBy('courses.id', 'desc')
+                ->limit($limit)
+                ->get();
+
+            $rating = $ratings->get($id);
+            $out[$id] = [
+                'rating_avg'     => $rating !== null ? round((float) $rating->avg_rating, 1) : null,
+                'rating_count'   => $rating !== null ? (int) $rating->n : 0,
+                'learners_count' => (int) ($learners[$id] ?? 0),
+                'courses_count'  => (int) ($courses[$id] ?? 0),
+                'other_courses'  => $other,
+            ];
+        }
+
+        return $out;
     }
 
     public function nextJoinableCohort(Course $course, ?User $user, Carbon $now, int $defaultCloseOffsetDays, int $scheduledVisibilityDays): ?CourseSection

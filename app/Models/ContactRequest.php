@@ -9,7 +9,7 @@ class ContactRequest extends Model
 {
     use HasFactory;
 
-    protected $guarded = ['id'];
+    protected $fillable = ['name', 'email', 'phone', 'job_title', 'company_name', 'guests', 'locale'];
 
     protected $casts = [
         'guests' => 'array',

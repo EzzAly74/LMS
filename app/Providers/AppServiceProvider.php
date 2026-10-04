@@ -229,6 +229,16 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Public Book a Demo form. Every submission emails the requester and
+        // each guest (NEW2B-5898), so it is an outbound-mail endpoint anyone
+        // can call: kept well below the old 20/min, with an hourly cap per IP.
+        RateLimiter::for('contact', function (Request $request) {
+            return [
+                Limit::perMinute(5)->by('contact:'.$request->ip()),
+                Limit::perHour(30)->by('contact-hour:'.$request->ip()),
+            ];
+        });
+
         Event::listen(
             Registered::class,
             SendEmailVerificationNotification::class,

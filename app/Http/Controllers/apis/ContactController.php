@@ -4,6 +4,7 @@ namespace App\Http\Controllers\apis;
 
 use App\Http\Requests\Api\ContactRequestRequest;
 use App\Mail\ContactAutoReply;
+use App\Mail\ContactGuestInvite;
 use App\Mail\ContactNotification;
 use App\Models\ContactRequest;
 use Illuminate\Http\JsonResponse;
@@ -24,7 +25,8 @@ class ContactController extends ApiController
 
     /**
      * Store a Book-a-Demo / Contact request, then queue the customer
-     * auto-reply and the company notification (to CONTACT_EMAIL).
+     * auto-reply, an invite to each guest and the company notification (to
+     * CONTACT_EMAIL).
      */
     public function store(ContactRequestRequest $request): JsonResponse
     {
@@ -37,14 +39,20 @@ class ContactController extends ApiController
 
         // Email delivery is decoupled (queued); never fail the submission if
         // the mail transport / queue hiccups — the request is already saved.
-        try {
-            Mail::to($contact->email)->queue(new ContactAutoReply($contact, $locale));
-
-            if ($companyEmail = config('contact.email')) {
-                Mail::to($companyEmail)->queue(new ContactNotification($contact, $locale));
+        // Each mail is its own attempt, so one bad address stops no other.
+        $mails = [[$contact->email, new ContactAutoReply($contact, $locale)]];
+        foreach ($request->guestsToInvite() as $guest) {
+            $mails[] = [$guest, new ContactGuestInvite($contact, $locale)]; // NEW2B-5898
+        }
+        if ($companyEmail = config('contact.email')) {
+            $mails[] = [$companyEmail, new ContactNotification($contact, $locale)];
+        }
+        foreach ($mails as [$to, $mail]) {
+            try {
+                Mail::to($to)->queue($mail);
+            } catch (\Throwable $e) {
+                report($e);
             }
-        } catch (\Throwable $e) {
-            report($e);
         }
 
         return $this->created(__('messages.created'), [

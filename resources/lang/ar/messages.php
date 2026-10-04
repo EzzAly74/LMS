@@ -215,4 +215,5 @@ return [
     'audit_recipients' => '{1} مستلم واحد|[2,*] :count مستلمين',
     'audit_learners' => '{1} متعلم واحد|[2,*] :count متعلمين',
     'audit_message' => 'رسالة',
+    'contact_guest_email' => 'بريد الضيف',
 ];

@@ -216,4 +216,5 @@ return [
     'audit_recipients' => '{1} :count recipient|[2,*] :count recipients',
     'audit_learners' => '{1} :count learner|[2,*] :count learners',
     'audit_message' => 'Message',
+    'contact_guest_email' => 'guest email',
 ];

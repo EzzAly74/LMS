@@ -45,11 +45,6 @@ return [
         'link'     => 'رابط خارجي',
     ],
 
-    'module_learner_scope' => [
-        'all'    => 'جميع المجموعات',
-        'cohort' => 'مجموعة محددة',
-    ],
-
     'resource_type' => [
         'article' => 'مقال',
         'link'    => 'رابط خارجي',

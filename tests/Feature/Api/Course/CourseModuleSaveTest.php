@@ -45,8 +45,6 @@ class CourseModuleSaveTest extends ApiTestCase
         return array_merge([
             'title' => ['en' => 'Reading', 'ar' => 'قراءة'],
             'content_type' => 'article',
-            'learner_scope' => 'all',
-            'session_number' => 1,
             'duration_minutes' => 30,
             'type' => 'article',
             'video' => null,

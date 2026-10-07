@@ -81,10 +81,6 @@ class CourseLectureService
             }
         }
 
-        if (($data['learner_scope'] ?? 'all') !== 'cohort') {
-            $data['session_id'] = null;
-        }
-
         return $data;
     }
 

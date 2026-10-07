@@ -58,6 +58,11 @@ class AcademyCohortBlockResource extends JsonResource
                     'time_from'    => $s->time_from,
                     'time_to'      => $s->time_to,
                     'location'     => $s->location,
+                    // Modules this session covers, from the cohort's schedule
+                    // sheet (D-079); ids of the course's `units`.
+                    'content_ids'  => $s->relationLoaded('lectures')
+                        ? $s->lectures->map(fn ($l) => (int) $l->id)->values()
+                        : [],
                     ...$this->sessionTiming($s->session_date, $s->time_from, $s->time_to, $now),
                 ])->values()
                 : [],

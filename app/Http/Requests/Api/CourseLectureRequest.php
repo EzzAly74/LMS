@@ -44,30 +44,21 @@ class CourseLectureRequest extends FormRequest
             // `section_id` is optional: the service will fall back to a
             // course-default section when omitted, since the admin "Module"
             // form intentionally hides section selection.
-            'section_id'         => 'nullable|integer|exists:course_sections,id',
+            'section_id'         => [
+                'nullable',
+                'integer',
+                Rule::exists('course_sections', 'id')->where(fn ($q) => $q->where('course_id', $courseId)),
+            ],
 
             'title'              => 'required|array',
             'title.ar'           => 'required|string|max:255',
             'title.en'           => 'nullable|string|max:255',
 
             'content_type'       => 'required|in:video,document,article,link',
-            'learner_scope'      => 'required|in:all,cohort',
-            // For the "Specific Cohort" scope `session_id` carries the chosen
-            // COHORT id (= course_sections.id), not a course_sessions id — the
-            // column is unconstrained and the mobile cohort-scoping compares it
-            // against the learner's group_id (also a section id). Validate it
-            // against this course's own cohorts so cross-course ids are rejected.
-            'session_id'         => [
-                'nullable',
-                'required_if:learner_scope,cohort',
-                'integer',
-                Rule::exists('course_sections', 'id')->where(
-                    fn ($q) => $q->where('course_id', $courseId),
-                ),
-            ],
-            // "Related to session number" — the week/session this module is
-            // taught in. Groups the module under "Week N" in the course player.
-            'session_number'     => 'nullable|integer|min:1|max:100',
+            // A module belongs to the whole course. Which sessions cover it
+            // is set by each cohort's schedule ("content" column, D-079), so
+            // the old learner_scope / session_id / session_number fields are
+            // no longer accepted.
 
             'duration_minutes'   => 'nullable|integer|min:0|max:10000',
 

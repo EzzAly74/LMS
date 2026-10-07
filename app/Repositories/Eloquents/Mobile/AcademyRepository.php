@@ -247,6 +247,8 @@ final class AcademyRepository implements AcademyRepositoryInterface
                 'sections.sessions' => fn ($q) => $q
                     ->orderBy('session_date')
                     ->orderBy('time_from'),
+                // Curriculum tab: the modules each session covers (D-079).
+                'sections.sessions.lectures' => fn ($q) => $q->select('course_lectures.id'),
                 // Lectures drive the S-03 "Course Content" block.
                 'lectures' => fn ($q) => $q->orderBy('id'),
             ])

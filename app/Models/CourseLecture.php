@@ -33,8 +33,9 @@ class CourseLecture extends Model
         return $this->belongsTo(Course::class, 'course_id');
     }
 
-    public function session()
+    /** The cohort sessions that cover this module (D-079). */
+    public function sessions()
     {
-        return $this->belongsTo(CourseSession::class, 'session_id');
+        return $this->belongsToMany(CourseSession::class, 'course_session_lectures', 'lecture_id', 'session_id');
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Course;
+use App\Models\CourseLecture;
 use App\Models\CourseSection;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -15,7 +16,9 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
  *
  * The admin downloads CohortScheduleTemplateExport, fills one row per session
  * (date, start, end, optional location) and uploads it with the cohort's name
- * and capacity. Every row is checked before anything is written; any problem
+ * and capacity. A row may also list, in its "content" column, the IDs of the
+ * course modules that session covers (D-079); they must be modules of this
+ * course. Every row is checked before anything is written; any problem
  * returns the full list and creates nothing, like the other importers. On
  * success the cohort and its sessions are created in one transaction, the
  * cohort's dates, session count and average length are taken from the rows,
@@ -23,13 +26,16 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
  */
 class CohortScheduleImportService
 {
-    public const COLUMNS = ['session_no', 'date', 'start_time', 'end_time', 'location'];
+    public const COLUMNS = ['session_no', 'date', 'start_time', 'end_time', 'location', 'content'];
 
     private const REQUIRED_COLUMNS = ['date', 'start_time', 'end_time'];
 
     public const MAX_ROWS = 500;
 
     private const MAX_LOCATION = 191;
+
+    /** Most modules one session may list in its content cell. */
+    public const MAX_CONTENT = 50;
 
     public function __construct(
         private readonly CourseSectionService $cohorts,
@@ -42,7 +48,7 @@ class CohortScheduleImportService
      */
     public function create(Course $course, array $cohort, UploadedFile $file): array
     {
-        $parsed = $this->parse($file);
+        $parsed = $this->parse($file, $course);
         if ($parsed['errors'] !== []) {
             return ['section' => null, 'errors' => $parsed['errors']];
         }
@@ -56,7 +62,9 @@ class CohortScheduleImportService
             $section = $this->cohorts->create($course, [
                 'name'               => $cohort['name'],
                 'capacity'           => $cohort['capacity'],
-                'status'             => ($cohort['open_early'] ?? false) ? 'open_for_enrollment' : 'scheduled',
+                // A cohort created with its sessions is open for enrolment
+                // straight away (human, 2026-10-07; replaces the Q-073 switch).
+                'status'             => 'open_for_enrollment',
                 'start_date'         => min($dates),
                 'end_date'           => max($dates),
                 'number_of_sessions' => count($sessions),
@@ -65,17 +73,20 @@ class CohortScheduleImportService
             ]);
 
             $now = now();
-            DB::table('course_sessions')->insert(array_map(static fn ($s, $i) => [
-                'course_id'    => $course->id,
-                'section_id'   => $section->id,
-                'title'        => __('messages.schedule_session_title', ['n' => $i + 1]),
-                'session_date' => $s['date'],
-                'time_from'    => $s['from'],
-                'time_to'      => $s['to'],
-                'location'     => $s['location'],
-                'created_at'   => $now,
-                'updated_at'   => $now,
-            ], $sessions, array_keys($sessions)));
+            foreach (array_values($sessions) as $i => $s) {
+                $id = DB::table('course_sessions')->insertGetId([
+                    'course_id'    => $course->id,
+                    'section_id'   => $section->id,
+                    'title'        => __('messages.schedule_session_title', ['n' => $i + 1]),
+                    'session_date' => $s['date'],
+                    'time_from'    => $s['from'],
+                    'time_to'      => $s['to'],
+                    'location'     => $s['location'],
+                    'created_at'   => $now,
+                    'updated_at'   => $now,
+                ]);
+                $this->link($id, $s['content']);
+            }
 
             $this->hours->refresh($course);
 
@@ -92,7 +103,9 @@ class CohortScheduleImportService
      * The sheet is compared with the sessions the cohort already has, by date,
      * start and end time:
      *   - a row that matches an existing session is that session: it is kept,
-     *     and only its location may change - and only before it starts;
+     *     and only its location may change - and only before it starts - and
+     *     its content (the modules it covers), at any time; an empty content
+     *     cell on such a row clears it;
      *   - every other row is a new session and must start in the future;
      *   - an existing session that the sheet leaves out is kept too, so the
      *     full schedule with extra rows and a sheet of only the new sessions
@@ -102,14 +115,14 @@ class CohortScheduleImportService
      * included); otherwise everything is written in one transaction, under a
      * lock on the cohort so two uploads cannot both add the same sessions.
      *
-     * @param  array{name: array{en: string, ar: string}, capacity: int, open_early: ?bool}  $cohort
+     * @param  array{name: array{en: string, ar: string}, capacity: int}  $cohort
      * @return array{section: ?CourseSection, added: int, updated: int, errors: list<array{row: int, column: ?string, message: string}>}
      */
     public function update(Course $course, CourseSection $section, array $cohort, ?UploadedFile $file): array
     {
         $rows = [];
         if ($file !== null) {
-            $parsed = $this->parse($file, keepLines: true);
+            $parsed = $this->parse($file, $course, keepLines: true);
             if ($parsed['errors'] !== []) {
                 return ['section' => null, 'added' => 0, 'updated' => 0, 'errors' => $parsed['errors']];
             }
@@ -132,14 +145,20 @@ class CohortScheduleImportService
                 $byKey[$this->key((string) $s->session_date, (string) $s->time_from, (string) $s->time_to)] = $s;
             }
 
-            $errors = [];
-            $new    = [];
-            $moved  = [];
+            $linked = $this->contentBySession($existing->pluck('id')->map(fn ($id) => (int) $id)->all());
+
+            $errors   = [];
+            $new      = [];
+            $moved    = [];
+            $relinked = [];
             foreach ($rows as $r) {
                 $match = $byKey[$this->key($r['date'], $r['from'], $r['to'])] ?? null;
                 if ($match !== null) {
+                    if ($r['content'] !== ($linked[(int) $match->id] ?? [])) {
+                        $relinked[(int) $match->id] = $r['content'];
+                    }
                     if ((string) ($match->location ?? '') === (string) ($r['location'] ?? '')) {
-                        continue; // unchanged
+                        continue; // location unchanged
                     }
                     if ($this->starts($r['date'], $r['from']) <= $now) {
                         $errors[] = [$r['line'], 'location', __('messages.schedule_held_session_locked')];
@@ -169,7 +188,7 @@ class CohortScheduleImportService
                 }
             }
 
-            if ($errors === [] && $file !== null && $new === [] && $moved === []) {
+            if ($errors === [] && $file !== null && $new === [] && $moved === [] && $relinked === []) {
                 $errors[] = [0, null, __('messages.schedule_nothing_new')];
             }
             if ($errors !== []) {
@@ -180,8 +199,12 @@ class CohortScheduleImportService
             foreach ($moved as $id => $location) {
                 DB::table('course_sessions')->where('id', $id)->update(['location' => $location, 'updated_at' => $stamp]);
             }
-            if ($new !== []) {
-                DB::table('course_sessions')->insert(array_map(fn ($s) => [
+            foreach ($relinked as $id => $content) {
+                DB::table('course_session_lectures')->where('session_id', $id)->delete();
+                $this->link($id, $content);
+            }
+            foreach ($new as $s) {
+                $id = DB::table('course_sessions')->insertGetId([
                     'course_id'    => $course->id,
                     'section_id'   => $section->id,
                     'title'        => __('messages.schedule_session_title', ['n' => 0]), // numbered below
@@ -191,13 +214,14 @@ class CohortScheduleImportService
                     'location'     => $s['location'],
                     'created_at'   => $stamp,
                     'updated_at'   => $stamp,
-                ], $new));
+                ]);
+                $this->link($id, $s['content']);
             }
 
             $update = ['name' => $cohort['name'], 'capacity' => $cohort['capacity']];
             // Only meaningful before the cohort starts; after that the calendar decides.
             $started = $section->start_date !== null && CarbonImmutable::parse((string) $section->start_date)->startOfDay() <= $now->startOfDay();
-            $status  = $started ? null : $this->enrolmentStatus((string) ($section->status ?? 'scheduled'), $cohort['open_early'] ?? null);
+            $status  = $started ? null : $this->enrolmentStatus((string) ($section->status ?? 'scheduled'));
             if ($status !== null) {
                 $update['status'] = $status;
             }
@@ -211,47 +235,108 @@ class CohortScheduleImportService
                 $this->hours->refresh($course);
             }
 
-            return ['section' => $section->refresh(), 'added' => count($new), 'updated' => count($moved), 'errors' => []];
+            return [
+                'section' => $section->refresh(),
+                'added'   => count($new),
+                'updated' => count(array_unique([...array_keys($moved), ...array_keys($relinked)])),
+                'errors'  => [],
+            ];
         });
     }
 
     /**
-     * The stored status for the "Open for enrolment early" switch (Q-073).
-     * Only the two manual enrolment-window values move; a cohort made
-     * `inactive` elsewhere stays so, and the calendar still derives
-     * active / completed (Course::deriveCohortStatus). Null = no change.
+     * Every cohort with sessions is open for enrolment (human, 2026-10-07):
+     * a cohort still `scheduled` (made before that rule) opens when it is
+     * edited before it starts. One made `inactive` elsewhere stays so, and
+     * the calendar still derives active / completed (Course::deriveCohortStatus).
+     * Null = no change.
      */
-    private function enrolmentStatus(string $stored, ?bool $openEarly): ?string
+    private function enrolmentStatus(string $stored): ?string
     {
-        if ($openEarly === null || $stored === 'inactive') {
-            return null;
-        }
-        if ($openEarly) {
-            return $stored === 'open_for_enrollment' ? null : 'open_for_enrollment';
-        }
-
-        return $stored === 'open_for_enrollment' ? 'scheduled' : null;
+        return $stored === 'scheduled' ? 'open_for_enrollment' : null;
     }
 
     /**
      * "Download Schedule Template" when editing: the cohort's sessions as they
      * are, so the admin adds rows to them (or uploads only new rows).
      *
-     * @return list<array{date: string, from: ?string, to: ?string, location: ?string}>
+     * @return list<array{date: string, from: ?string, to: ?string, location: ?string, content: list<int>}>
      */
     public function scheduleRows(CourseSection $section): array
     {
-        return DB::table('course_sessions')
+        $sessions = DB::table('course_sessions')
             ->where('section_id', $section->id)
             ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
-            ->get(['session_date', 'time_from', 'time_to', 'location'])
+            ->get(['id', 'session_date', 'time_from', 'time_to', 'location']);
+        $linked = $this->contentBySession($sessions->pluck('id')->map(fn ($id) => (int) $id)->all());
+
+        return $sessions
             ->map(fn ($s) => [
                 'date'     => substr((string) $s->session_date, 0, 10),
                 'from'     => $s->time_from !== null ? substr((string) $s->time_from, 0, 5) : null,
                 'to'       => $s->time_to !== null ? substr((string) $s->time_to, 0, 5) : null,
                 'location' => $s->location,
+                'content'  => $linked[(int) $s->id] ?? [],
             ])
             ->all();
+    }
+
+    /**
+     * The template's modules sheet: every module of the course, for the
+     * "content" column.
+     *
+     * @return list<array{id: int, en: string, ar: string}>
+     */
+    public function moduleRows(Course $course): array
+    {
+        return CourseLecture::query()
+            ->where('course_id', $course->id)
+            ->orderBy('id')
+            ->get(['id', 'title'])
+            ->map(fn (CourseLecture $m) => [
+                'id' => (int) $m->id,
+                'en' => (string) $m->getTranslation('title', 'en', false),
+                'ar' => (string) $m->getTranslation('title', 'ar', false),
+            ])
+            ->all();
+    }
+
+    /**
+     * Module IDs linked to each session, in sheet order.
+     *
+     * @param  list<int>  $sessionIds
+     * @return array<int, list<int>>
+     */
+    private function contentBySession(array $sessionIds): array
+    {
+        if ($sessionIds === []) {
+            return [];
+        }
+
+        $out  = [];
+        $rows = DB::table('course_session_lectures')
+            ->whereIn('session_id', $sessionIds)
+            ->orderBy('position')
+            ->get(['session_id', 'lecture_id']);
+        foreach ($rows as $row) {
+            $out[(int) $row->session_id][] = (int) $row->lecture_id;
+        }
+
+        return $out;
+    }
+
+    /** @param  list<int>  $content */
+    private function link(int $sessionId, array $content): void
+    {
+        if ($content === []) {
+            return;
+        }
+
+        DB::table('course_session_lectures')->insert(array_map(
+            static fn (int $lectureId, int $i) => ['session_id' => $sessionId, 'lecture_id' => $lectureId, 'position' => $i + 1],
+            $content,
+            array_keys($content),
+        ));
     }
 
     /**
@@ -317,8 +402,8 @@ class CohortScheduleImportService
         return CarbonImmutable::parse(substr($date, 0, 10).' '.$from);
     }
 
-    /** @return array{sessions: list<array{date: string, from: string, to: string, seconds: int, location: ?string}>, errors: list<array{row: int, column: ?string, message: string}>} */
-    private function parse(UploadedFile $file, bool $keepLines = false): array
+    /** @return array{sessions: list<array{date: string, from: string, to: string, seconds: int, location: ?string, content: list<int>}>, errors: list<array{row: int, column: ?string, message: string}>} */
+    private function parse(UploadedFile $file, Course $course, bool $keepLines = false): array
     {
         // A file can pass the MIME check and still be unparseable; the
         // contract is a report, not a 500.
@@ -344,7 +429,8 @@ class CohortScheduleImportService
             return $this->fail([[0, null, __('messages.import_too_many_rows', ['max' => self::MAX_ROWS])]]);
         }
 
-        $index = array_flip($header);
+        $index   = array_flip($header);
+        $modules = array_flip(CourseLecture::query()->where('course_id', $course->id)->pluck('id')->map(fn ($id) => (int) $id)->all());
         $cell  = static fn (array $row, string $col): mixed => array_key_exists($col, $index) ? ($row[$index[$col]] ?? null) : null;
 
         $errors   = [];
@@ -355,7 +441,7 @@ class CohortScheduleImportService
             // The template pre-numbers every planned session; a row with
             // nothing but its number is a session the admin left out.
             $filled = array_filter(
-                array_map(static fn ($c) => $cell($row, $c), ['date', 'start_time', 'end_time', 'location']),
+                array_map(static fn ($c) => $cell($row, $c), ['date', 'start_time', 'end_time', 'location', 'content']),
                 static fn ($v) => trim((string) $v) !== '',
             );
             if ($filled === []) {
@@ -378,7 +464,19 @@ class CohortScheduleImportService
                 $errors[] = [$line, 'location', __('messages.import_cell_too_long')];
             }
 
-            if ($date === null || $from === null || $to === null) {
+            $content = $this->content($cell($row, 'content'));
+            if ($content === null) {
+                $errors[] = [$line, 'content', __('messages.schedule_content_format')];
+            } elseif (count($content) > self::MAX_CONTENT) {
+                $errors[] = [$line, 'content', __('messages.schedule_content_too_many', ['max' => self::MAX_CONTENT])];
+            } else {
+                $unknown = array_values(array_filter($content, static fn (int $id) => ! isset($modules[$id])));
+                if ($unknown !== []) {
+                    $errors[] = [$line, 'content', __('messages.schedule_content_unknown', ['ids' => implode(', ', $unknown)])];
+                }
+            }
+
+            if ($date === null || $from === null || $to === null || $content === null) {
                 continue;
             }
             if ($to <= $from) {
@@ -393,6 +491,7 @@ class CohortScheduleImportService
                 'to'       => $to,
                 'seconds'  => $this->seconds($to) - $this->seconds($from),
                 'location' => $location === '' ? null : $location,
+                'content'  => $content,
             ];
         }
 
@@ -433,6 +532,38 @@ class CohortScheduleImportService
         }
 
         return sprintf('%04d-%02d-%02d', $m[1], $m[2], $m[3]);
+    }
+
+    /**
+     * The content cell: module IDs separated by commas (also the Arabic comma,
+     * semicolons or spaces), duplicates dropped, order kept. An empty cell is
+     * no content; null when it is not a list of whole numbers.
+     *
+     * @return list<int>|null
+     */
+    private function content(mixed $value): ?array
+    {
+        if (is_int($value)) {
+            return $value > 0 ? [$value] : null;
+        }
+        if (is_float($value)) {
+            return $value > 0 && floor($value) === $value ? [(int) $value] : null;
+        }
+
+        $text = trim((string) $value);
+        if ($text === '') {
+            return [];
+        }
+
+        $ids = [];
+        foreach (preg_split('/[\s,;\x{060C}]+/u', $text, -1, PREG_SPLIT_NO_EMPTY) as $token) {
+            if (! preg_match('/^\d{1,9}$/', $token) || (int) $token < 1) {
+                return null;
+            }
+            $ids[(int) $token] = true;
+        }
+
+        return array_keys($ids);
     }
 
     /** HH:MM (24-hour) text, or an Excel time fraction, to H:i:s; null otherwise. */

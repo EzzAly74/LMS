@@ -38,8 +38,6 @@ class CohortScheduleUpdateRequest extends CohortWithScheduleRequest
         return [
             'name'       => ['en' => trim($d['name']['en']), 'ar' => trim($d['name']['ar'])],
             'capacity'   => (int) ($d['capacity'] ?? $section->capacity ?? 30),
-            // Left out = unchanged.
-            'open_early' => $this->has('open_for_enrollment') ? $this->boolean('open_for_enrollment') : null,
         ];
     }
 

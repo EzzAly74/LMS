@@ -73,19 +73,6 @@ use OpenApi\Annotations as OA;
  * )
  *
  * @OA\Get(
- *     path="/enums/module_learner_scope",
- *     tags={"Enums"},
- *     operationId="enums.module_learner_scope",
- *     summary="Course module learner scope options.",
- *     description="Allowed values: all, cohort.",
- *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),
- *     @OA\Response(response=200, description="Module learner scope options.", @OA\JsonContent(allOf={
- *         @OA\Schema(ref="#/components/schemas/SuccessResponse"),
- *         @OA\Schema(@OA\Property(property="result", ref="#/components/schemas/EnumOptionList"))
- *     }))
- * )
- *
- * @OA\Get(
  *     path="/enums/resource_type",
  *     tags={"Enums"},
  *     operationId="enums.resource_type",

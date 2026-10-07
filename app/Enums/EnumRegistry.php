@@ -51,9 +51,6 @@ final class EnumRegistry
         'module_content_type' => [
             'values' => ['video', 'document', 'article', 'link'],
         ],
-        'module_learner_scope' => [
-            'values' => ['all', 'cohort'],
-        ],
 
         // ── Resources (LMS knowledge base) ─────────────────────────────
         'resource_type' => [

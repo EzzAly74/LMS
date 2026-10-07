@@ -2,27 +2,27 @@
 
 namespace App\Exports;
 
-use App\Services\CohortScheduleImportService;
-use Illuminate\Support\Collection;
+use App\Exports\Sheets\CohortScheduleModulesSheet;
+use App\Exports\Sheets\CohortScheduleSessionsSheet;
 use Maatwebsite\Excel\Concerns\Exportable;
-use Maatwebsite\Excel\Concerns\FromCollection;
-use Maatwebsite\Excel\Concerns\WithColumnFormatting;
-use Maatwebsite\Excel\Concerns\WithHeadings;
-use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
+use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 
 /**
- * "Download Schedule Template" in the New Cohort modal (Figma 2393:123167).
+ * "Download Schedule Template" in the New / Edit Cohort modal (Figma 2393:123167).
  *
- * One pre-numbered row per planned session of the course, with the columns
- * CohortScheduleImportService reads: date (YYYY-MM-DD), start_time and
- * end_time (24-hour HH:MM), and an optional location. Date and time columns
- * are formatted as text, so spreadsheet apps keep what is typed instead of
- * converting it; the importer also accepts real date / time cells.
+ * Sheet 1 (read back by CohortScheduleImportService): one pre-numbered row per
+ * planned session with date (YYYY-MM-DD), start_time and end_time (24-hour
+ * HH:MM), an optional location and an optional content cell: the IDs of the
+ * course modules the session covers, separated by commas (D-079).
  *
- * When editing a cohort the sheet starts with its sessions as they are, then
- * blank numbered rows for the sessions still to plan (at least EXTRA_ROWS).
+ * Sheet 2 lists the course's modules (ID, English and Arabic title) so the
+ * admin can pick the IDs; it is reference only and is not read on upload.
+ *
+ * When editing a cohort, sheet 1 starts with its sessions as they are (their
+ * content included), then blank numbered rows for the sessions still to plan
+ * (at least EXTRA_ROWS).
  */
-class CohortScheduleTemplateExport implements FromCollection, WithHeadings, WithColumnFormatting
+class CohortScheduleTemplateExport implements WithMultipleSheets
 {
     use Exportable;
 
@@ -33,34 +33,20 @@ class CohortScheduleTemplateExport implements FromCollection, WithHeadings, With
     public const EXTRA_ROWS = 5;
 
     /**
-     * @param  list<array{date: string, from: ?string, to: ?string, location: ?string}>  $existing
+     * @param  list<array{date: string, from: ?string, to: ?string, location: ?string, content: list<int>}>  $existing
+     * @param  list<array{id: int, en: string, ar: string}>  $modules
      */
-    public function __construct(private readonly int $sessions, private readonly array $existing = []) {}
+    public function __construct(
+        private readonly int $sessions,
+        private readonly array $existing = [],
+        private readonly array $modules = [],
+    ) {}
 
-    public function headings(): array
+    public function sheets(): array
     {
-        return CohortScheduleImportService::COLUMNS;
-    }
-
-    public function collection(): Collection
-    {
-        if ($this->existing === []) {
-            $count = $this->sessions > 0 ? min($this->sessions, CohortScheduleImportService::MAX_ROWS) : self::DEFAULT_ROWS;
-
-            return collect(range(1, $count))->map(static fn (int $n) => [$n, null, null, null, null]);
-        }
-
-        $have  = count($this->existing);
-        $blank = min(max(self::EXTRA_ROWS, $this->sessions - $have), max(0, CohortScheduleImportService::MAX_ROWS - $have));
-
-        return collect($this->existing)
-            ->values()
-            ->map(static fn (array $s, int $i) => [$i + 1, $s['date'], $s['from'], $s['to'], $s['location']])
-            ->concat($blank > 0 ? array_map(static fn (int $n) => [$n, null, null, null, null], range($have + 1, $have + $blank)) : []);
-    }
-
-    public function columnFormats(): array
-    {
-        return ['B' => NumberFormat::FORMAT_TEXT, 'C' => NumberFormat::FORMAT_TEXT, 'D' => NumberFormat::FORMAT_TEXT];
+        return [
+            new CohortScheduleSessionsSheet($this->sessions, $this->existing),
+            new CohortScheduleModulesSheet($this->modules),
+        ];
     }
 }

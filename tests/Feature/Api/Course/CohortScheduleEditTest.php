@@ -21,7 +21,7 @@ use Tests\Feature\Api\ApiTestCase;
  */
 class CohortScheduleEditTest extends ApiTestCase
 {
-    private const HEADER = ['session_no', 'date', 'start_time', 'end_time', 'location'];
+    private const HEADER = ['session_no', 'date', 'start_time', 'end_time', 'location', 'content'];
 
     /** Held: 1 and 8 Oct. Upcoming: 15 Oct. "Now" is 10 Oct, noon. */
     private const HELD_1   = [1, '2026-10-01', '09:00', '11:00', 'Room A'];
@@ -234,48 +234,43 @@ class CohortScheduleEditTest extends ApiTestCase
         $this->edit($course, $section, $txt)->assertStatus(422)->assertJsonValidationErrors('schedule');
     }
 
-    // ─────────────────────────────────── open for enrolment early (Q-073)
+    // ─────────────── always open for enrolment (human, 2026-10-07; was Q-073)
 
-    private function futureCohort(bool $openEarly): array
+    private function futureCohort(): array
     {
         $course = Course::factory()->create();
         $id = $this->post(self::BASE."/courses/{$course->id}/sections/scheduled", [
-            'name' => ['en' => 'Later', 'ar' => 'لاحقًا'], 'capacity' => 20, 'open_for_enrollment' => $openEarly ? '1' : '0',
+            'name' => ['en' => 'Later', 'ar' => 'لاحقًا'], 'capacity' => 20,
+            // The old switch is ignored now.
+            'open_for_enrollment' => '0',
             'schedule' => $this->xlsx([[1, '2026-11-02', '09:00', '11:00', '']]),
         ], $this->headers + ['Accept' => 'application/json'])->assertCreated()->json('result.id');
 
         return [$course, CourseSection::query()->findOrFail($id)];
     }
 
-    public function test_new_and_edit_set_open_for_enrolment_before_the_start(): void
+    public function test_a_new_cohort_is_open_for_enrolment_and_an_edit_opens_a_scheduled_one(): void
     {
-        [$course, $closed] = $this->futureCohort(false);
-        [$openCourse, $open] = $this->futureCohort(true);
-        $this->assertSame('scheduled', $closed->status);
-        $this->assertSame('open_for_enrollment', $open->status);
+        [$course, $cohort] = $this->futureCohort();
+        $this->assertSame('open_for_enrollment', $cohort->status);
 
-        $this->edit($course, $closed, null, ['open_for_enrollment' => '1'])->assertOk()
+        // A cohort made before the rule, still `scheduled`, opens on edit.
+        DB::table('course_sections')->where('id', $cohort->id)->update(['status' => 'scheduled']);
+        $this->edit($course, $cohort, null, ['open_for_enrollment' => '0'])->assertOk()
             ->assertJsonPath('result.section.stored_status', 'open_for_enrollment');
-        $this->edit($course, $closed, null, ['open_for_enrollment' => '0'])->assertOk();
-        $this->assertSame('scheduled', $closed->refresh()->status);
-
-        // Left out: unchanged.
-        $this->edit($openCourse, $open, null)->assertOk();
-        $this->assertSame('open_for_enrollment', $open->refresh()->status);
     }
 
-    public function test_the_switch_does_not_move_a_started_or_inactive_cohort(): void
+    public function test_an_edit_does_not_move_a_started_or_inactive_cohort(): void
     {
         [$course, $started] = $this->cohort(); // began 1 Oct
-        $this->edit($course, $started, null, ['open_for_enrollment' => '1'])->assertOk();
-        $this->assertNotSame('open_for_enrollment', $started->refresh()->status);
+        $before = $started->status;
+        $this->edit($course, $started, null)->assertOk();
+        $this->assertSame($before, $started->refresh()->status);
 
-        [$later, $future] = $this->futureCohort(false);
+        [$later, $future] = $this->futureCohort();
         DB::table('course_sections')->where('id', $future->id)->update(['status' => 'inactive']);
-        $this->edit($later, $future, null, ['open_for_enrollment' => '1'])->assertOk();
+        $this->edit($later, $future, null)->assertOk();
         $this->assertSame('inactive', $future->refresh()->status);
-
-        $this->edit($later, $future, null, ['open_for_enrollment' => 'maybe'])->assertStatus(422)->assertJsonValidationErrors('open_for_enrollment');
     }
 
     // ─────────────────────────────────────────────────────── template
@@ -288,8 +283,8 @@ class CohortScheduleEditTest extends ApiTestCase
         $rows = Excel::toArray(null, $response->baseResponse->getFile()->getPathname(), null, \Maatwebsite\Excel\Excel::XLSX)[0];
 
         $this->assertSame(self::HEADER, $rows[0]);
-        $this->assertSame(['1', '2026-10-01', '09:00', '11:00', 'Room A'], array_map('strval', $rows[1]));
-        $this->assertSame(['3', '2026-10-15', '09:00', '11:00', 'Room A'], array_map('strval', $rows[3]));
+        $this->assertSame(['1', '2026-10-01', '09:00', '11:00', 'Room A', ''], array_map('strval', $rows[1]));
+        $this->assertSame(['3', '2026-10-15', '09:00', '11:00', 'Room A', ''], array_map('strval', $rows[3]));
         // Then five blank numbered rows (the plan of 3 is met).
         $this->assertCount(1 + 3 + 5, $rows);
         $this->assertSame([4, null, null, null, null], [(int) $rows[4][0], $rows[4][1], $rows[4][2], $rows[4][3], $rows[4][4]]);

@@ -15,6 +15,7 @@ use App\Models\UserExam;
 use App\Models\UserLectureProgress;
 use App\Services\CertificateProjectionService;
 use App\Services\LectureProgressService;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Composite payload backing the course-player workspace's sidebar: lectures
@@ -65,18 +66,20 @@ class LearnerCoursePlayerService
             ->get()
             ->keyBy('course_assignment_id');
 
-        // Group into "Week N" buckets by the module's assigned session number
-        // (Figma 913-*). Modules without a session number fall back to their
-        // module/section name, then a trailing "General content" bucket.
-        // $order keeps weeks numerically sorted ahead of the assessments tail.
+        // Group by the learner's cohort schedule (D-079): a module sits under
+        // the first session of their cohort whose "content" lists it.
+        // Modules no session lists fall back to their module/section name,
+        // then a trailing "General content" bucket. $order keeps sessions in
+        // schedule order ahead of the assessments tail.
+        $sessionOf = $this->firstSessionByLecture($user, $course);
         $groups = [];
         $order  = [];
 
         foreach ($lectures as $lecture) {
-            $n = $lecture['session_number'] ?? null;
-            if ($n) {
-                $label = __('messages.course_player.week', ['number' => $n]);
-                $sort  = $n;
+            $session = $sessionOf[(int) $lecture['lecture_id']] ?? null;
+            if ($session !== null) {
+                $label = $session['title'];
+                $sort  = $session['number'];
             } else {
                 $label = $lecture['module']['name'] ?? __('messages.course_player.general_content');
                 $sort  = 9000;
@@ -176,6 +179,50 @@ class LearnerCoursePlayerService
     }
 
     /** A quiz only qualifies for the rich learner flow once it has rich-authored questions. */
+    /**
+     * For each module, the first session of the learner's cohort that covers
+     * it: its title and its 1-based number in the cohort's schedule. Empty
+     * when the learner has no cohort on this course.
+     *
+     * @return array<int, array{title: string, number: int}>
+     */
+    private function firstSessionByLecture(User $user, Course $course): array
+    {
+        $cohortId = DB::table('users_courses')
+            ->where('user_id', $user->id)
+            ->where('course_id', $course->id)
+            ->value('group_id');
+        if ($cohortId === null) {
+            return [];
+        }
+
+        $sessions = DB::table('course_sessions')
+            ->where('section_id', $cohortId)
+            ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
+            ->get(['id', 'title'])
+            ->values();
+        if ($sessions->isEmpty()) {
+            return [];
+        }
+
+        $numbers = $sessions->mapWithKeys(fn ($s, $i) => [(int) $s->id => $i + 1])->all();
+        $titles  = $sessions->mapWithKeys(fn ($s) => [(int) $s->id => (string) $s->title])->all();
+
+        $out = [];
+        $links = DB::table('course_session_lectures')
+            ->whereIn('session_id', array_keys($numbers))
+            ->get(['session_id', 'lecture_id']);
+        foreach ($links as $link) {
+            $n = $numbers[(int) $link->session_id];
+            $lectureId = (int) $link->lecture_id;
+            if (! isset($out[$lectureId]) || $n < $out[$lectureId]['number']) {
+                $out[$lectureId] = ['title' => $titles[(int) $link->session_id], 'number' => $n];
+            }
+        }
+
+        return $out;
+    }
+
     private function isRichExam(CourseExam $exam): bool
     {
         return CourseExamQuestion::where('course_exam_id', $exam->id)->whereNotNull('question_en')->exists();

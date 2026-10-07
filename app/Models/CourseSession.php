@@ -43,4 +43,12 @@ class CourseSession extends Model
     {
         return $this->belongsTo(Course::class, 'course_id');
     }
+
+    /** The course modules this session covers (schedule sheet "content" column, D-079). */
+    public function lectures()
+    {
+        return $this->belongsToMany(CourseLecture::class, 'course_session_lectures', 'session_id', 'lecture_id')
+            ->withPivot('position')
+            ->orderBy('course_session_lectures.position');
+    }
 }

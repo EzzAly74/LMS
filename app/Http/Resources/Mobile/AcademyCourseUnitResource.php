@@ -32,8 +32,11 @@ class AcademyCourseUnitResource extends JsonResource
             'duration_minutes'    => $lecture->duration_minutes !== null
                 ? (int) $lecture->duration_minutes
                 : null,
-            'learner_scope'       => $lecture->learner_scope ?? 'all',
-            'session_id'          => $lecture->session_id !== null ? (int) $lecture->session_id : null,
+            // Kept for the external HR mobile app's contract (D-079): every
+            // module is now course-wide, so these are always 'all' / null.
+            // Which sessions cover a module is cohorts[].sessions[].content_ids.
+            'learner_scope'       => 'all',
+            'session_id'          => null,
             'require_completion'  => (bool) ($lecture->require_completion ?? false),
         ];
     }

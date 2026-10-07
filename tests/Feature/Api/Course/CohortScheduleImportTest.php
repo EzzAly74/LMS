@@ -22,7 +22,7 @@ use Tests\Feature\Api\ApiTestCase;
  */
 class CohortScheduleImportTest extends ApiTestCase
 {
-    private const HEADER = ['session_no', 'date', 'start_time', 'end_time', 'location'];
+    private const HEADER = ['session_no', 'date', 'start_time', 'end_time', 'location', 'content'];
 
     private function course(int $sessions = 3): Course
     {

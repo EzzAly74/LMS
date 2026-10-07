@@ -51,11 +51,6 @@ return [
         'link'     => 'External Link',
     ],
 
-    'module_learner_scope' => [
-        'all'    => 'All cohorts',
-        'cohort' => 'Specific Cohort',
-    ],
-
     // ── Resources ──────────────────────────────────────────────────────
     'resource_type' => [
         'article' => 'Article',

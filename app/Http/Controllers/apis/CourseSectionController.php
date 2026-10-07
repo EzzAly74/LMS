@@ -105,12 +105,13 @@ class CourseSectionController extends ApiController
 
     /**
      * GET courses/{course}/sections/schedule-template - "Download Schedule
-     * Template" (Figma 2393:123167): one numbered row per planned session.
+     * Template" (Figma 2393:123167): one numbered row per planned session,
+     * plus the course's modules for the "content" column (D-079).
      */
-    public function scheduleTemplate(Course $course): BinaryFileResponse
+    public function scheduleTemplate(Course $course, CohortScheduleImportService $import): BinaryFileResponse
     {
         return Excel::download(
-            new CohortScheduleTemplateExport((int) $course->number_of_sessions),
+            new CohortScheduleTemplateExport((int) $course->number_of_sessions, [], $import->moduleRows($course)),
             'cohort-schedule-template.xlsx',
             ExcelFormat::XLSX,
         );
@@ -147,7 +148,11 @@ class CourseSectionController extends ApiController
         abort_if($section->course_id !== $course->id, 404);
 
         return Excel::download(
-            new CohortScheduleTemplateExport((int) ($section->number_of_sessions ?? $course->number_of_sessions), $import->scheduleRows($section)),
+            new CohortScheduleTemplateExport(
+                (int) ($section->number_of_sessions ?? $course->number_of_sessions),
+                $import->scheduleRows($section),
+                $import->moduleRows($course),
+            ),
             'cohort-schedule.xlsx',
             ExcelFormat::XLSX,
         );

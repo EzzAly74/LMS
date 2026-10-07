@@ -12,7 +12,7 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class ContactRequestRequest extends FormRequest
 {
-    public const MAX_GUESTS = 20;
+    public const MAX_GUESTS = 5;
 
     public function authorize(): bool
     {

@@ -80,7 +80,8 @@ class ContactRequestTest extends ApiTestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['email']);
         $this->postJson(self::BASE.'/contact', $this->payload(['guests' => ['ok@company.test', 'mona@']]))
             ->assertUnprocessable()->assertJsonValidationErrors(['guests.1']);
-        $this->postJson(self::BASE.'/contact', $this->payload(['guests' => array_map(fn ($i) => "g{$i}@company.test", range(1, 21))]))
+        // At most five guests (human, 2026-10-07).
+        $this->postJson(self::BASE.'/contact', $this->payload(['guests' => array_map(fn ($i) => "g{$i}@company.test", range(1, 6))]))
             ->assertUnprocessable()->assertJsonValidationErrors(['guests']);
         $this->postJson(self::BASE.'/contact', $this->payload(['name' => '']))
             ->assertUnprocessable()->assertJsonValidationErrors(['name']);

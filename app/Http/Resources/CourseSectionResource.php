@@ -58,6 +58,10 @@ class CourseSectionResource extends JsonResource
             // table "Sessions" column and drives session-based completion.
             'number_of_sessions' => $numberOfSessions,
             'held_sessions_count' => $heldSessions,
+            // The cohort's actual session rows, what every screen should count (NEW2B-6206).
+            'sessions_count' => $this->sessions_count !== null
+                ? (int) $this->sessions_count
+                : (int) $this->sessions()->count(),
             'status'         => $effectiveStatus,
             'stored_status'  => $this->status ?? 'scheduled',
             // Average session length in hours (drives the live attendance

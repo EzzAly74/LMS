@@ -171,6 +171,7 @@ class CourseRepository extends BaseRepository implements CourseRepositoryInterfa
                 'qualificationSkills:id,name',
                 'sections' => fn ($q) => $q->withCount([
                     'sessions as held_sessions_count' => fn ($s) => $s->ended(),
+                    'sessions as sessions_count',
                 ]),
                 'exams:id,course_id,title,degree,is_final',
             ])

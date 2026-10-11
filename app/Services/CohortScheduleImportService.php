@@ -107,16 +107,18 @@ class CohortScheduleImportService
      *     its content (the modules it covers), at any time; an empty content
      *     cell on such a row clears it;
      *   - every other row is a new session and must start in the future;
-     *   - an existing session that the sheet leaves out is kept too, so the
-     *     full schedule with extra rows and a sheet of only the new sessions
-     *     both add exactly the new ones. Nothing is ever deleted here.
+     *   - an existing session that the sheet leaves out is removed when it has
+     *     not started and nobody has attended it (NEW2B-6189, NEW2B-6217, D-080):
+     *     the uploaded sheet is the schedule from now on, so fewer rows mean
+     *     fewer sessions and a moved date moves the session. A held session
+     *     is never removed or changed, whether the sheet lists it or not.
      * New sessions may not overlap each other or any existing session. Any
      * problem returns the full list and changes nothing (the name and capacity
      * included); otherwise everything is written in one transaction, under a
      * lock on the cohort so two uploads cannot both add the same sessions.
      *
      * @param  array{name: array{en: string, ar: string}, capacity: int}  $cohort
-     * @return array{section: ?CourseSection, added: int, updated: int, errors: list<array{row: int, column: ?string, message: string}>}
+     * @return array{section: ?CourseSection, added: int, removed?: int, updated: int, errors: list<array{row: int, column: ?string, message: string}>}
      */
     public function update(Course $course, CourseSection $section, array $cohort, ?UploadedFile $file): array
     {
@@ -174,6 +176,31 @@ class CohortScheduleImportService
                 $new[] = $r;
             }
 
+            // Sessions the sheet leaves out (D-080): future ones go, held ones stay.
+            $removed = [];
+            if ($file !== null) {
+                $listed = [];
+                foreach ($rows as $r) {
+                    $listed[$this->key($r['date'], $r['from'], $r['to'])] = true;
+                }
+                foreach ($existing as $s) {
+                    $key = $this->key((string) $s->session_date, (string) $s->time_from, (string) $s->time_to);
+                    if (isset($listed[$key]) || $this->starts((string) $s->session_date, (string) $s->time_from) <= $now) {
+                        continue;
+                    }
+                    if (DB::table('attendances')->where('session_id', $s->id)->exists()) {
+                        $errors[] = [0, 'date', __('messages.schedule_attended_session_kept', [
+                            'date' => (string) $s->session_date, 'from' => substr((string) $s->time_from, 0, 5),
+                        ])];
+                        continue;
+                    }
+                    $removed[] = (int) $s->id;
+                }
+                // New rows only need to clear the sessions that stay.
+                $existing = $existing->reject(fn ($s) => in_array((int) $s->id, $removed, true))->values();
+            }
+
+
             // New sessions against the ones the cohort keeps (the sheet's own
             // rows were already checked against each other).
             foreach ($new as $r) {
@@ -188,7 +215,7 @@ class CohortScheduleImportService
                 }
             }
 
-            if ($errors === [] && $file !== null && $new === [] && $moved === [] && $relinked === []) {
+            if ($errors === [] && $file !== null && $new === [] && $moved === [] && $relinked === [] && $removed === []) {
                 $errors[] = [0, null, __('messages.schedule_nothing_new')];
             }
             if ($errors !== []) {
@@ -196,6 +223,10 @@ class CohortScheduleImportService
             }
 
             $stamp = now();
+            if ($removed !== []) {
+                // Content links cascade; nobody attended these (checked above).
+                DB::table('course_sessions')->whereIn('id', $removed)->delete();
+            }
             foreach ($moved as $id => $location) {
                 DB::table('course_sessions')->where('id', $id)->update(['location' => $location, 'updated_at' => $stamp]);
             }
@@ -225,19 +256,21 @@ class CohortScheduleImportService
             if ($status !== null) {
                 $update['status'] = $status;
             }
-            if ($new !== []) {
+            $rescheduled = $new !== [] || $removed !== [];
+            if ($rescheduled) {
                 $this->renumber($section);
                 $update += $this->derived($section);
             }
             $this->cohorts->update($section, $update);
 
-            if ($new !== []) {
+            if ($rescheduled) {
                 $this->hours->refresh($course);
             }
 
             return [
                 'section' => $section->refresh(),
                 'added'   => count($new),
+                'removed' => count($removed),
                 'updated' => count(array_unique([...array_keys($moved), ...array_keys($relinked)])),
                 'errors'  => [],
             ];

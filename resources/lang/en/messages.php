@@ -71,6 +71,7 @@ return [
     'schedule_new_session_in_past' => 'A new session must start in the future. Sessions already held cannot be added or changed.',
     'schedule_held_session_locked' => 'This session has already started, so it cannot be changed.',
     'schedule_overlap_existing'    => 'This session overlaps the cohort\'s session on :date, :from–:to.',
+    'schedule_attended_session_kept' => 'The session on :date at :from was attended, so it stays. Add it back to the sheet.',
     'schedule_nothing_new'         => 'The sheet has no new sessions or content changes. Add rows for the new sessions, or leave the file out to change only the name or capacity.',
     'schedule_content_format'      => 'Use module IDs from the modules sheet, separated by commas, like 3, 7.',
     'schedule_content_unknown'     => 'These IDs are not modules of this course: :ids. See the modules sheet.',

@@ -26,6 +26,8 @@ class CourseSectionRepository extends BaseRepository implements CourseSectionRep
                 // Sessions already held — drives session-based completion
                 // in CourseSectionResource without an N+1 per cohort.
                 'sessions as held_sessions_count' => fn ($q) => $q->ended(),
+                // Every scheduled session row (NEW2B-6206).
+                'sessions as sessions_count',
             ])
             ->orderBy('id')
             ->get();

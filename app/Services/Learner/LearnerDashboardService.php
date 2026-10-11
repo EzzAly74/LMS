@@ -49,7 +49,13 @@ class LearnerDashboardService
             ->whereNotNull('group_id')
             ->pluck('group_id', 'course_id');
 
+        // Count and dates come from the cohort's session rows, the schedule the
+        // learner attends (NEW2B-6202, NEW2B-6206); the stored planned number
+        // and dates can drift from it.
         $cohorts = CourseSection::whereIn('id', $cohortIdsByCourse->values()->unique()->all())
+            ->withCount('sessions')
+            ->withMin('sessions', 'session_date')
+            ->withMax('sessions', 'session_date')
             ->get()
             ->keyBy('id');
 
@@ -76,9 +82,9 @@ class LearnerDashboardService
 
             $card['delivery_type'] = $course->course_type;
             $card['cohort'] = [
-                'session_count' => $cohort?->number_of_sessions ?? $course->number_of_sessions,
-                'start_date' => $cohort?->start_date?->format('Y-m-d'),
-                'end_date' => $cohort?->end_date?->format('Y-m-d'),
+                'session_count' => $cohort ? (int) $cohort->sessions_count : null,
+                'start_date' => $cohort ? self::day($cohort->sessions_min_session_date) ?? $cohort->start_date?->format('Y-m-d') : null,
+                'end_date' => $cohort ? self::day($cohort->sessions_max_session_date) ?? $cohort->end_date?->format('Y-m-d') : null,
             ];
             $percent = (int) ($progressByCourse[$course->id] ?? 0);
             $card['module_progress_percent'] = $percent;
@@ -90,5 +96,10 @@ class LearnerDashboardService
 
             return $card;
         })->values()->all();
+    }
+
+    private static function day(mixed $value): ?string
+    {
+        return $value ? substr((string) $value, 0, 10) : null;
     }
 }

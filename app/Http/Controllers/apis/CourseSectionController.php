@@ -182,6 +182,7 @@ class CourseSectionController extends ApiController
         return $this->success(__('messages.updated'), [
             'section'          => new CourseSectionResource($out['section']),
             'sessions_added'   => $out['added'],
+            'sessions_removed' => $out['removed'] ?? 0,
             'sessions_updated' => $out['updated'],
         ]);
     }

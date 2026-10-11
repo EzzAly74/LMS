@@ -60,6 +60,26 @@ class QuizTypeAndResultTest extends ApiTestCase
 
     // ------------------------------------------------------------ type
 
+    /** NEW2B-5996: Arabic name, two options and a correct answer that is one of them are required, on create and edit. */
+    public function test_a_quiz_needs_its_arabic_name_options_and_a_real_correct_answer(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+        $url = self::BASE.'/admin/quizzes';
+
+        $this->postJson($url, $this->payload(['title_ar' => '']), $h)->assertStatus(422)->assertJsonValidationErrors('title_ar');
+        $this->postJson($url, $this->payload([], [$this->mcq(['options_en' => ['a'], 'options_ar' => ['أ']])]), $h)
+            ->assertStatus(422)->assertJsonValidationErrors(['questions.0.options_en', 'questions.0.options_ar']);
+        $this->postJson($url, $this->payload([], [$this->mcq(['correct_answer_en' => '', 'correct_answer_ar' => ''])]), $h)
+            ->assertStatus(422)->assertJsonValidationErrors(['questions.0.correct_answer_en', 'questions.0.correct_answer_ar']);
+        $this->postJson($url, $this->payload([], [$this->mcq(['correct_answer_en' => 'c'])]), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('questions.0.correct_answer_en');
+
+        $quiz = $this->createQuiz();
+        $this->putJson("{$url}/{$quiz->id}", $this->payload(['title_ar' => '']), $h)->assertStatus(422)->assertJsonValidationErrors('title_ar');
+        $this->putJson("{$url}/{$quiz->id}", $this->payload([], [$this->mcq(['correct_answer_ar' => 'ج'])]), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('questions.0.correct_answer_ar');
+    }
+
     public function test_post_is_the_final_exam_and_the_others_are_not(): void
     {
         $post = $this->createQuiz(['type' => 'post']);

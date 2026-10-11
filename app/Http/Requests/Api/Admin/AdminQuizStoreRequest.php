@@ -73,6 +73,9 @@ class AdminQuizStoreRequest extends FormRequest
 
                     if ($type !== 'open' && empty($q["correct_answer_$lang"])) {
                         $v->errors()->add("questions.$i.correct_answer_$lang", __('Correct answer is required for this question type.'));
+                    } elseif ($type === 'mcq' && is_array($opts) && ! in_array($q["correct_answer_$lang"], $opts, true)) {
+                        // NEW2B-5996: the correct answer is one of the options, not free text.
+                        $v->errors()->add("questions.$i.correct_answer_$lang", __('Correct answer is required for this question type.'));
                     }
                 }
             }

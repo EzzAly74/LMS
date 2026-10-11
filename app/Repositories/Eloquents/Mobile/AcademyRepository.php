@@ -523,15 +523,32 @@ final class AcademyRepository implements AcademyRepositoryInterface
 
     private function applyCategoryAndSearch(Builder $q, ?int $categoryId, ?string $search): Builder
     {
-        $locale = app()->getLocale();
-
         return $q
             ->when($categoryId, fn ($inner) => $inner->where('courses.category_id', $categoryId))
-            ->when($search, fn ($inner) => $inner->where(function (Builder $orGroup) use ($search, $locale) {
-                $orGroup->where("courses.title->{$locale}", 'LIKE', "%{$search}%")
-                        ->orWhere('courses.title->en', 'LIKE', "%{$search}%")
-                        ->orWhere('courses.title->ar', 'LIKE', "%{$search}%");
-            }));
+            // NEW2B-5902: related courses too, not only a title match. The term
+            // is matched in both languages against the title, description,
+            // category, instructors and qualifications, case-insensitively
+            // (the JSON values are unquoted first), with LIKE wildcards literal.
+            ->when($search !== null && trim($search) !== '', function ($inner) use ($search) {
+                $needle = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], mb_strtolower(trim($search))).'%';
+                $json = fn (string $column, string $lang) => "LOWER(JSON_UNQUOTE(JSON_EXTRACT({$column}, '$.{$lang}'))) LIKE ?";
+
+                $inner->where(function (Builder $or) use ($needle, $json) {
+                    foreach (['en', 'ar'] as $lang) {
+                        $or->orWhereRaw($json('courses.title', $lang), [$needle])
+                           ->orWhereRaw($json('courses.description', $lang), [$needle]);
+                    }
+                    $or->orWhereHas('category', fn ($c) => $c->where(fn ($w) => $w
+                            ->whereRaw($json('categories.name', 'en'), [$needle])
+                            ->orWhereRaw($json('categories.name', 'ar'), [$needle])))
+                       ->orWhereHas('instructors', fn ($i) => $i->where(fn ($w) => $w
+                            ->whereRaw($json('instructors.name', 'en'), [$needle])
+                            ->orWhereRaw($json('instructors.name', 'ar'), [$needle])))
+                       ->orWhereHas('qualificationSkills', fn ($s) => $s->where(fn ($w) => $w
+                            ->whereRaw($json('qualification_skills.name', 'en'), [$needle])
+                            ->orWhereRaw($json('qualification_skills.name', 'ar'), [$needle])));
+                });
+            });
     }
 
     private function applySort(Builder $q, string $sort, string $today): Builder

@@ -75,6 +75,31 @@ class AcademyApiTest extends MobileTestCase
         $this->assertSame($courseA->id, $response->json('result.0.id'));
     }
 
+    /** NEW2B-5902: search finds related courses, not only title matches, in either language. */
+    public function test_search_matches_description_category_instructor_and_qualification(): void
+    {
+        $user = $this->employee();
+        $category = Category::factory()->create(['name' => ['en' => 'Data Analysis', 'ar' => 'تحليل البيانات']]);
+        $byTitle = Course::factory()->create(['title' => ['en' => 'Excel Basics', 'ar' => 'أساسيات إكسل']]);
+        $byDescription = Course::factory()->create(['title' => ['en' => 'Office Skills', 'ar' => 'مهارات مكتبية'], 'description' => ['en' => 'Pivot tables in excel', 'ar' => 'الجداول']]);
+        $byCategory = Course::factory()->create(['title' => ['en' => 'Reporting', 'ar' => 'التقارير'], 'category_id' => $category->id]);
+        $unrelated = Course::factory()->create(['title' => ['en' => 'Fire Safety', 'ar' => 'السلامة'], 'description' => ['en' => 'Evacuation', 'ar' => 'الإخلاء']]);
+        $instructor = \App\Models\Instructor::query()->create(['name' => ['en' => 'Mona Excel-Trainer', 'ar' => 'منى'], 'email' => 'mona@academy.test']);
+        $byInstructor = Course::factory()->create(['title' => ['en' => 'Formulas', 'ar' => 'المعادلات']]);
+        $byInstructor->instructors()->attach($instructor->id);
+        foreach ([$byTitle, $byDescription, $byCategory, $unrelated, $byInstructor] as $c) {
+            CourseSection::factory()->create(['course_id' => $c->id]);
+        }
+
+        $ids = fn (string $q) => collect($this->withHeaders($this->headersFor($user))
+            ->getJson(self::BASE.'/mobile/academy/courses?per_page=50&search='.urlencode($q))->assertOk()->json('result'))
+            ->pluck('id')->sort()->values()->all();
+
+        $this->assertSame(collect([$byTitle->id, $byDescription->id, $byInstructor->id])->sort()->values()->all(), $ids('EXCEL'));
+        $this->assertSame([$byCategory->id], $ids('تحليل'));
+        $this->assertSame([], $ids('100%'));
+    }
+
     public function test_already_enrolled_course_is_not_listed_as_available(): void
     {
         $user   = $this->employee();

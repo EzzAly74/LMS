@@ -188,6 +188,54 @@ class CertificateService
         );
     }
 
+    /**
+     * Issue a certificate when the learner has completed every content item
+     * of a course whose own completion event is the content itself: it offers
+     * a certificate and has no final exam and no evaluation (those keep their
+     * own trigger, so finishing the content never skips them). The certificate
+     * rule still applies, as on the exam and evaluation paths (NEW2B-6205).
+     * Idempotent; returns null when not eligible.
+     */
+    public function issueFromContent(User $user, Course $course): ?UserCertificate
+    {
+        if (! self::contentCompletes($course)) {
+            return null;
+        }
+
+        $lectureIds = DB::table('course_lectures')->where('course_id', $course->id)->pluck('id');
+        if ($lectureIds->isEmpty()) {
+            return null;
+        }
+        $done = DB::table('user_lecture_progress')
+            ->where('user_id', $user->id)
+            ->whereIn('lecture_id', $lectureIds)
+            ->where('completed', true)
+            ->count();
+        if ($done < $lectureIds->count() || ! $this->projection->satisfiesPolicy($user, $course)) {
+            return null;
+        }
+
+        return $this->issue(
+            userId: (int) $user->id,
+            courseId: (int) $course->id,
+            sourceType: UserCertificate::SOURCE_CONTENT,
+            sourceId: null,
+            issuedAt: now(),
+            issuedBy: null,
+            metadata: $this->snapshot($user, $course, [
+                'source' => UserCertificate::SOURCE_CONTENT,
+            ]),
+        );
+    }
+
+    /** Is finishing the content this course's completion event? */
+    public static function contentCompletes(Course $course): bool
+    {
+        return (bool) $course->certificate
+            && ! $course->is_evaluate
+            && ! DB::table('course_exams')->where('course_id', $course->id)->where('is_final', true)->exists();
+    }
+
     /* ================================================================ *
      |  Lifecycle                                                       |
      * ================================================================ */

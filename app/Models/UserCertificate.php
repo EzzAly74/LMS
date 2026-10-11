@@ -31,6 +31,8 @@ class UserCertificate extends Model
     public const SOURCE_EXAM       = 'exam';
     public const SOURCE_EVALUATION = 'evaluation';
     public const SOURCE_ATTENDANCE = 'attendance';
+    /** Every content item of a course without a final exam or evaluation completed (NEW2B-6205). */
+    public const SOURCE_CONTENT    = 'content';
 
     protected $guarded = ['id'];
 

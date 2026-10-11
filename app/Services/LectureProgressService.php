@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Course;
 use App\Models\CourseLecture;
+use App\Models\User;
 use App\Models\UserLectureProgress;
 
 class LectureProgressService
@@ -30,10 +31,21 @@ class LectureProgressService
             $completed = $resolvedProgress >= 90;
         }
 
-        return UserLectureProgress::updateOrCreate(
+        $row = UserLectureProgress::updateOrCreate(
             ['user_id' => $userId, 'lecture_id' => $lectureId],
             ['progress' => $resolvedProgress, 'completed' => $completed],
         );
+
+        // Finishing the last content item can complete the course (NEW2B-6205).
+        if ($completed) {
+            $course = Course::query()->find(CourseLecture::query()->whereKey($lectureId)->value('course_id'));
+            $user = User::query()->find($userId);
+            if ($course && $user) {
+                app(CertificateService::class)->issueFromContent($user, $course);
+            }
+        }
+
+        return $row;
     }
 
     /**

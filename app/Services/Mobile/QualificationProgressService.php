@@ -153,8 +153,15 @@ final class QualificationProgressService
      */
     public function completedCourseIdsForUser(int $userId): Collection
     {
+        // One rule for the Completed badge and the certificate (NEW2B-6205):
+        // a course that offers a certificate is completed when the learner
+        // holds it, (d). The other signals complete only courses without a
+        // certificate; otherwise a learner saw "Completed" with no certificate.
+
         // (a) full-completion via lecture progress.
         $fullyByProgress = DB::table('course_lectures')
+            ->join('courses as c_progress', 'c_progress.id', '=', 'course_lectures.course_id')
+            ->where('c_progress.certificate', false)
             ->leftJoin('user_lecture_progress', function ($join) use ($userId) {
                 $join->on('user_lecture_progress.lecture_id', '=', 'course_lectures.id')
                      ->where('user_lecture_progress.user_id', '=', $userId)
@@ -167,22 +174,23 @@ final class QualificationProgressService
             ->havingRaw('completed_lectures > 0 AND completed_lectures >= total_lectures')
             ->pluck('course_id');
 
-        // (b) certificate-issued via final exam.
+        // (b) final exam passed (course without a certificate).
         $byExam = DB::table('user_exams')
             ->join('courses', 'courses.id', '=', 'user_exams.course_id')
             ->join('course_exams', 'course_exams.id', '=', 'user_exams.exam_id')
             ->where('user_exams.user_id', $userId)
             ->where('user_exams.status', 'success')
             ->where('course_exams.is_final', true)
-            ->where('courses.certificate', true)
+            ->where('courses.certificate', false)
             ->where('courses.is_evaluate', false)
             ->pluck('user_exams.course_id');
 
-        // (c) certificate-issued via submitted evaluation.
+        // (c) evaluation submitted (course without a certificate).
         $byEvaluation = DB::table('user_course_evaluations')
             ->join('courses', 'courses.id', '=', 'user_course_evaluations.course_id')
             ->where('user_course_evaluations.user_id', $userId)
             ->where('courses.is_evaluate', true)
+            ->where('courses.certificate', false)
             ->pluck('user_course_evaluations.course_id');
 
         // (d) holds an active first-class certificate. This makes issued

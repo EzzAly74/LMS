@@ -93,7 +93,8 @@ class LearnerDashboardService
             // Explicit completion + downloadable certificate id so the
             // frontend can swap "Continue Learning" for certificate actions.
             $card['certificate_id'] = $certificateIdByCourse[$course->id] ?? null;
-            $card['completed'] = $percent >= 100 || $card['certificate_id'] !== null;
+            // A course with a certificate is completed by holding it (NEW2B-6205).
+            $card['completed'] = $card['certificate_id'] !== null || (! $course->certificate && $percent >= 100);
 
             return $card;
         })->values()->all();

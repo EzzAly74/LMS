@@ -181,6 +181,9 @@ return [
 
     // إشعارات النظام التلقائية (المدرب / المشرف)
     'notifications' => [
+        'content_added_module_title' => 'محتوى جديد في دورتك',
+        'content_added_quiz_title' => 'اختبار جديد في دورتك',
+        'content_added_body' => 'أُضيف ":item" إلى ":course".',
         'cohort_opened_title' => 'فُتح التسجيل في دورة طلبت إشعارًا عنها',
         'cohort_opened_body' => 'التسجيل مفتوح الآن في ":course". تبدأ المجموعة القادمة في :date. سجّل قبل اكتمال المقاعد.',
         'cohort_opened_action' => 'عرض الدورة',

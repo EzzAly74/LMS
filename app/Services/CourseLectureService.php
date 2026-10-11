@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\CourseLecture;
 use App\Models\CourseSection;
 use App\Repositories\Contracts\CourseLectureRepositoryInterface;
+use App\Support\Notifications\CourseContentNotifier;
 use Illuminate\Database\Eloquent\Collection;
 
 class CourseLectureService
@@ -34,7 +35,15 @@ class CourseLectureService
     public function create(Course $course, array $data): CourseLecture
     {
         $data = $this->prepare($data, $course);
-        return $this->repo->createForCourse($course, $data);
+        $lecture = $this->repo->createForCourse($course, $data);
+
+        // Enrolled learners hear about it (NEW2B-5803).
+        app(CourseContentNotifier::class)->added($course, 'module', [
+            'en' => (string) $lecture->getTranslation('title', 'en', false),
+            'ar' => (string) $lecture->getTranslation('title', 'ar', false),
+        ], (int) $lecture->id);
+
+        return $lecture;
     }
 
     public function update(CourseLecture $lecture, array $data): CourseLecture

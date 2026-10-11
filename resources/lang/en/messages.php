@@ -182,6 +182,9 @@ return [
 
     // Event-driven system notifications (Instructor / Admin)
     'notifications' => [
+        'content_added_module_title' => 'New content in your course',
+        'content_added_quiz_title' => 'New quiz in your course',
+        'content_added_body' => '":item" was added to ":course".',
         'cohort_opened_title' => 'A course you asked about is open',
         'cohort_opened_body' => 'Enrolment is open for ":course". The next cohort starts on :date. Enrol before the seats fill up.',
         'cohort_opened_action' => 'View the course',

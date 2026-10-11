@@ -2,12 +2,14 @@
 
 namespace App\Services\Admin;
 
+use App\Models\Course;
 use App\Models\CourseExam;
 use App\Models\CourseExamCohort;
 use App\Models\CourseExamQuestion;
 use App\Models\User;
 use App\Models\UserExam;
 use App\Models\UserExamAnswer;
+use App\Support\Notifications\CourseContentNotifier;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -147,6 +149,10 @@ class AdminQuizService
             $this->syncQuestions($quiz, $data['questions'] ?? []);
             $this->syncCohorts($quiz, $data['cohort_scope'], $data['cohort_ids'] ?? []);
 
+            if ($quiz->status === 'active') {
+                $this->announce($quiz);
+            }
+
             return $this->show($quiz->id);
         });
     }
@@ -155,6 +161,7 @@ class AdminQuizService
     {
         return DB::transaction(function () use ($quiz, $data) {
             $total = $this->sumQuestionScores($data['questions'] ?? []);
+            $wasActive = $quiz->status === 'active';
 
             $quiz->update([
                 'course_id'       => $data['course_id'],
@@ -174,8 +181,26 @@ class AdminQuizService
             $this->syncQuestions($quiz, $data['questions'] ?? []);
             $this->syncCohorts($quiz, $data['cohort_scope'], $data['cohort_ids'] ?? []);
 
+            // A draft that is published now reaches the learners (NEW2B-5803).
+            if (! $wasActive && $quiz->status === 'active') {
+                $this->announce($quiz);
+            }
+
             return $this->show($quiz->id);
         });
+    }
+
+    /** Enrolled learners hear about a published quiz (NEW2B-5803). */
+    private function announce(CourseExam $quiz): void
+    {
+        $course = Course::query()->find($quiz->course_id);
+        if ($course === null) {
+            return;
+        }
+        app(CourseContentNotifier::class)->added($course, 'quiz', [
+            'en' => (string) $quiz->getTranslation('title', 'en', false),
+            'ar' => (string) ($quiz->title_ar ?: $quiz->getTranslation('title', 'ar', false)),
+        ], (int) $quiz->id);
     }
 
     public function delete(CourseExam $quiz): void

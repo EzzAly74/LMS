@@ -55,18 +55,19 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
             ->count();
 
         // 3. Sessions counts (total + past) and attendance count.
-        $today = now()->toDateString();
 
         $totalSessions = (int) DB::table('course_sessions')
             ->where('course_id', $courseId)
             ->where('section_id', $cohortId)
             ->count();
 
-        $pastSessions = (int) DB::table('course_sessions')
+        // Sessions that have ended, by date and end time (NEW2B-6215): a
+        // session later today is not past yet, so it is no absence.
+        $pastSessions = (int) \App\Models\CourseSession::query()
             ->where('course_id', $courseId)
             ->where('section_id', $cohortId)
             ->whereNotNull('session_date')
-            ->whereDate('session_date', '<=', $today)
+            ->ended()
             ->count();
 
         $attended = (int) DB::table('attendances')

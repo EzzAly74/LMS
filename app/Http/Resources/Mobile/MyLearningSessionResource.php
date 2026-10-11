@@ -30,6 +30,36 @@ class MyLearningSessionResource extends JsonResource
             'time_from'    => $row->time_from,
             'time_to'      => $row->time_to,
             'attended'     => (bool) $row->attended,
+            // NEW2B-6215: decided here, in the academy's time zone and with
+            // the session's times, so nobody reads Absent before it ends.
+            'status'       => self::status($row),
         ];
+    }
+
+    /** present | absent (ended, not attended) | in_progress | upcoming */
+    public static function status(object $row): string
+    {
+        if ((bool) $row->attended) {
+            return 'present';
+        }
+
+        $date = $row->session_date instanceof \Carbon\Carbon
+            ? $row->session_date->format('Y-m-d')
+            : (string) $row->session_date;
+        if ($date === '') {
+            return 'upcoming';
+        }
+
+        $now   = now();
+        $start = \Illuminate\Support\Carbon::parse($date.' '.($row->time_from ?: '00:00:00'));
+        $end   = $row->time_to
+            ? \Illuminate\Support\Carbon::parse($date.' '.$row->time_to)
+            : \Illuminate\Support\Carbon::parse($date)->endOfDay();
+
+        if ($now->greaterThanOrEqualTo($end)) {
+            return 'absent';
+        }
+
+        return $now->greaterThanOrEqualTo($start) ? 'in_progress' : 'upcoming';
     }
 }

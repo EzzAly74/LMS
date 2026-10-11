@@ -37,7 +37,7 @@ class ImageUploadWebpTest extends ApiTestCase
 
         $this->withHeaders($headers)->post(self::BASE.'/admin/users', [
             'name_en'               => 'Webp Instructor',
-            'name_ar'               => 'مدرب',
+            'name_ar'               => 'مدرب ويب',
             'email'                 => $email,
             'role'                  => 'instructor',
             'password'              => 'Secret-pass-123',
@@ -77,7 +77,7 @@ class ImageUploadWebpTest extends ApiTestCase
         Role::findOrCreate('instructor', 'admin');
         $this->withHeaders($headers)->post(self::BASE.'/admin/users', [
             'name_en'               => 'Svg Instructor',
-            'name_ar'               => 'مدرب',
+            'name_ar'               => 'مدرب ويب',
             'email'                 => 'svg@example.test',
             'role'                  => 'instructor',
             'password'              => 'Secret-pass-123',

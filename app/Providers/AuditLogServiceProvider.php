@@ -93,6 +93,8 @@ class AuditLogServiceProvider extends ServiceProvider
         Setting::class               => 'settings',
         CourseRating::class          => 'rating',
         Evaluation::class            => 'evaluation',
+        // The evaluation template itself (NEW2B-6116): created / updated / deleted with its name.
+        \App\Models\EvaluationCategory::class => 'evaluation_template',
         Form::class                  => 'form',
         Testimonial::class           => 'testimonial',
         Partner::class               => 'partner',

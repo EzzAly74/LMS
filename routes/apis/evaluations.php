@@ -31,7 +31,7 @@ Route::middleware(['auth.user', 'role:Admin', 'section:evaluations'])->prefix('a
         ->name('admin.evaluations.templates.store');
     Route::get('evaluations/templates/{template}', [AdminEvaluationTemplateController::class, 'show'])
         ->whereNumber('template')->name('admin.evaluations.templates.show');
-    Route::put('evaluations/templates/{template}', [AdminEvaluationTemplateController::class, 'update'])
+    Route::put('evaluations/templates/{template}', [AdminEvaluationTemplateController::class, 'update'])->ability('edit')
         ->whereNumber('template')->name('admin.evaluations.templates.update');
 });
 

@@ -3,6 +3,7 @@
 namespace App\Services\Admin;
 
 use App\Models\Evaluation;
+use App\Support\Audit\AuditTrail;
 use App\Models\EvaluationCategory;
 use App\Support\LocalizedJson;
 use Illuminate\Support\Facades\DB;
@@ -50,14 +51,23 @@ class EvaluationTemplateService
                 throw ValidationException::withMessages(['template' => __('messages.evaluation_template_locked')]);
             }
 
-            $locked->update([
+            $locked->fill([
                 'name'       => $data['name'],
                 'course_id'  => $data['course_id'],
                 'section_id' => $data['section_id'],
             ]);
+            // One "template updated" in the audit log per edit (NEW2B-6116),
+            // also when only the questions changed.
+            if ($locked->isDirty()) {
+                $locked->save();
+            } else {
+                // Only the questions changed: no model event fires, so record it here.
+                AuditTrail::record('updated', EvaluationCategory::class, $locked->id,
+                    'Updated evaluation template "'.$locked->getTranslation('name', 'en', false).'" (questions)');
+            }
             // Nobody has answered, so no answer refers to these question ids:
             // replacing them is safe and keeps the order the admin gave.
-            $locked->evaluations()->delete();
+            Evaluation::withoutEvents(fn () => $locked->evaluations()->delete());
             $this->writeQuestions($locked, $data['questions']);
 
             return $locked;
@@ -125,16 +135,20 @@ class EvaluationTemplateService
 
     private function writeQuestions(EvaluationCategory $template, array $questions): void
     {
-        foreach ($questions as $q) {
-            $isScale = $q['type'] === 'scale';
-            $template->evaluations()->create([
-                'type'            => $q['type'],
-                'title'           => $q['title'],
-                'is_required'     => (bool) $q['required'],
-                'scale_label_min' => $isScale ? $q['scale_label_min'] : null,
-                'scale_label_max' => $isScale ? $q['scale_label_max'] : null,
-            ]);
-        }
+        // The questions belong to the template's own audit entry: writing them
+        // one by one logged an "evaluation created" per question (NEW2B-6116).
+        Evaluation::withoutEvents(function () use ($template, $questions) {
+            foreach ($questions as $q) {
+                $isScale = $q['type'] === 'scale';
+                $template->evaluations()->create([
+                    'type'            => $q['type'],
+                    'title'           => $q['title'],
+                    'is_required'     => (bool) $q['required'],
+                    'scale_label_min' => $isScale ? $q['scale_label_min'] : null,
+                    'scale_label_max' => $isScale ? $q['scale_label_max'] : null,
+                ]);
+            }
+        });
     }
 
     /** Both languages of a translatable attribute, without locale fallback. */

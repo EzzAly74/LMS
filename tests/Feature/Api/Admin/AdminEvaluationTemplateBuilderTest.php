@@ -61,6 +61,43 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         return $this->payload(array_merge(['questions' => [$scale('Clear?', 'واضح؟', true), $scale('Pace', 'السرعة', false)]], $overrides));
     }
 
+    /** NEW2B-6116: an edit is one "updated" entry for the template, with its new name; not "created" per question. */
+    public function test_editing_a_template_is_audited_as_one_update(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+        $id = $this->postJson(self::URL, $this->payload(), $h)->assertSuccessful()->json('result.id');
+        DB::table('audit_logs')->delete();
+
+        $this->putJson(self::URL."/{$id}", $this->payload(['name' => ['en' => 'Course Feedback v2', 'ar' => 'تقييم الدورة ٢']]), $h)
+            ->assertOk()->assertJsonPath('result.name.en', 'Course Feedback v2');
+
+        $rows = DB::table('audit_logs')->get(['action', 'model_type', 'model_id']);
+        $this->assertCount(1, $rows);
+        $this->assertSame(['updated', \App\Models\EvaluationCategory::class, $id], [$rows[0]->action, $rows[0]->model_type, (int) $rows[0]->model_id]);
+
+        // Questions only: still one "updated".
+        DB::table('audit_logs')->delete();
+        $this->putJson(self::URL."/{$id}", $this->payload(['name' => ['en' => 'Course Feedback v2', 'ar' => 'تقييم الدورة ٢'], 'questions' => [
+            ['title' => ['en' => 'Useful?', 'ar' => 'مفيد؟'], 'type' => 'five', 'required' => true],
+        ]]), $h)->assertOk();
+        $this->assertSame(['updated'], DB::table('audit_logs')->pluck('action')->all());
+    }
+
+    public function test_editing_a_template_needs_the_edit_permission(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+        $id = $this->postJson(self::URL, $this->payload(), $h)->assertSuccessful()->json('result.id');
+
+        $role = \Spatie\Permission\Models\Role::findOrCreate('eval-viewer-'.uniqid(), 'admin');
+        $role->givePermissionTo(\Spatie\Permission\Models\Permission::findOrCreate('view-evaluations', 'admin'));
+        $viewer = \App\Models\Admin::factory()->create();
+        $viewer->assignRole($role);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        ['headers' => $vh] = $this->adminToken($viewer);
+
+        $this->putJson(self::URL."/{$id}", $this->payload(['name' => ['en' => 'Hijacked Name', 'ar' => 'اسم']]), $vh)->assertForbidden();
+    }
+
     private function answer(User $user, Course $course, Evaluation $q, string $answer): void
     {
         DB::table('user_course_evaluations')->insert([
@@ -292,6 +329,8 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $this->seed(MobileSettingSeeder::class);
         $open   = $this->course();
         $closed = $this->course(false);
+        // No certificate on offer: answering is what completes it (D-082).
+        DB::table('courses')->whereIn('id', [$open->id, $closed->id])->update(['certificate' => 0]);
         $learner = User::factory()->create();
         $this->enrol($learner, $open);
         $this->enrol($learner, $closed);

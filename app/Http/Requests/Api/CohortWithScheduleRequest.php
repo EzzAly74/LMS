@@ -73,7 +73,19 @@ class CohortWithScheduleRequest extends FormRequest
 
         return [
             'name'       => ['en' => trim($d['name']['en']), 'ar' => trim($d['name']['ar'])],
-            'capacity'   => (int) ($d['capacity'] ?? 30),
+            // Left out: the course's Max per Cohort, else Platform settings'
+            // default cohort size (NEW2B-6060), not a fixed 30.
+            'capacity'   => (int) ($d['capacity'] ?? $this->defaultCapacity()),
         ];
+    }
+
+    private function defaultCapacity(): int
+    {
+        $course = $this->route('course');
+        $max = $course instanceof \App\Models\Course
+            ? $course->max_learners
+            : \App\Models\Course::query()->whereKey((int) $course)->value('max_learners');
+
+        return $max !== null ? (int) $max : app(\App\Services\Mobile\MobileSettings::class)->defaultCohortSize();
     }
 }

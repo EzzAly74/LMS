@@ -115,6 +115,25 @@ class CohortScheduleImportTest extends ApiTestCase
         $this->assertSame(1, DB::table('course_sessions')->where('section_id', $id)->count());
     }
 
+    /** NEW2B-6060: a capacity left out follows Platform settings, or the course's own Max per Cohort. */
+    public function test_capacity_defaults_to_the_platform_setting_or_the_course_max(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+        $headers += ['Accept' => 'application/json'];
+        DB::table('settings')->updateOrInsert(['key' => 'default_cohort_size'], ['value' => '22', 'type' => 'number', 'label' => 'default_cohort_size', 'module' => 'platform']);
+
+        $course = $this->course();
+        $id = $this->post($this->url($course), ['name' => ['en' => 'A', 'ar' => 'أ'], 'schedule' => $this->xlsx([[1, '2026-10-05', '09:00', '10:00', '']])], $headers)
+            ->assertCreated()->json('result.id');
+        $this->assertSame(22, (int) CourseSection::find($id)->capacity);
+
+        $own = $this->course();
+        DB::table('courses')->where('id', $own->id)->update(['max_learners' => 18]);
+        $id = $this->post($this->url($own), ['name' => ['en' => 'B', 'ar' => 'ب'], 'schedule' => $this->xlsx([[1, '2026-10-06', '09:00', '10:00', '']])], $headers)
+            ->assertCreated()->json('result.id');
+        $this->assertSame(18, (int) CourseSection::find($id)->capacity);
+    }
+
     public function test_real_excel_date_and_time_cells_are_accepted(): void
     {
         $course = $this->course();

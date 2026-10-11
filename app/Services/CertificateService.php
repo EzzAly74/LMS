@@ -193,7 +193,7 @@ class CertificateService
      * of a course whose own completion event is the content itself: it offers
      * a certificate and has no final exam and no evaluation (those keep their
      * own trigger, so finishing the content never skips them). The certificate
-     * rule still applies, as on the exam and evaluation paths (NEW2B-6205).
+     * rule must be met with measured evidence (NEW2B-6205).
      * Idempotent; returns null when not eligible.
      */
     public function issueFromContent(User $user, Course $course): ?UserCertificate
@@ -211,7 +211,10 @@ class CertificateService
             ->whereIn('lecture_id', $lectureIds)
             ->where('completed', true)
             ->count();
-        if ($done < $lectureIds->count() || ! $this->projection->satisfiesPolicy($user, $course)) {
+        // The rule (Platform Config, or the course's own) must be met with
+        // real evidence: finishing the content is no proof of attendance or
+        // score by itself (human, 2026-10-11).
+        if ($done < $lectureIds->count() || ! $this->projection->meetsIssuanceCriteria($user, $course)) {
             return null;
         }
 

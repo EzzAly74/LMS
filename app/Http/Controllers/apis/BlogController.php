@@ -52,6 +52,12 @@ class BlogController extends ApiController
         return $this->success(__('messages.retrieved'), $this->service->jobTitleFilters());
     }
 
+    /** GET blogs/levels: published blogs per level (NEW2B-5888). */
+    public function levelFilters(): JsonResponse
+    {
+        return $this->success(__('messages.retrieved'), $this->service->levelFilters());
+    }
+
     /**
      * A single published blog by slug (with sections + author bio).
      */

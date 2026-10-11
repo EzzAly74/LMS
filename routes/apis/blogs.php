@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Route;
 // ── Public ───────────────────────────────────────────────────────────────
 Route::get('blogs',                 [BlogController::class, 'index']);
 Route::get('blogs/job-titles',      [BlogController::class, 'jobTitleFilters']);
+Route::get('blogs/levels',          [BlogController::class, 'levelFilters']);
 Route::get('blogs/{slug}/related',  [BlogController::class, 'related']);
 // Optional auth: guests get the blog; a signed-in reader also gets `loved`.
 Route::middleware('auth.user.optional')->get('blogs/{slug}', [BlogController::class, 'show']);

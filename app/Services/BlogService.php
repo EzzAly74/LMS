@@ -76,6 +76,22 @@ class BlogService
      *
      * @return array<int, array{id: int, name: string}>
      */
+    /**
+     * Published blogs per level, for the Level filter (NEW2B-5888).
+     *
+     * @return list<array{value: string, count: int}>
+     */
+    public function levelFilters(): array
+    {
+        $counts = Blog::query()->published()->whereNotNull('level')
+            ->groupBy('level')->selectRaw('level, COUNT(*) AS c')->pluck('c', 'level');
+
+        return array_map(
+            static fn (string $level) => ['value' => $level, 'count' => (int) ($counts[$level] ?? 0)],
+            ['beginner', 'intermediate', 'professional'],
+        );
+    }
+
     public function jobTitleFilters(): array
     {
         $publishedBlogIds = Blog::query()->published()->pluck('id');
@@ -96,10 +112,20 @@ class BlogService
             ->pluck('job_title_id')
             ->all();
 
+        // Published blogs per job title (NEW2B-5888): a blog counts once for a
+        // job title that requires any of its qualifications.
+        $counts = DB::table('job_title_qualification_skill as jtqs')
+            ->join('blog_qualification_skill as bqs', 'bqs.qualification_skill_id', '=', 'jtqs.qualification_skill_id')
+            ->whereIn('jtqs.job_title_id', $jobTitleIds)
+            ->whereIn('bqs.blog_id', $publishedBlogIds)
+            ->groupBy('jtqs.job_title_id')
+            ->selectRaw('jtqs.job_title_id, COUNT(DISTINCT bqs.blog_id) AS c')
+            ->pluck('c', 'job_title_id');
+
         return JobTitle::query()
             ->whereIn('id', $jobTitleIds)
             ->get()
-            ->map(fn (JobTitle $jt) => ['id' => $jt->id, 'name' => $jt->getLocalizedName()])
+            ->map(fn (JobTitle $jt) => ['id' => $jt->id, 'name' => $jt->getLocalizedName(), 'count' => (int) ($counts[$jt->id] ?? 0)])
             ->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)
             ->values()
             ->all();

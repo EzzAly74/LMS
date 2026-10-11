@@ -60,6 +60,8 @@ class MyLearningBucketsTest extends ApiTestCase
         $card = $current->first(fn ($r) => (int) ($r['course_id'] ?? $r['id']) === $upcoming->id);
         $this->assertTrue($card['cohort']['is_upcoming']);
         $this->assertSame('2026-10-20', $card['cohort']['start_date']);
+        // NEW2B-6002: the upcoming course carries its days and time range.
+        $this->assertSame(['weekdays' => [2], 'time_from' => '09:00', 'time_to' => '12:00'], $card['cohort']['schedule']);
         $activeCard = $current->first(fn ($r) => (int) ($r['course_id'] ?? $r['id']) === $active->id);
         $this->assertFalse($activeCard['cohort']['is_upcoming']);
     }

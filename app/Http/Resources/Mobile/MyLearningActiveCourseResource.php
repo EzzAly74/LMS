@@ -65,6 +65,23 @@ class MyLearningActiveCourseResource extends JsonResource
             $span->last_day  = substr((string) $span->last_day, 0, 10);
         }
 
+        $schedule = null;
+        if ($span !== null) {
+            $rows = \Illuminate\Support\Facades\DB::table('course_sessions')->where('section_id', $cohort->id)
+                ->orderBy('session_date')->orderBy('time_from')->get(['session_date', 'time_from', 'time_to']);
+            $ahead = $rows->filter(fn ($r) => \Illuminate\Support\Carbon::parse(substr((string) $r->session_date, 0, 10).' '.($r->time_to ?: '23:59:59'))->isFuture());
+            $pick = $ahead->isNotEmpty() ? $ahead : $rows;
+            $froms = $pick->pluck('time_from')->filter()->unique();
+            $tos = $pick->pluck('time_to')->filter()->unique();
+            $schedule = [
+                // 0 = Sunday ... 6 = Saturday.
+                'weekdays'  => $pick->map(fn ($r) => \Illuminate\Support\Carbon::parse(substr((string) $r->session_date, 0, 10))->dayOfWeek)
+                    ->unique()->sort()->values()->all(),
+                'time_from' => $froms->count() === 1 ? substr((string) $froms->first(), 0, 5) : null,
+                'time_to'   => $tos->count() === 1 ? substr((string) $tos->first(), 0, 5) : null,
+            ];
+        }
+
         $liveSession = $cohort
             ? $myLearn->liveSessionFor($authUser, $course->id, (int) $cohort->id, now())
             : null;
@@ -141,6 +158,9 @@ class MyLearningActiveCourseResource extends JsonResource
                     : $cohort->end_date),
                 // Upcoming until its first session starts, in the academy's time zone.
                 'is_upcoming' => $firstStart !== null ? $firstStart->isFuture() : null,
+                // Days and time range of the sessions still to come (all of
+                // them once none is left), from the schedule sheet (NEW2B-6002).
+                'schedule'    => $schedule,
             ] : null,
             'progress'       => [
                 'percent'            => (int) $progress['progress_percent'],

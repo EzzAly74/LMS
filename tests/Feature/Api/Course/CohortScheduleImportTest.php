@@ -71,6 +71,22 @@ class CohortScheduleImportTest extends ApiTestCase
         $this->assertSame([1, 2, 3, 4], array_map(static fn ($r) => (int) $r[0], array_slice($rows, 1)));
     }
 
+    /** NEW2B-6183: the template says which date and time formats to use before upload. */
+    public function test_the_template_shows_the_date_and_time_formats(): void
+    {
+        $course = $this->course(3);
+        ['headers' => $headers] = $this->adminToken();
+
+        $path = $this->get($this->url($course, 'schedule-template'), $headers)->assertOk()->baseResponse->getFile()->getPathname();
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path)->getSheet(0);
+
+        $this->assertSame(__('messages.schedule_date_format'), $sheet->getComment('B1')->getText()->getPlainText());
+        $this->assertSame(__('messages.schedule_time_format'), $sheet->getComment('C1')->getText()->getPlainText());
+        $this->assertSame(__('messages.schedule_time_format'), $sheet->getComment('D1')->getText()->getPlainText());
+        $this->assertSame(__('messages.schedule_date_format'), $sheet->getCell('B2')->getDataValidation()->getPrompt());
+        $this->assertTrue($sheet->getCell('D4')->getDataValidation()->getShowInputMessage());
+    }
+
     // ───────────────────────────────────────────────────────────── create
 
     public function test_a_valid_schedule_creates_the_cohort_its_sessions_and_the_course_hours(): void

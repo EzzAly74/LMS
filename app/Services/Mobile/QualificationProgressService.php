@@ -229,39 +229,49 @@ final class QualificationProgressService
     /**
      * Course ids the learner is enrolled in whose cohort has already ended.
      *
-     * A cohort counts as ended when ANY of these hold:
-     *   - its status is explicitly `completed`; or
-     *   - it has an `end_date` in the past; or
-     *   - it has sessions and none of them is today-or-later (every session
-     *     has been held). This last rule is what catches cohorts left with a
-     *     NULL `end_date` even though their sessions finished months ago — the
-     *     exact shape that kept a course perpetually "active".
+     * A cohort with sessions has ended when its last session has ended (by
+     * date and end time): the session rows are the schedule (D-080, D-081).
+     * Its stored `status` / `end_date` are not trusted here, since they can be
+     * stale until the nightly sync or after a schedule edit, which is how
+     * active and upcoming courses showed under Completed (NEW2B-5744). Only a
+     * cohort without sessions falls back to status `completed` or a past
+     * `end_date`.
      *
      * @return Collection<int, int>  course ids
      */
     public function endedCohortCourseIdsForUser(int $userId): Collection
     {
-        $today = now()->toDateString();
+        $today   = now()->toDateString();
+        $nowTime = now()->format('H:i:s');
 
         return DB::table('users_courses as uc')
             ->join('course_sections as cs', 'cs.id', '=', 'uc.group_id')
             ->where('uc.user_id', $userId)
-            ->where(function ($q) use ($today) {
-                $q->where('cs.status', 'completed')
-                  ->orWhere(function ($q2) use ($today) {
-                      $q2->whereNotNull('cs.end_date')->whereDate('cs.end_date', '<', $today);
-                  })
-                  ->orWhere(function ($q2) use ($today) {
-                      // Has sessions, but every session is in the past.
-                      $q2->whereExists(function ($sub) {
-                          $sub->from('course_sessions')
-                              ->whereColumn('course_sessions.section_id', 'cs.id');
-                      })->whereNotExists(function ($sub) use ($today) {
-                          $sub->from('course_sessions')
-                              ->whereColumn('course_sessions.section_id', 'cs.id')
-                              ->whereDate('course_sessions.session_date', '>=', $today);
-                      });
-                  });
+            ->where(function ($q) use ($today, $nowTime) {
+                $q->where(function ($q2) use ($today, $nowTime) {
+                    // Has sessions, and none is still to come or under way.
+                    $q2->whereExists(function ($sub) {
+                        $sub->from('course_sessions')
+                            ->whereColumn('course_sessions.section_id', 'cs.id');
+                    })->whereNotExists(function ($sub) use ($today, $nowTime) {
+                        $sub->from('course_sessions')
+                            ->whereColumn('course_sessions.section_id', 'cs.id')
+                            ->where(function ($w) use ($today, $nowTime) {
+                                $w->whereDate('course_sessions.session_date', '>', $today)
+                                  ->orWhere(function ($t) use ($today, $nowTime) {
+                                      $t->whereDate('course_sessions.session_date', '=', $today)
+                                        ->where(fn ($e) => $e->whereNull('course_sessions.time_to')
+                                            ->orWhere('course_sessions.time_to', '>', $nowTime));
+                                  });
+                            });
+                    });
+                })->orWhere(function ($q2) use ($today) {
+                    $q2->whereNotExists(function ($sub) {
+                        $sub->from('course_sessions')
+                            ->whereColumn('course_sessions.section_id', 'cs.id');
+                    })->where(fn ($legacy) => $legacy->where('cs.status', 'completed')
+                        ->orWhere(fn ($d) => $d->whereNotNull('cs.end_date')->whereDate('cs.end_date', '<', $today)));
+                });
             })
             ->distinct()
             ->pluck('uc.course_id')

@@ -314,8 +314,6 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
 
     private function activeCoursesQuery(User $user, array $excludeCourseIds = [])
     {
-        $today = now()->toDateString();
-
         return $this->course->newQuery()
             ->select(['courses.id', 'courses.title', 'courses.course_type', 'courses.image', 'courses.hours', 'courses.is_evaluate'])
             // Drop courses the learner is already done with (completed
@@ -331,21 +329,13 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
                 'usersCourses.group' => fn ($q) => $q
                     ->select(['id', 'course_id', 'name', 'start_date', 'end_date', 'capacity', 'status']),
             ])
-            ->whereExists(function ($q) use ($user, $today) {
+            // Ended cohorts are already in $excludeCourseIds, judged by their
+            // sessions (NEW2B-5744). A stored end_date is not checked here: it
+            // can lag a schedule edit and hid courses still under way.
+            ->whereExists(function ($q) use ($user) {
                 $q->from('users_courses')
                   ->whereColumn('users_courses.course_id', 'courses.id')
                   ->where('users_courses.user_id', $user->id);
-
-                // Active cohort: end_date in the future OR null.
-                $q->where(function ($q2) use ($today) {
-                    $q2->whereNotIn('users_courses.group_id', function ($q3) use ($today) {
-                        // Exclude cohorts whose end_date has passed.
-                        $q3->select('id')
-                           ->from('course_sections')
-                           ->whereNotNull('end_date')
-                           ->whereDate('end_date', '<', $today);
-                    });
-                });
             })
             ->orderByDesc('courses.id');
     }

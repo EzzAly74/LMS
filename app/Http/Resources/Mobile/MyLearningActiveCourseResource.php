@@ -46,6 +46,25 @@ class MyLearningActiveCourseResource extends JsonResource
                 'next_unit_title' => null,
             ];
 
+        $span = $cohort
+            ? \Illuminate\Support\Facades\DB::table('course_sessions')->where('section_id', $cohort->id)
+                ->selectRaw('MIN(session_date) AS first_day, MAX(session_date) AS last_day')->first()
+            : null;
+        if ($span !== null && $span->first_day === null) {
+            $span = null;
+        }
+        $firstFrom = $span
+            ? \Illuminate\Support\Facades\DB::table('course_sessions')->where('section_id', $cohort->id)
+                ->where('session_date', $span->first_day)->min('time_from')
+            : null;
+        $firstStart = $span
+            ? \Illuminate\Support\Carbon::parse(substr((string) $span->first_day, 0, 10).' '.($firstFrom ?: '00:00:00'))
+            : null;
+        if ($span !== null) {
+            $span->first_day = substr((string) $span->first_day, 0, 10);
+            $span->last_day  = substr((string) $span->last_day, 0, 10);
+        }
+
         $liveSession = $cohort
             ? $myLearn->liveSessionFor($authUser, $course->id, (int) $cohort->id, now())
             : null;
@@ -112,12 +131,16 @@ class MyLearningActiveCourseResource extends JsonResource
             'cohort'         => $cohort ? [
                 'id'         => (int) $cohort->id,
                 'name'       => $cohort->getTranslation('name', $locale),
-                'start_date' => $cohort->start_date instanceof \Carbon\Carbon
+                // From the session rows when there are any (NEW2B-5744, D-081):
+                // the stored dates can lag a schedule edit.
+                'start_date' => $span?->first_day ?? ($cohort->start_date instanceof \Carbon\Carbon
                     ? $cohort->start_date->format('Y-m-d')
-                    : $cohort->start_date,
-                'end_date'   => $cohort->end_date instanceof \Carbon\Carbon
+                    : $cohort->start_date),
+                'end_date'   => $span?->last_day ?? ($cohort->end_date instanceof \Carbon\Carbon
                     ? $cohort->end_date->format('Y-m-d')
-                    : $cohort->end_date,
+                    : $cohort->end_date),
+                // Upcoming until its first session starts, in the academy's time zone.
+                'is_upcoming' => $firstStart !== null ? $firstStart->isFuture() : null,
             ] : null,
             'progress'       => [
                 'percent'            => (int) $progress['progress_percent'],

@@ -43,7 +43,7 @@ class JobTitleController extends ApiController
             perPage:          $request->perPage(),
             search:           $request->search(),
             qualificationIds: $request->qualificationIds(),
-            learnerId:        $request->learnerId(),
+            learnerIds:       $request->learnerIds(),
             learnerSearch:    true,
         );
 

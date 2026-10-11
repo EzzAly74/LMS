@@ -30,6 +30,9 @@ class AdminJobTitleIndexRequest extends FormRequest
             'qualification_ids'   => ['sometimes', 'array', 'max:50'],
             'qualification_ids.*' => ['integer', 'distinct', 'exists:qualification_skills,id'],
             'learner_id'          => ['sometimes', 'nullable', 'integer', 'exists:users,id'],
+            // Several learners (NEW2B-6178); learner_id stays for older clients.
+            'learner_ids'         => ['sometimes', 'array', 'max:50'],
+            'learner_ids.*'       => ['integer', 'distinct', 'exists:users,id'],
         ];
     }
 
@@ -51,8 +54,14 @@ class AdminJobTitleIndexRequest extends FormRequest
         return array_values(array_map('intval', (array) $this->input('qualification_ids', [])));
     }
 
-    public function learnerId(): ?int
+    /** @return list<int> */
+    public function learnerIds(): array
     {
-        return $this->filled('learner_id') ? (int) $this->input('learner_id') : null;
+        $ids = array_map('intval', (array) $this->input('learner_ids', []));
+        if ($this->filled('learner_id')) {
+            $ids[] = (int) $this->input('learner_id');
+        }
+
+        return array_values(array_unique($ids));
     }
 }

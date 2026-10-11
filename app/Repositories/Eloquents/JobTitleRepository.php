@@ -116,7 +116,7 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
         int $perPage,
         ?string $search,
         array $qualificationIds = [],
-        ?int $learnerId = null,
+        array $learnerIds = [],
         bool $learnerSearch = false,
     ): LengthAwarePaginator {
         // Only count users who actually hold this job title (users.job_title_id = job_titles.id).
@@ -169,10 +169,10 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
                 'qualificationSkills',
                 fn ($s) => $s->whereIn('qualification_skills.id', $qualificationIds),
             ))
-            // …and / or is the chosen learner's job title.
-            ->when($learnerId !== null, fn ($q) => $q->whereIn(
+            // …and / or is the job title of one of the chosen learners (NEW2B-6178).
+            ->when($learnerIds !== [], fn ($q) => $q->whereIn(
                 'job_titles.id',
-                User::query()->select('job_title_id')->whereKey($learnerId),
+                User::query()->select('job_title_id')->whereKey($learnerIds),
             ))
             ->withCount(['qualificationSkills', 'users as employees_count'])
             ->addSelect('job_titles.*')

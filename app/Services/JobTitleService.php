@@ -27,10 +27,10 @@ class JobTitleService
         int $perPage = 15,
         ?string $search = null,
         array $qualificationIds = [],
-        ?int $learnerId = null,
+        array $learnerIds = [],
         bool $learnerSearch = false,
     ): LengthAwarePaginator {
-        return $this->repository->list($perPage, $search, $qualificationIds, $learnerId, $learnerSearch);
+        return $this->repository->list($perPage, $search, $qualificationIds, $learnerIds, $learnerSearch);
     }
 
     /**

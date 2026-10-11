@@ -77,6 +77,25 @@ class AdminJobTitleIndexTest extends ApiTestCase
         $this->assertSame(['Sales Representative'], $this->names('?learner_id='.$ava->id));
     }
 
+    /** NEW2B-6178: several learners at once return each one's job title. */
+    public function test_filter_by_several_learners(): void
+    {
+        $ava = User::factory()->create(['job_title_id' => $this->sales->id]);
+        $liam = User::factory()->create(['job_title_id' => $this->hr->id]);
+
+        $names = $this->names('?learner_ids[]='.$ava->id.'&learner_ids[]='.$liam->id);
+        sort($names);
+        $this->assertSame(['HR Specialist', 'Sales Representative'], $names);
+    }
+
+    /** NEW2B-6175: Show All asks for the endpoint's ceiling, 100, and gets it. */
+    public function test_show_all_page_size_is_accepted_and_more_is_refused(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+        $this->getJson(self::BASE.'/admin/job-titles?per_page=100', $headers)->assertOk();
+        $this->getJson(self::BASE.'/admin/job-titles?per_page=200', $headers)->assertStatus(422);
+    }
+
     public function test_filters_combine(): void
     {
         $ava = User::factory()->create(['job_title_id' => $this->sales->id]);

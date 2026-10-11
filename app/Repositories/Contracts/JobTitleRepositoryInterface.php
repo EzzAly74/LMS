@@ -16,7 +16,7 @@ interface JobTitleRepositoryInterface extends BaseRepositoryInterface
         int $perPage,
         ?string $search,
         array $qualificationIds = [],
-        ?int $learnerId = null,
+        array $learnerIds = [],
         bool $learnerSearch = false,
     ): LengthAwarePaginator;
 

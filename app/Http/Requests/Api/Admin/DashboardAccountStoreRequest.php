@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\Admin;
 
 use App\Models\Admin;
+use App\Rules\FullName;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -18,6 +19,11 @@ class DashboardAccountStoreRequest extends FormRequest
         return $this->user() instanceof Admin;
     }
 
+    /** Photo types and size for every Dashboard account (NEW2B-6165, NEW2B-6167). */
+    public const IMAGE_TYPES = 'png,jpg,jpeg,webp,gif';
+
+    public const IMAGE_MAX_KB = 3072;
+
     /** The password rule for every Dashboard account (D-075). */
     public static function passwordRule(): Password
     {
@@ -27,8 +33,8 @@ class DashboardAccountStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name_en'               => ['required', 'string', 'max:255'],
-            'name_ar'               => ['required', 'string', 'max:255'],
+            'name_en'               => ['required', 'string', new FullName()],
+            'name_ar'               => ['required', 'string', new FullName()],
             'email'                 => ['required', 'email', 'max:255', Rule::unique('admins', 'email')],
             // Dashboard roles only: `learner` is a website identity.
             'role'                  => ['required', 'string', Rule::exists('roles', 'name')
@@ -40,14 +46,41 @@ class DashboardAccountStoreRequest extends FormRequest
             'title_ar'              => ['nullable', 'string', 'max:150'],
             'brief_en'              => ['nullable', 'string', 'max:2000'],
             'brief_ar'              => ['nullable', 'string', 'max:2000'],
-            'image'                 => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:3072'],
+            // GIF too: the photo picker offers it (NEW2B-6165). Never SVG (D-044).
+            'image'                 => ['nullable', 'image', 'mimes:'.self::IMAGE_TYPES, 'max:'.self::IMAGE_MAX_KB],
         ];
+    }
+
+    /**
+     * Messages that say what to do (NEW2B-6162, NEW2B-6167), shared with the
+     * update request.
+     *
+     * @return array<string,string>
+     */
+    public static function accountMessages(): array
+    {
+        return [
+            'email.unique' => __('validation.account_email_taken'),
+            'image.mimes'  => __('validation.account_image.mimes'),
+            'image.image'  => __('validation.account_image.mimes'),
+            'image.max'    => __('validation.account_image.max'),
+        ];
+    }
+
+    public function messages(): array
+    {
+        return self::accountMessages();
     }
 
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('email'))) {
             $this->merge(['email' => strtolower(trim($this->input('email')))]);
+        }
+        foreach (['name_en', 'name_ar'] as $field) {
+            if (is_string($this->input($field))) {
+                $this->merge([$field => trim((string) preg_replace('/\s+/u', ' ', $this->input($field)))]);
+            }
         }
     }
 }

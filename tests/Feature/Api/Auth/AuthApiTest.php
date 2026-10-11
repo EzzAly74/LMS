@@ -135,6 +135,24 @@ class AuthApiTest extends ApiTestCase
         $this->assertSame(0, DB::table('personal_access_tokens')->count());
     }
 
+    /**
+     * NEW2B-6164: a learner who is also given Dashboard access (an account with
+     * its own role and permissions) still signs in to the website, and the
+     * Dashboard account signs in too.
+     */
+    public function test_a_learner_with_dashboard_access_signs_in_to_both(): void
+    {
+        $user = User::factory()->create(['machine_code' => '5507', 'system_id' => 5507, 'email' => 'both@academy.test']);
+        $admin = \App\Models\Admin::factory()->create(['email' => 'both@academy.test', 'password' => bcrypt('Strong-Pass-2026')]);
+        $admin->assignRole(\Spatie\Permission\Models\Role::findOrCreate('reports-viewer', 'admin'));
+        $this->fakeHr(null, $user);
+
+        $this->postJson(self::BASE . '/auth/user/login', ['email' => '5507', 'password' => '29001011234577'])
+            ->assertOk()->assertJsonPath('result.user.id', $user->id);
+        $this->postJson(self::BASE . '/auth/admin/login', ['email' => 'both@academy.test', 'password' => 'Strong-Pass-2026'])
+            ->assertOk()->assertJsonPath('result.admin.id', $admin->id);
+    }
+
     public function test_learner_tokens_last_seven_days(): void
     {
         $user = User::factory()->create(['machine_code' => '5505', 'system_id' => 5505]);

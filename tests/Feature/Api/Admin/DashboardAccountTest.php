@@ -111,7 +111,7 @@ class DashboardAccountTest extends ApiTestCase
 
         $this->putJson(self::BASE."/admin/users/admin/{$me->id}", ['role' => 'instructor'], $h)->assertForbidden();
         $this->deleteJson(self::BASE."/admin/users/admin/{$me->id}", [], $h)->assertForbidden();
-        $this->putJson(self::BASE."/admin/users/admin/{$me->id}", ['name_en' => 'Renamed'], $h)->assertOk();
+        $this->putJson(self::BASE."/admin/users/admin/{$me->id}", ['name_en' => 'Renamed Admin'], $h)->assertOk();
     }
 
     public function test_only_a_super_admin_touches_a_super_admin_account(): void
@@ -120,7 +120,7 @@ class DashboardAccountTest extends ApiTestCase
         $super = Admin::factory()->create();
         $super->assignRole(Role::findOrCreate('superAdmin', 'admin'));
 
-        $this->putJson(self::BASE."/admin/users/admin/{$super->id}", ['name_en' => 'X'], $h)->assertForbidden();
+        $this->putJson(self::BASE."/admin/users/admin/{$super->id}", ['name_en' => 'Other Name'], $h)->assertForbidden();
         $this->deleteJson(self::BASE."/admin/users/admin/{$super->id}", [], $h)->assertForbidden();
     }
 

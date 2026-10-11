@@ -9,6 +9,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\PermissionRegistrar;
 
 /**
@@ -183,11 +184,20 @@ class DashboardAccountService
             if (array_key_exists('status', $data) && $data['status'] !== null) {
                 $admin->status = (string) $data['status'];
             }
+            $removedImage = null;
             if (($data['image'] ?? null) instanceof UploadedFile) {
                 $admin->image = $this->uploadImageFile('admins', $data['image']);
+            } elseif (! empty($data['remove_image']) && $admin->image) {
+                // NEW2B-6160: the form's Remove now reaches the server.
+                $removedImage = (string) $admin->image;
+                $admin->image = null;
             }
             $passwordChanged = $admin->isDirty('password');
             $admin->save();
+
+            if ($removedImage !== null) {
+                $this->forgetImage($admin, $removedImage);
+            }
 
             if ($roleChanges) {
                 $admin->syncRoles([$role]);
@@ -281,6 +291,23 @@ class DashboardAccountService
 
         if ((int) $admin->instructor_id !== (int) $instructor->id) {
             $admin->forceFill(['instructor_id' => $instructor->id])->save();
+        }
+    }
+
+    /**
+     * A removed photo leaves the instructor record it was copied to as well,
+     * and its file goes once nothing else points at it.
+     */
+    private function forgetImage(Admin $admin, string $path): void
+    {
+        if ($admin->instructor_id) {
+            Instructor::query()->whereKey($admin->instructor_id)->where('image', $path)->update(['image' => null]);
+        }
+
+        $stillUsed = Admin::query()->where('image', $path)->exists()
+            || Instructor::query()->where('image', $path)->exists();
+        if (! $stillUsed && ! str_contains($path, '..')) {
+            DB::afterCommit(fn () => Storage::disk(config('filesystems.default') === 's3' ? 's3' : 'public')->delete($path));
         }
     }
 

@@ -172,6 +172,18 @@ return [
     |
     */
 
+    // Dashboard account full name (NEW2B-6161) and photo (NEW2B-6165..6167).
+    'full_name' => [
+        'max' => 'The :attribute may be at most :max characters.',
+        'parts' => 'Enter the :attribute as at least :min names (for example, first and last name).',
+        'part_length' => 'Each name in the :attribute must be at least :min letters long.',
+    ],
+    'account_image' => [
+        'mimes' => 'The photo must be a PNG, JPG, JPEG, WEBP or GIF image.',
+        'max' => 'The photo is too large. Choose an image of 3 MB or less.',
+    ],
+    'account_email_taken' => 'A Dashboard account already uses this email. Use a different email, or edit the existing account.',
+
     'custom' => [
         'attribute-name' => [
             'rule-name' => 'custom-message',

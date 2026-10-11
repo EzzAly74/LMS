@@ -157,14 +157,15 @@ class CertificateProjectionService
      * of measured evidence alone?
      *
      * Unlike {@see projectForCourse}, this ignores whether a certificate has
-     * already been issued — it answers the raw question "has the bar been
-     * cleared?", so it can drive actual issuance without the earned
+     * already been issued, so it can drive actual issuance without the earned
      * short-circuit making it always-true once a cert exists.
      *
-     * Used by the attendance issuance path, which has no completion event of
-     * its own: the measurement IS the trigger, so at least one required
-     * metric must be measurable. Returns false when the course offers no
-     * certificate, when nothing is measurable, or when a threshold is unmet.
+     * One rule for every issuing path (content, final exam, evaluation,
+     * attendance; D-084, human 2026-10-11): each metric the Platform or course
+     * rule requires must be measured and meet its threshold. A metric the
+     * course cannot produce (attendance on a course with no sessions) blocks
+     * the certificate rather than being skipped, so such a course needs a
+     * per-course rule that only asks for what it can measure.
      */
     public function meetsIssuanceCriteria(User $user, Course $course): bool
     {
@@ -172,36 +173,21 @@ class CertificateProjectionService
             return false;
         }
 
-        $attendance = $this->attendancePercent($user, $course);
-        $score      = $this->scorePercent($user, $course);
-
-        $rule = $this->policy->forCourse($course);
-
-        return $rule->hasEvidence($attendance, $score)
-            && $rule->isSatisfiedBy($attendance, $score);
-    }
-
-    /**
-     * Does the learner clear the certificate rule, given that a completion
-     * event has already fired (final exam passed, evaluation submitted)?
-     *
-     * Same rule as {@see meetsIssuanceCriteria} minus the evidence
-     * requirement: the completion event is itself the evidence, so a metric
-     * this course cannot produce (an online course has no sessions, so no
-     * attendance %) is skipped rather than treated as a failure. Without
-     * that, switching Platform Config to "Attendance only" would silently
-     * stop every online course from ever certifying.
-     */
-    public function satisfiesPolicy(User $user, Course $course): bool
-    {
-        if (!$course->certificate) {
-            return false;
-        }
-
-        return $this->policy->forCourse($course)->isSatisfiedBy(
+        return $this->policy->forCourse($course)->isFullyMet(
             $this->attendancePercent($user, $course),
             $this->scorePercent($user, $course),
         );
+    }
+
+    /**
+     * The check the completion events (final exam passed, evaluation
+     * submitted) run before issuing. Since D-084 it is the same strict rule as
+     * {@see meetsIssuanceCriteria}: the event alone no longer stands in for an
+     * unmeasured metric.
+     */
+    public function satisfiesPolicy(User $user, Course $course): bool
+    {
+        return $this->meetsIssuanceCriteria($user, $course);
     }
 
     /* ------------------------------------------------------------------ *

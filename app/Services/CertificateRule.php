@@ -71,6 +71,18 @@ final class CertificateRule
         return !in_array(false, $this->checks($attendancePercent, $scorePercent), true);
     }
 
+    /**
+     * The issuing rule (D-084, human 2026-10-11): every required metric was
+     * measured and meets its threshold. A metric the course cannot measure
+     * blocks the certificate instead of being skipped.
+     */
+    public function isFullyMet(?int $attendancePercent, ?int $scorePercent): bool
+    {
+        $checks = $this->checks($attendancePercent, $scorePercent);
+
+        return $checks !== [] && !in_array(null, $checks, true) && !in_array(false, $checks, true);
+    }
+
     /** True when at least one required metric could actually be measured. */
     public function hasEvidence(?int $attendancePercent, ?int $scorePercent): bool
     {

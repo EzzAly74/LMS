@@ -45,6 +45,20 @@ class CourseFactory extends Factory
         return $this->state(fn () => ['course_type' => 'offline']);
     }
 
+    /**
+     * Its own certificate rule: final-exam score only. Since D-084 every
+     * required metric must be measured, so an exam-only course with no
+     * sessions needs this to certify under the attendance platform default.
+     */
+    public function scoreRule(int $threshold = 50): static
+    {
+        return $this->state(fn () => [
+            'certificate_custom_rule'     => true,
+            'certificate_mode'            => 'score',
+            'certificate_score_threshold' => $threshold,
+        ]);
+    }
+
     public function inactive(): static
     {
         return $this->state(fn () => ['active' => false]);

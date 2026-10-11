@@ -149,7 +149,7 @@ class MyLearningApiTest extends MobileTestCase
     public function test_certificates_list_includes_passed_final_exam(): void
     {
         $user   = $this->employee();
-        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
         $cohort = CourseSection::factory()->create(['course_id' => $course->id]);
         $exam   = CourseExam::factory()->final()->create([
             'course_id'  => $course->id,

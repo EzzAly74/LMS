@@ -28,11 +28,12 @@ class CertificateIssuanceTest extends TestCase
 
     private function passedFinalExam(User $user, Course $course): UserExam
     {
-        $cohort = CourseSection::factory()->create(['course_id' => $course->id]);
-        $exam   = CourseExam::factory()->final()->create([
-            'course_id'  => $course->id,
-            'section_id' => $cohort->id,
-        ]);
+        // One final exam per course: the score is read from it.
+        $exam = CourseExam::query()->where('course_id', $course->id)->where('is_final', true)->first()
+            ?? CourseExam::factory()->final()->create([
+                'course_id'  => $course->id,
+                'section_id' => CourseSection::factory()->create(['course_id' => $course->id])->id,
+            ]);
 
         return UserExam::factory()->create([
             'user_id'   => $user->id,
@@ -45,7 +46,7 @@ class CertificateIssuanceTest extends TestCase
     public function test_issue_from_exam_creates_active_numbered_certificate(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
 
         $certificate = $this->service()->issueFromExam($this->passedFinalExam($user, $course));
 
@@ -63,7 +64,7 @@ class CertificateIssuanceTest extends TestCase
 
     public function test_numbers_are_sequential_within_a_year(): void
     {
-        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
 
         $first  = $this->service()->issueFromExam($this->passedFinalExam(User::factory()->create(), $course));
         $second = $this->service()->issueFromExam($this->passedFinalExam(User::factory()->create(), $course));
@@ -76,7 +77,7 @@ class CertificateIssuanceTest extends TestCase
     public function test_issuance_is_idempotent_per_learner_and_course(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
         $exam   = $this->passedFinalExam($user, $course);
 
         $a = $this->service()->issueFromExam($exam);
@@ -98,7 +99,8 @@ class CertificateIssuanceTest extends TestCase
     public function test_issue_from_evaluation_creates_certificate(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => true]);
+        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => true]);
+        $this->passedFinalExam($user, $course); // the measured score the rule asks for
 
         $evaluation = UserCourseEvaluation::factory()->create([
             'user_id'   => $user->id,
@@ -112,10 +114,43 @@ class CertificateIssuanceTest extends TestCase
         $this->assertSame(UserCertificate::STATUS_ACTIVE, $certificate->status);
     }
 
+    /**
+     * D-084 (human, 2026-10-11): a completion event does not stand in for a
+     * metric the rule requires but the course cannot measure.
+     */
+    public function test_a_passed_exam_does_not_certify_when_required_attendance_cannot_be_measured(): void
+    {
+        $user   = User::factory()->create();
+        // Platform default rule: attendance. No sessions, so attendance is unmeasurable.
+        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => false]);
+
+        $this->assertNull($this->service()->issueFromExam($this->passedFinalExam($user, $course)));
+        $this->assertDatabaseMissing('user_certificates', ['user_id' => $user->id, 'course_id' => $course->id]);
+    }
+
+    public function test_an_evaluation_with_nothing_measured_does_not_certify(): void
+    {
+        $user   = User::factory()->create();
+        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => true]);
+        $evaluation = UserCourseEvaluation::factory()->create(['user_id' => $user->id, 'course_id' => $course->id]);
+
+        $this->assertNull($this->service()->issueFromEvaluation($evaluation));
+    }
+
+    public function test_a_score_below_the_course_threshold_does_not_certify(): void
+    {
+        $user   = User::factory()->create();
+        $course = Course::factory()->scoreRule(80)->create(['certificate' => true, 'is_evaluate' => false]);
+        $exam   = $this->passedFinalExam($user, $course);
+        $exam->forceFill(['user_degree' => 60])->save();
+
+        $this->assertNull($this->service()->issueFromExam($exam));
+    }
+
     public function test_revoke_keeps_row_and_sets_status(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
         $certificate = $this->service()->issueFromExam($this->passedFinalExam($user, $course));
 
         $admin = User::factory()->create();

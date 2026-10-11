@@ -382,6 +382,8 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
     {
         $this->seed(MobileSettingSeeder::class);
         $course     = $this->course();
+        // Ratings, not certificates: submitting completes a non-certificate course (D-082).
+        DB::table('courses')->where('id', $course->id)->update(['certificate' => 0]);
         $instructor = Instructor::query()->create(['name' => ['en' => 'Teacher', 'ar' => 'معلم'], 'email' => 'teacher'.uniqid().'@example.test']);
         $course->instructors()->attach($instructor->id);
         ['headers' => $admin] = $this->adminToken();

@@ -19,7 +19,7 @@ class CertificateApiTest extends MobileTestCase
     private function certificateFor(): array
     {
         $user   = $this->employee(['name' => 'Cert Holder']);
-        $course = Course::factory()->create([
+        $course = Course::factory()->scoreRule()->create([
             'certificate'  => true,
             'is_evaluate'  => false,
         ]);

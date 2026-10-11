@@ -29,6 +29,49 @@ class ContactRequestTest extends ApiTestCase
         config(['contact.email' => 'sales@nas.test']);
     }
 
+    /** The visible text of an email: tags and the Unicode isolate marks removed, spaces collapsed. */
+    private function text(string $html): string
+    {
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return trim(preg_replace('/\s+/u', ' ', str_replace(["\u{2068}", "\u{2069}"], '', $text)));
+    }
+
+    /**
+     * NEW2B-5899: the Arabic emails read right to left in Gmail, which drops
+     * dir on <html> / <body>: every cell carries dir="rtl" and right
+     * alignment, and each typed value is isolated in its own direction.
+     */
+    public function test_the_arabic_emails_read_right_to_left_with_typed_values_isolated(): void
+    {
+        $contact = ContactRequest::query()->create($this->payload(['company_name' => '2B', 'job_title' => 'Software Engineer', 'guests' => ['mona@company.test']]));
+
+        foreach ([new ContactAutoReply($contact, 'ar'), new ContactGuestInvite($contact, 'ar'), new ContactNotification($contact, 'ar')] as $mail) {
+            $html = $mail->render();
+            $this->assertMatchesRegularExpression('/<td dir="rtl" style="[^"]*text-align:right;/', $html, $mail::class);
+            $this->assertStringNotContainsString('text-align:left', $html, $mail::class);
+            // "2B" and the email stay whole, isolated left to right inside the Arabic text.
+            $this->assertStringContainsString('<span dir="ltr">'."\u{2068}".'hesham@company.test'."\u{2069}".'</span>', $html, $mail::class);
+            $this->assertStringContainsString('<span dir="ltr">'."\u{2068}".'2B'."\u{2069}".'</span>', $html, $mail::class);
+        }
+
+        $reply = $this->text((new ContactAutoReply($contact, 'ar'))->render());
+        $this->assertStringContainsString('مرحبًا Hesham Adly،', $reply);
+        $this->assertStringContainsString('الشركة: 2B', $reply);
+        $this->assertStringContainsString('مع تحيات فريق NAS LMS', $reply);
+    }
+
+    public function test_an_arabic_name_is_isolated_right_to_left_and_english_stays_left_aligned(): void
+    {
+        $contact = ContactRequest::query()->create($this->payload(['name' => 'هشام عدلي']));
+
+        $this->assertStringContainsString('<span dir="rtl">'."\u{2068}".'هشام عدلي'."\u{2069}".'</span>', (new ContactAutoReply($contact, 'ar'))->render());
+
+        $en = (new ContactAutoReply($contact, 'en'))->render();
+        $this->assertStringContainsString('text-align:left', $en);
+        $this->assertStringNotContainsString('dir="rtl"', str_replace('<span dir="rtl">', '', $en));
+    }
+
     public function test_each_guest_gets_one_invite_and_the_requester_and_company_are_mailed(): void
     {
         Mail::fake();
@@ -53,7 +96,7 @@ class ContactRequestTest extends ApiTestCase
         $contact = ContactRequest::query()->create($this->payload(['guests' => ['mona@company.test'], 'locale' => 'en']));
 
         $html = (new ContactGuestInvite($contact, 'en'))->render();
-        $this->assertStringContainsString('Hesham Adly from Acme added you as a guest', $html);
+        $this->assertStringContainsString('Hesham Adly from Acme added you as a guest', $this->text($html));
         $this->assertStringContainsString('hesham@company.test', $html);
 
         $ar = new ContactGuestInvite($contact, 'ar');

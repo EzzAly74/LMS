@@ -34,39 +34,36 @@ final class ProfileDashboardService
     ) {}
 
     /**
-     * Header counters. `required` = distinct courses the user's role requires;
-     * `earned` = those completed; `in_progress` = those enrolled but not yet
-     * completed; `not_started` = the remainder. The three sub-counts always
-     * sum to `required`.
+     * Header counters (D-083, human 2026-10-11).
+     * - `required`: distinct courses the user's job title requires.
+     * - `not_started`: required courses the user is neither enrolled in nor has completed.
+     * - `earned`: every course the user has completed, required or not.
+     * - `in_progress`: every course the user is enrolled in and has not completed.
+     * A course the learner joined on their own counts in Earned / In progress
+     * (NEW2B-5776), so the sub-counts no longer have to sum to `required`.
      *
      * @return array{required:int, earned:int, in_progress:int, not_started:int}
      */
     public function summaryCounts(User $user): array
     {
         $requiredCourseIds = $this->requiredCourseIds($user);
-        if ($requiredCourseIds->isEmpty()) {
-            return ['required' => 0, 'earned' => 0, 'in_progress' => 0, 'not_started' => 0];
-        }
 
         $completed = $this->qualificationProgress
             ->completedCourseIdsForUser((int) $user->id)
-            ->intersect($requiredCourseIds);
+            ->map(fn ($v) => (int) $v)
+            ->unique();
 
         $enrolled = DB::table('users_courses')
             ->where('user_id', $user->id)
-            ->whereIn('course_id', $requiredCourseIds->all())
+            ->distinct()
             ->pluck('course_id')
             ->map(fn ($v) => (int) $v);
 
-        $required   = $requiredCourseIds->count();
-        $earned     = $completed->count();
-        $inProgress = $enrolled->diff($completed)->unique()->count();
-
         return [
-            'required'    => $required,
-            'earned'      => $earned,
-            'in_progress' => $inProgress,
-            'not_started' => max(0, $required - $earned - $inProgress),
+            'required'    => $requiredCourseIds->count(),
+            'earned'      => $completed->count(),
+            'in_progress' => $enrolled->diff($completed)->count(),
+            'not_started' => $requiredCourseIds->diff($enrolled)->diff($completed)->count(),
         ];
     }
 

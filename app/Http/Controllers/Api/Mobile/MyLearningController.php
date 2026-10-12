@@ -228,6 +228,14 @@ class MyLearningController extends MobileBaseController
     {
         $courseModel = Course::findOrFail($course);
 
+        // Only a learner enrolled in the course may rate it (D-016, B-163);
+        // this endpoint serves the Website profile and the mobile app.
+        abort_unless(
+            $courseModel->users()->whereKey($request->user()->getKey())->exists(),
+            403,
+            __('messages.course_not_enrolled'),
+        );
+
         $rating = $this->ratings->submit(
             user: $request->user(),
             course: $courseModel,

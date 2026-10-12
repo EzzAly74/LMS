@@ -204,6 +204,24 @@ class AppServiceProvider extends ServiceProvider
         // cannot buy fresh buckets. Login, upload and export keep their own
         // tighter limits.
         RateLimiter::for('api', function (Request $request) {
+            // Mobile (B-163): every employee reaches us through the HR server,
+            // so an IP bucket was shared by the whole company. With the valid
+            // shared token the bucket is the employee, under a cap for the
+            // integration as a whole.
+            if ($request->is('api/v1/mobile/*')
+                && app(\App\Http\Middleware\VerifyMobileSharedTokenMiddleware::class)->presentsValidToken($request)) {
+                $employee = trim((string) ($request->header('Employee-Code')
+                    ?? $request->header('X-Employee-Code')
+                    ?? $request->query('employee_code')
+                    ?? $request->input('employee_code')
+                    ?? ''));
+
+                return [
+                    Limit::perMinute(120)->by('mobile-employee:'.$employee),
+                    Limit::perMinute(6000)->by('mobile-integration'),
+                ];
+            }
+
             $token = $request->bearerToken();
             $pat   = $token ? PersonalAccessToken::findToken($token) : null;
 

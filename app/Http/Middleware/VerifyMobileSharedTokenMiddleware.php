@@ -44,6 +44,18 @@ class VerifyMobileSharedTokenMiddleware
         private readonly MobileSettings $settings,
     ) {}
 
+    /**
+     * True when the request carries the valid mobile shared token. Used by the
+     * `api` rate limiter, which runs before this middleware (B-163).
+     */
+    public function presentsValidToken(Request $request): bool
+    {
+        $presented = $this->extractToken($request);
+        $expected  = $this->settings->sharedBearerToken();
+
+        return is_string($presented) && $presented !== '' && $expected !== '' && hash_equals($expected, $presented);
+    }
+
     public function handle(Request $request, Closure $next): Response
     {
         $presented = $this->extractToken($request);

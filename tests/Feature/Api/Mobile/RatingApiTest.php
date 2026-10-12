@@ -11,6 +11,15 @@ use App\Models\CourseRating;
  */
 class RatingApiTest extends MobileTestCase
 {
+    /** Rating needs an enrolment (D-016, B-163). */
+    private function enrolledCourse(\App\Models\User $user): Course
+    {
+        $course = Course::factory()->create();
+        $course->users()->attach($user->id);
+
+        return $course;
+    }
+
     private function url(Course $course): string
     {
         return self::BASE . '/mobile/my-learning/courses/' . $course->id . '/rating';
@@ -24,7 +33,7 @@ class RatingApiTest extends MobileTestCase
     public function test_high_rating_without_comment_succeeds(): void
     {
         $user   = $this->employee();
-        $course = Course::factory()->create();
+        $course = $this->enrolledCourse($user);
 
         $response = $this->withHeaders($this->headersFor($user))
                          ->postJson($this->url($course), ['rating' => 5]);
@@ -41,7 +50,7 @@ class RatingApiTest extends MobileTestCase
     public function test_low_rating_requires_comment(): void
     {
         $user   = $this->employee();
-        $course = Course::factory()->create();
+        $course = $this->enrolledCourse($user);
 
         $response = $this->withHeaders($this->headersFor($user))
                          ->postJson($this->url($course), ['rating' => 2]);
@@ -52,7 +61,7 @@ class RatingApiTest extends MobileTestCase
     public function test_low_rating_with_comment_succeeds(): void
     {
         $user   = $this->employee();
-        $course = Course::factory()->create();
+        $course = $this->enrolledCourse($user);
 
         $response = $this->withHeaders($this->headersFor($user))
                          ->postJson($this->url($course), ['rating' => 2, 'comment' => 'Needs better pacing']);
@@ -69,7 +78,7 @@ class RatingApiTest extends MobileTestCase
     public function test_rating_above_max_is_rejected(): void
     {
         $user   = $this->employee();
-        $course = Course::factory()->create();
+        $course = $this->enrolledCourse($user);
 
         $response = $this->withHeaders($this->headersFor($user))
                          ->postJson($this->url($course), ['rating' => 6]);
@@ -80,7 +89,7 @@ class RatingApiTest extends MobileTestCase
     public function test_rating_below_min_is_rejected(): void
     {
         $user   = $this->employee();
-        $course = Course::factory()->create();
+        $course = $this->enrolledCourse($user);
 
         $response = $this->withHeaders($this->headersFor($user))
                          ->postJson($this->url($course), ['rating' => 0]);
@@ -91,7 +100,7 @@ class RatingApiTest extends MobileTestCase
     public function test_resubmitting_updates_existing_rating(): void
     {
         $user   = $this->employee();
-        $course = Course::factory()->create();
+        $course = $this->enrolledCourse($user);
 
         $this->withHeaders($this->headersFor($user))
              ->postJson($this->url($course), ['rating' => 4]);
@@ -114,5 +123,17 @@ class RatingApiTest extends MobileTestCase
                          ->postJson(self::BASE . '/mobile/my-learning/courses/999999/rating', ['rating' => 5]);
 
         $this->assertError($response, 404);
+    }
+
+    public function test_a_learner_not_enrolled_cannot_rate_the_course(): void
+    {
+        $user   = $this->employee();
+        $course = Course::factory()->create();
+
+        $response = $this->withHeaders($this->headersFor($user))
+                         ->postJson($this->url($course), ['rating' => 5]);
+
+        $this->assertError($response, 403);
+        $this->assertDatabaseMissing('course_ratings', ['user_id' => $user->id, 'course_id' => $course->id]);
     }
 }

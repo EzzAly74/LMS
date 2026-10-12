@@ -68,6 +68,16 @@ class ResolveMobileEmployeeMiddleware
             ], 404);
         }
 
+        // A deactivated account loses access on mobile too, as the web
+        // AuthenticationMiddleware does (B-163).
+        if (in_array(strtolower((string) ($user->status ?? 'active')), ['inactive', 'deactivated'], true)) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('messages.account_inactive'),
+                'errors'  => [],
+            ], 403);
+        }
+
         // Wire the resolved learner into the request so every mobile
         // service / resource that already does `$request->user()` keeps
         // working unchanged — mirrors the Sanctum middleware contract.

@@ -5,6 +5,8 @@ use App\Http\Controllers\Api\Mobile\AcademyController;
 use App\Http\Controllers\Api\Mobile\AttendanceController;
 use App\Http\Controllers\Api\Mobile\CertificateController;
 use App\Http\Controllers\Api\Mobile\MyLearningController;
+use App\Http\Controllers\apis\Learner\ProfileController;
+use App\Http\Controllers\apis\UserCourseEvaluationController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -71,6 +73,27 @@ Route::middleware(['mobile.token', 'mobile.employee'])
                 ->whereNumber('course');
             Route::post('courses/{course}/rating',                [MyLearningController::class, 'submitRating'])
                 ->whereNumber('course');
+
+            // Parity with the Website profile (B-163, NEW2B-5793): the same
+            // controllers, resolved through $request->user().
+            //  - completed: finished courses with `certificate_id`, so the app
+            //    can open the certificate of a completed course;
+            //  - summary: the D-083 counters (required / earned / in progress /
+            //    not started);
+            //  - qualifications/detail: each qualification's earned and
+            //    uncovered courses, with certificate ids.
+            Route::get('completed',              [ProfileController::class, 'completed']);
+            Route::get('summary',                [ProfileController::class, 'summary']);
+            Route::get('qualifications/detail',  [ProfileController::class, 'qualifications']);
+
+            // Course evaluation (templates, once per learner, issues the
+            // evaluation certificate), as on the Website; enrolled only.
+            Route::middleware('enrolled')->group(function () {
+                Route::get('courses/{course}/evaluate',  [UserCourseEvaluationController::class, 'show'])
+                    ->whereNumber('course');
+                Route::post('courses/{course}/evaluate', [UserCourseEvaluationController::class, 'store'])
+                    ->whereNumber('course');
+            });
         });
 
         // ── S-06 · Mark Present (passcode flow) ──────────────────────

@@ -87,7 +87,8 @@ class UserDashboardService
                     'assignment_id'   => $assignment->id,
                     'course_id'       => $course->id,
                     'course_title'    => $course->getTranslation('title', app()->getLocale()),
-                    'title'           => $assignment->getTranslation('title', app()->getLocale()),
+                    // Not translatable: two columns (NEW2B-6253).
+                    'title'           => $assignment->localizedTitle(),
                     'assignment_file' => $assignment->file,
                     'submitted'       => (bool) $submission,
                     'user_file'       => $submission?->user_file,

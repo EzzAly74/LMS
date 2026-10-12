@@ -123,7 +123,7 @@ class LearnerCoursePlayerService
             $groups[$label][] = [
                 'kind' => 'assignment',
                 'id' => $assignment->id,
-                'title' => $assignment->title,
+                'title' => $assignment->localizedTitle($locale),
                 'content_type' => null,
                 'completed' => $userAssignment?->submitted_at !== null,
             ];

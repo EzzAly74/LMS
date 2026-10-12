@@ -24,6 +24,18 @@ class CourseAssignment extends Model
     ];
 
 
+    /**
+     * The name in the reader's language (NEW2B-6253): `title` is the English
+     * name, `title_ar` the Arabic; either falls back to the other.
+     */
+    public function localizedTitle(?string $locale = null): string
+    {
+        $en = trim((string) ($this->title ?? ''));
+        $ar = trim((string) ($this->title_ar ?? ''));
+
+        return ($locale ?? app()->getLocale()) === 'ar' ? ($ar !== '' ? $ar : $en) : ($en !== '' ? $en : $ar);
+    }
+
     public function course()
     {
         return $this->belongsTo(Course::class);

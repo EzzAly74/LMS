@@ -124,4 +124,23 @@ class AssessmentCohortsTest extends ApiTestCase
         $mine = collect($this->getJson(self::BASE.'/my/assignments', $inFirst)->assertOk()->json('result'))->pluck('assignment_id')->all();
         $this->assertNotContains($ids['assignments'], $mine);
     }
+
+    public function test_the_learner_sees_the_assignment_name_in_their_language(): void
+    {
+        // NEW2B-6253.
+        ['headers' => $h] = $this->adminToken();
+        $id = (int) $this->postJson(self::BASE.'/admin/assignments', array_merge($this->payload([]), ['cohort_scope' => 'all', 'title' => 'Source file', 'title_ar' => 'الملف المصدر']), $h)
+            ->assertSuccessful()->json('result.id');
+        $user = \App\Models\User::factory()->create();
+        DB::table('users_courses')->insert(['user_id' => $user->id, 'course_id' => $this->course->id, 'group_id' => $this->first->id]);
+        $l = $this->userToken($user)['headers'];
+
+        foreach (['en' => 'Source file', 'ar' => 'الملف المصدر'] as $lang => $name) {
+            $item = collect($this->getJson(self::BASE."/my/courses/{$this->course->id}/outline", $l + ['Accept-Language' => $lang])->assertOk()->json('result.weeks'))
+                ->flatMap(fn ($w) => $w['items'])->firstWhere('kind', 'assignment');
+            $this->assertSame($name, $item['title']);
+            $mine = collect($this->getJson(self::BASE.'/my/assignments', $l + ['Accept-Language' => $lang])->assertOk()->json('result'))->firstWhere('assignment_id', $id);
+            $this->assertSame($name, $mine['title']);
+        }
+    }
 }

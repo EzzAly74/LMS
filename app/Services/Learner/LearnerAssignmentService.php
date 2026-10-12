@@ -347,7 +347,7 @@ class LearnerAssignmentService
 
         return [
             'id' => $assignment->id,
-            'title' => $locale === 'ar' ? ($assignment->title_ar ?? $assignment->title) : $assignment->title,
+            'title' => $assignment->localizedTitle($locale),
             'instructions' => $locale === 'ar' ? ($assignment->instructions_ar ?? $assignment->instructions_en) : ($assignment->instructions_en ?? $assignment->instructions_ar),
             'pass_score' => $assignment->pass_score,
             'total_score' => $assignment->total_score,

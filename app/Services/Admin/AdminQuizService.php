@@ -8,6 +8,8 @@ use App\Models\CourseExamCohort;
 use App\Models\CourseExamQuestion;
 use App\Models\User;
 use App\Models\UserExam;
+use App\Services\CertificateService;
+use App\Support\QuizVerdict;
 use App\Models\UserExamAnswer;
 use App\Support\Notifications\CourseContentNotifier;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -472,10 +474,32 @@ class AdminQuizService
 
         $total = $submission->answers->sum(fn ($a) => (int) ($a->awarded_score ?? 0));
 
-        $submission->update([
+        $update = [
             'total_score' => $total,
             'reviewed_at' => now(),
             'reviewed_by' => $reviewerId,
-        ]);
+        ];
+
+        // A submitted attempt takes its new score and verdict (D-087): grading
+        // an open question used to leave `user_degree` and `status` as they were
+        // at submit time, so the Dashboard and the certificate judged a stale
+        // score (NEW2B-6232).
+        $wasPassed = $submission->status === 'success';
+        if ($submission->submission_status === UserExam::SUBMISSION_SUBMITTED) {
+            $exam = $submission->exam()->first(['id', 'pass_score', 'total_score']);
+            $max  = (float) ($exam?->total_score ?: $submission->max_score);
+            $update['user_degree'] = $total;
+            $update['status'] = QuizVerdict::status(
+                (float) $total,
+                $exam?->pass_score !== null ? (float) $exam->pass_score : null,
+                $max,
+            );
+        }
+
+        $submission->update($update);
+
+        if (! $wasPassed && ($update['status'] ?? null) === 'success') {
+            app(CertificateService::class)->issueFromExam($submission->fresh(['exam', 'course']));
+        }
     }
 }

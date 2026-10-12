@@ -47,17 +47,20 @@ class JobTitleCardMetricsTest extends ApiTestCase
             'updated_at' => $created->copy()->addDay(),
         ]);
 
-        // Completion is a passing exam, not a moved updated_at (B-104).
+        // Completion is the certificate of a certificate course, not a moved
+        // updated_at (B-104, D-086).
         $exam = \App\Models\CourseExam::factory()->create(['course_id' => $course->id]);
         DB::table('user_exams')->insert([
             'user_id'      => $enrolled->id,
             'course_id'    => $course->id,
             'exam_id'      => $exam->id,
-            'status'       => 'passed',
+            'status'       => 'success',
+            'submission_status' => 'submitted',
             'submitted_at' => now()->subDays(2),
             'created_at'   => now()->subDays(2),
             'updated_at'   => now()->subDays(2),
         ]);
+        \App\Models\UserCertificate::factory()->create(['user_id' => $enrolled->id, 'course_id' => $course->id]);
 
         ['headers' => $headers] = $this->adminToken();
 

@@ -7,12 +7,19 @@ use App\Models\CourseExam;
 use App\Models\JobTitle;
 use App\Models\QualificationSkill;
 use App\Models\User;
+use App\Models\UserCertificate;
 use App\Support\CourseCompletion;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\Api\ApiTestCase;
 
 /**
- * B-104 — one definition of "completed course", project-wide.
+ * B-104 / D-086 — one definition of "completed course", project-wide.
+ *
+ * Since D-086 the definition is the learner rule (D-082): a certificate course
+ * is completed by an active certificate; a course without one by a submitted,
+ * passing final exam, the evaluation, or all of its content. The Dashboard
+ * used to match exam statuses 'passed' / 'completed', which the application
+ * never writes, so every Dashboard figure read 0 (NEW2B-6224, 6229).
  *
  * The codebase carried two at once:
  *
@@ -71,18 +78,39 @@ class CourseCompletionDefinitionTest extends ApiTestCase
         ]);
     }
 
-    private function recordExam(User $user, Course $course, string $status): void
+    /** The certificate a course with a certificate is completed by. */
+    private function certify(User $user, Course $course, string $status = UserCertificate::STATUS_ACTIVE): void
     {
-        $exam = CourseExam::factory()->create(['course_id' => $course->id]);
+        UserCertificate::factory()->create(['user_id' => $user->id, 'course_id' => $course->id, 'status' => $status]);
+    }
+
+    /** A final exam submission on a course WITHOUT a certificate (status success | fail). */
+    private function recordFinalExam(User $user, Course $course, string $status, bool $rich = false, string $submission = 'submitted'): void
+    {
+        $course->forceFill(['certificate' => false, 'is_evaluate' => false])->save();
+        $exam = CourseExam::factory()->final()->create(['course_id' => $course->id]);
+
+        if ($rich) {
+            DB::table('course_exam_questions')->insert([
+                'course_exam_id' => $exam->id,
+                'question'       => json_encode(['en' => 'Q', 'ar' => 'س']),
+                'question_en'    => 'Q',
+                'type'           => 'mcq',
+                'score'          => 10,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ]);
+        }
 
         DB::table('user_exams')->insert([
-            'user_id'      => $user->id,
-            'course_id'    => $course->id,
-            'exam_id'      => $exam->id,
-            'status'       => $status,
-            'submitted_at' => now()->subDays(2),
-            'created_at'   => now()->subDays(2),
-            'updated_at'   => now()->subDays(2),
+            'user_id'           => $user->id,
+            'course_id'         => $course->id,
+            'exam_id'           => $exam->id,
+            'status'            => $status,
+            'submission_status' => $submission,
+            'submitted_at'      => $submission === 'submitted' ? now()->subDays(2) : null,
+            'created_at'        => now()->subDays(2),
+            'updated_at'        => now()->subDays(2),
         ]);
     }
 
@@ -114,12 +142,12 @@ class CourseCompletionDefinitionTest extends ApiTestCase
         );
     }
 
-    public function test_a_passing_exam_is_a_completion(): void
+    public function test_an_active_certificate_completes_a_certificate_course(): void
     {
         $learner = User::factory()->create(['job_title_id' => $this->jobTitle->id]);
         $course  = $this->courseGrantingTheSkill();
         $this->enrolAndTouch($learner, $course);
-        $this->recordExam($learner, $course, 'passed');
+        $this->certify($learner, $course);
 
         ['headers' => $headers] = $this->adminToken();
         $row = $this->learnerRow($learner, $headers);
@@ -128,29 +156,95 @@ class CourseCompletionDefinitionTest extends ApiTestCase
         $this->assertSame(1, $row['qualifications_completed']);
     }
 
-    public function test_a_failed_exam_is_not_a_completion(): void
+    public function test_a_revoked_certificate_is_not_a_completion(): void
     {
         $learner = User::factory()->create(['job_title_id' => $this->jobTitle->id]);
         $course  = $this->courseGrantingTheSkill();
         $this->enrolAndTouch($learner, $course);
-        $this->recordExam($learner, $course, 'failed');
+        $this->certify($learner, $course, UserCertificate::STATUS_REVOKED);
 
         ['headers' => $headers] = $this->adminToken();
 
         $this->assertSame(0, $this->learnerRow($learner, $headers)['courses']['completed']);
     }
 
-    public function test_the_status_match_is_case_insensitive(): void
+    public function test_a_passed_exam_does_not_complete_a_certificate_course_without_the_certificate(): void
     {
-        // The column is free-form text and the existing data is mixed case.
+        // D-082: a certificate course is completed by its certificate only.
+        $learner = User::factory()->create();
+        $course  = $this->courseGrantingTheSkill();
+        $exam    = CourseExam::factory()->final()->create(['course_id' => $course->id]);
+        DB::table('user_exams')->insert([
+            'user_id' => $learner->id, 'course_id' => $course->id, 'exam_id' => $exam->id,
+            'status' => 'success', 'submission_status' => 'submitted', 'submitted_at' => now(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertSame([], CourseCompletion::courseIdsFor($learner->id)->all());
+    }
+
+    public function test_a_passing_final_exam_completes_a_course_without_a_certificate(): void
+    {
         $learner = User::factory()->create(['job_title_id' => $this->jobTitle->id]);
         $course  = $this->courseGrantingTheSkill();
         $this->enrolAndTouch($learner, $course);
-        $this->recordExam($learner, $course, 'Passed');
+        $this->recordFinalExam($learner, $course, 'success');
 
         ['headers' => $headers] = $this->adminToken();
 
         $this->assertSame(1, $this->learnerRow($learner, $headers)['courses']['completed']);
+    }
+
+    public function test_a_failed_exam_is_not_a_completion(): void
+    {
+        $learner = User::factory()->create(['job_title_id' => $this->jobTitle->id]);
+        $course  = $this->courseGrantingTheSkill();
+        $this->enrolAndTouch($learner, $course);
+        $this->recordFinalExam($learner, $course, 'fail');
+
+        ['headers' => $headers] = $this->adminToken();
+
+        $this->assertSame(0, $this->learnerRow($learner, $headers)['courses']['completed']);
+    }
+
+    public function test_an_opened_rich_quiz_attempt_is_not_a_completion(): void
+    {
+        // B-162: the attempt row carries the column default status 'success'.
+        $learner = User::factory()->create();
+        $course  = $this->courseGrantingTheSkill();
+        $this->recordFinalExam($learner, $course, 'success', rich: true, submission: 'pending');
+
+        $this->assertSame([], CourseCompletion::courseIdsFor($learner->id)->all());
+    }
+
+    public function test_a_submitted_rich_quiz_pass_is_a_completion(): void
+    {
+        $learner = User::factory()->create();
+        $course  = $this->courseGrantingTheSkill();
+        $this->recordFinalExam($learner, $course, 'success', rich: true);
+
+        $this->assertSame([$course->id], CourseCompletion::courseIdsFor($learner->id)->all());
+    }
+
+    public function test_all_content_completes_a_course_without_a_certificate(): void
+    {
+        $learner = User::factory()->create();
+        $course  = $this->courseGrantingTheSkill();
+        $course->forceFill(['certificate' => false])->save();
+
+        $lectures = \App\Models\CourseLecture::factory()->count(2)->create(['course_id' => $course->id])->pluck('id');
+
+        DB::table('user_lecture_progress')->insert([
+            'user_id' => $learner->id, 'lecture_id' => $lectures[0], 'progress' => 100, 'completed' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->assertSame([], CourseCompletion::courseIdsFor($learner->id)->all(), 'One of two modules is not all content.');
+
+        DB::table('user_lecture_progress')->insert([
+            'user_id' => $learner->id, 'lecture_id' => $lectures[1], 'progress' => 100, 'completed' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->assertSame([$course->id], CourseCompletion::courseIdsFor($learner->id)->all());
     }
 
     // ------------------------------------------------- the two screens agree
@@ -165,9 +259,9 @@ class CourseCompletionDefinitionTest extends ApiTestCase
 
         $done = $this->courseGrantingTheSkill();
         $this->enrolAndTouch($learner, $done);
-        $this->recordExam($learner, $done, 'completed');
+        $this->certify($learner, $done);
 
-        // Enrolled and touched, but never passed.
+        // Enrolled and touched, but never completed.
         $this->enrolAndTouch($learner, $this->courseGrantingTheSkill());
 
         ['headers' => $headers] = $this->adminToken();
@@ -196,19 +290,17 @@ class CourseCompletionDefinitionTest extends ApiTestCase
 
     // --------------------------------------------------------- the unit itself
 
-    public function test_course_ids_for_returns_only_passed_courses(): void
+    public function test_course_ids_for_returns_only_completed_courses(): void
     {
         $learner = User::factory()->create();
 
-        $passed = $this->courseGrantingTheSkill();
+        $done   = $this->courseGrantingTheSkill();
         $failed = $this->courseGrantingTheSkill();
 
-        $this->recordExam($learner, $passed, 'passed');
-        $this->recordExam($learner, $failed, 'failed');
+        $this->certify($learner, $done);
+        $this->recordFinalExam($learner, $failed, 'fail');
 
-        $ids = CourseCompletion::courseIdsFor($learner->id)->all();
-
-        $this->assertSame([$passed->id], $ids);
+        $this->assertSame([$done->id], CourseCompletion::courseIdsFor($learner->id)->all());
     }
 
     public function test_a_retake_does_not_create_a_second_completion(): void
@@ -217,9 +309,14 @@ class CourseCompletionDefinitionTest extends ApiTestCase
         $course  = $this->courseGrantingTheSkill();
         $this->enrolAndTouch($learner, $course);
 
-        // Two passing records for the same course - a retake, or a re-review.
-        $this->recordExam($learner, $course, 'passed');
-        $this->recordExam($learner, $course, 'completed');
+        // A certificate and a passing exam for the same course.
+        $this->certify($learner, $course);
+        $exam = CourseExam::factory()->final()->create(['course_id' => $course->id]);
+        DB::table('user_exams')->insert([
+            'user_id' => $learner->id, 'course_id' => $course->id, 'exam_id' => $exam->id,
+            'status' => 'success', 'submission_status' => 'submitted', 'submitted_at' => now(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
 
         ['headers' => $headers] = $this->adminToken();
 

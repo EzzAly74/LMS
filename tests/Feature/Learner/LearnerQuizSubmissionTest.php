@@ -269,4 +269,70 @@ class LearnerQuizSubmissionTest extends ApiTestCase
         $this->assertSame('correct', $openBreakdown['state']);
         $this->assertSame(10, $openBreakdown['awarded_score']);
     }
+
+    /** Answer every question: 10 (mcq) + 5 (yes_no) + 0 (open, pending) + reorder. */
+    private function answerAll(Course $course, array $q, array $headers, string $mcqValue = '4'): void
+    {
+        foreach ([[$q['mcq'], ['value' => $mcqValue]], [$q['yesNo'], ['value' => 'yes']], [$q['open'], ['value' => 'x']], [$q['reorder'], ['order' => ['Step 3', 'Step 2', 'Step 1']]]] as [$question, $payload]) {
+            $this->withHeaders($headers)->postJson(
+                self::BASE . "/courses/{$course->id}/quizzes/{$q['quiz']->id}/questions/{$question->id}/answer",
+                $payload,
+            )->assertOk();
+        }
+    }
+
+    public function test_an_opened_attempt_is_not_stored_as_a_pass(): void
+    {
+        // B-162: the attempt row took the column default status 'success'.
+        $course = Course::factory()->create();
+        $q = $this->buildQuiz($course);
+        ['headers' => $headers] = $this->enrolledToken($course);
+
+        $this->withHeaders($headers)->postJson(
+            self::BASE . "/courses/{$course->id}/quizzes/{$q['quiz']->id}/questions/{$q['mcq']->id}/answer",
+            ['value' => '4'],
+        )->assertOk();
+
+        $this->assertSame('pending', \App\Models\UserExam::where('exam_id', $q['quiz']->id)->value('status'));
+    }
+
+    public function test_without_a_pass_score_a_low_score_fails(): void
+    {
+        // NEW2B-6232 / D-087: no pass score passed every attempt; now half the full mark decides.
+        $course = Course::factory()->create();
+        $q = $this->buildQuiz($course);
+        $q['quiz']->update(['pass_score' => null]);
+        ['headers' => $headers] = $this->enrolledToken($course);
+
+        $this->answerAll($course, $q, $headers, mcqValue: '3'); // 0 + 5 + 0 + partial reorder < 20 of 40
+
+        $submission = \App\Models\UserExam::where('exam_id', $q['quiz']->id)->firstOrFail();
+        $this->assertLessThan(20, (int) $submission->user_degree);
+        $this->assertSame('fail', $submission->status);
+        $this->assertFalse($this->withHeaders($headers)
+            ->getJson(self::BASE . "/courses/{$course->id}/quizzes/{$q['quiz']->id}/results")
+            ->json('result.passed'));
+    }
+
+    public function test_grading_an_open_answer_updates_the_score_and_the_verdict(): void
+    {
+        $course = Course::factory()->create();
+        $q = $this->buildQuiz($course);
+        $q['quiz']->update(['pass_score' => 25]);
+        ['headers' => $headers] = $this->enrolledToken($course);
+
+        $this->answerAll($course, $q, $headers); // 10 + 5 + 0 + partial reorder
+
+        $submission = \App\Models\UserExam::where('exam_id', $q['quiz']->id)->firstOrFail();
+        $before = (int) $submission->user_degree;
+        $this->assertLessThan(25, $before);
+        $this->assertSame('fail', $submission->status);
+
+        $openAnswer = $submission->answers()->where('question_id', $q['open']->id)->firstOrFail();
+        app(AdminQuizService::class)->gradeAnswer($openAnswer, 10, 'Good', User::factory()->create());
+
+        $submission->refresh();
+        $this->assertSame($before + 10, (int) $submission->user_degree);
+        $this->assertSame('success', $submission->status);
+    }
 }

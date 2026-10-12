@@ -18,6 +18,7 @@ class AdminLearnerCourseRowResource extends JsonResource
     public function toArray(Request $request): array
     {
         $scheduled = (int) ($this->sessions_scheduled ?? 0);
+        $past      = (int) ($this->sessions_past ?? $scheduled);
         $attended  = (int) ($this->sessions_attended ?? 0);
 
         return [
@@ -31,10 +32,11 @@ class AdminLearnerCourseRowResource extends JsonResource
             'qualifications' => $this->qualifications ?? [],
             'cohort_id'   => $this->cohort_id !== null ? (int) $this->cohort_id : null,
             'attended'    => $attended,
-            // Never negative: a learner can attend a session that was later
-            // removed from the cohort schedule.
-            'absent'      => max(0, $scheduled - $attended),
+            // Only sessions already over can be missed; never negative: a
+            // learner can attend a session later removed from the schedule.
+            'absent'      => max(0, $past - $attended),
             'sessions_scheduled' => $scheduled,
+            // completed | active | upcoming | ended (D-086).
             'status'      => $this->status,
             // Attendance-based progress. Null rather than 0 when the cohort has
             // no scheduled sessions, so the UI renders "—" instead of implying

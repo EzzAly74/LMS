@@ -72,16 +72,24 @@ class JobTitleLearnersTest extends ApiTestCase
         return $user;
     }
 
-    /** Give $user a passing exam record for $course - the completion signal. */
+    /**
+     * Give $user an exam record for $course; 'passed' also gives the active
+     * certificate a certificate course is completed by (D-082, D-086).
+     */
     private function passExam(User $user, Course $course, string $status = 'passed'): void
     {
+        if ($status === 'passed') {
+            \App\Models\UserCertificate::factory()->create(['user_id' => $user->id, 'course_id' => $course->id]);
+        }
+
         $exam = \App\Models\CourseExam::factory()->create(['course_id' => $course->id]);
 
         DB::table('user_exams')->insert([
             'user_id'      => $user->id,
             'course_id'    => $course->id,
             'exam_id'      => $exam->id,
-            'status'       => $status,
+            'status'       => $status === 'passed' ? 'success' : 'fail',
+            'submission_status' => 'submitted',
             'submitted_at' => now()->subDays(2),
             'created_at'   => now()->subDays(2),
             'updated_at'   => now()->subDays(2),

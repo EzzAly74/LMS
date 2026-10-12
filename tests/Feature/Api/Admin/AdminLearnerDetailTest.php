@@ -62,11 +62,14 @@ class AdminLearnerDetailTest extends ApiTestCase
             'exam_id'      => CourseExam::factory()->create(['course_id' => $course->id])->id,
             'user_degree'  => $degree,
             'max_score'    => $max,
-            'status'       => 'passed',
+            'status'       => 'success',
+            'submission_status' => 'submitted',
             'submitted_at' => now()->subDay(),
             'created_at'   => now()->subDay(),
             'updated_at'   => now()->subDay(),
         ]);
+        // A certificate course is completed by its certificate (D-082, D-086).
+        \App\Models\UserCertificate::factory()->create(['user_id' => $user->id, 'course_id' => $course->id]);
     }
 
     private function url(User $u, string $suffix = ''): string
@@ -120,7 +123,7 @@ class AdminLearnerDetailTest extends ApiTestCase
         $exam    = CourseExam::factory()->create(['course_id' => $course->id, 'title' => ['en' => 'Final Quiz', 'ar' => 'الاختبار النهائي']]);
         DB::table('user_exams')->insert([
             'user_id' => $learner->id, 'course_id' => $course->id, 'exam_id' => $exam->id,
-            'user_degree' => 90, 'max_score' => 100, 'status' => 'passed',
+            'user_degree' => 90, 'max_score' => 100, 'status' => 'success', 'submission_status' => 'submitted',
             'submitted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
         ['headers' => $headers] = $this->adminToken();
@@ -290,7 +293,88 @@ class AdminLearnerDetailTest extends ApiTestCase
         $this->assertSame(1, $row['attended']);
         $this->assertSame(2, $row['absent']);
         $this->assertSame(33, $row['progress_percent']);
+        // Every session is over and nothing completed the course: it ended, as
+        // the Website buckets it (D-086).
+        $this->assertSame('ended', $row['status']);
+    }
+
+    public function test_a_future_session_is_not_an_absence_and_the_course_is_active(): void
+    {
+        $learner = $this->learner();
+        $course  = Course::factory()->create();
+        $cohort  = CourseSection::factory()->create(['course_id' => $course->id]);
+        DB::table('users_courses')->insert([
+            'user_id' => $learner->id, 'course_id' => $course->id, 'group_id' => $cohort->id,
+            'created_at' => now()->subDays(10), 'updated_at' => now()->subDays(10),
+        ]);
+        foreach ([-3, -1, 4] as $offset) {
+            DB::table('course_sessions')->insert([
+                'course_id' => $course->id, 'section_id' => $cohort->id, 'title' => "S{$offset}",
+                'session_date' => now()->addDays($offset)->toDateString(),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        ['headers' => $headers] = $this->adminToken();
+        $row   = $this->getJson($this->url($learner, '/courses'), $headers)->assertOk()->json('result.0');
+        $tiles = $this->getJson($this->url($learner), $headers)->assertOk()->json('result.tiles');
+
+        $this->assertSame(2, $row['absent'], 'Only the two past sessions can be missed.');
         $this->assertSame('active', $row['status']);
+        $this->assertSame(1, $tiles['active_courses']);
+        $this->assertSame(0, $tiles['completed_courses']);
+    }
+
+    public function test_an_upcoming_cohort_is_not_an_active_course(): void
+    {
+        // NEW2B-6229: "Active" is the Website's Current tab, which leaves
+        // upcoming cohorts out.
+        $learner = $this->learner();
+        $course  = Course::factory()->create();
+        $cohort  = CourseSection::factory()->create(['course_id' => $course->id]);
+        DB::table('users_courses')->insert([
+            'user_id' => $learner->id, 'course_id' => $course->id, 'group_id' => $cohort->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('course_sessions')->insert([
+            'course_id' => $course->id, 'section_id' => $cohort->id, 'title' => 'S1',
+            'session_date' => now()->addDays(7)->toDateString(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        ['headers' => $headers] = $this->adminToken();
+        $row   = $this->getJson($this->url($learner, '/courses'), $headers)->assertOk()->json('result.0');
+        $tiles = $this->getJson($this->url($learner), $headers)->assertOk()->json('result.tiles');
+
+        $this->assertSame('upcoming', $row['status']);
+        $this->assertSame(0, $row['absent']);
+        $this->assertSame(0, $tiles['active_courses']);
+    }
+
+    public function test_an_unsubmitted_or_failed_quiz_is_not_reported_as_passed(): void
+    {
+        // NEW2B-6232: the status column said 'success' for failed attempts.
+        $learner = $this->learner();
+        $course  = $this->enrol($learner);
+        $failed  = CourseExam::factory()->create(['course_id' => $course->id, 'degree' => 100]);
+        DB::table('user_exams')->insert([
+            'user_id' => $learner->id, 'course_id' => $course->id, 'exam_id' => $failed->id,
+            'user_degree' => 30, 'max_score' => 100, 'status' => 'success', 'submission_status' => 'submitted',
+            'submitted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $passMark = CourseExam::factory()->create(['course_id' => $course->id, 'degree' => 100, 'pass_score' => 80]);
+        DB::table('user_exams')->insert([
+            'user_id' => $learner->id, 'course_id' => $course->id, 'exam_id' => $passMark->id,
+            'user_degree' => 70, 'max_score' => 100, 'status' => 'success', 'submission_status' => 'submitted',
+            'submitted_at' => now()->subHour(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        ['headers' => $headers] = $this->adminToken();
+        $rows = collect($this->getJson($this->url($learner, '/performance'), $headers)->assertOk()->json('result'))
+            ->where('kind', 'quiz')->values();
+
+        $this->assertCount(2, $rows);
+        $this->assertSame(['failed', 'failed'], $rows->pluck('status')->all());
+        $this->assertSame('failed', $this->getJson($this->url($learner), $headers)->json('result.tiles.last_quiz.status'));
     }
 
     public function test_a_passed_course_is_reported_as_completed(): void

@@ -48,10 +48,13 @@ class AdminLearnerListTest extends ApiTestCase
                 'user_id'    => $user->id,
                 'course_id'  => $course->id,
                 'exam_id'    => \App\Models\CourseExam::factory()->create(['course_id' => $course->id])->id,
-                'status'     => 'passed',
+                'status'     => 'success',
+                'submission_status' => 'submitted',
                 'created_at' => now()->subDays(4),
                 'updated_at' => now()->subDays(4),
             ]);
+            // A certificate course is completed by its certificate (D-082, D-086).
+            \App\Models\UserCertificate::factory()->create(['user_id' => $user->id, 'course_id' => $course->id]);
         }
 
         return $course;
@@ -73,14 +76,13 @@ class AdminLearnerListTest extends ApiTestCase
         $jobTitle = JobTitle::query()->create(['name' => 'Technician', 'name_en' => 'Technician']);
         $learner  = $this->learner('Sara', $jobTitle);
 
-        $this->enrol($learner, passed: true);
+        $done = $this->enrol($learner, passed: true);
         $this->enrol($learner, passed: false);
 
-        UserCertificate::factory()->create([
-            'user_id'   => $learner->id,
-            'status'    => 'active',
-            'issued_at' => '2026-03-04 10:00:00',
-        ]);
+        UserCertificate::query()
+            ->where('user_id', $learner->id)
+            ->where('course_id', $done->id)
+            ->update(['issued_at' => '2026-03-04 10:00:00']);
 
         ['headers' => $headers] = $this->adminToken();
         $row = $this->rowFor($headers, $learner);
@@ -91,22 +93,41 @@ class AdminLearnerListTest extends ApiTestCase
         $this->assertStringStartsWith('2026-03-04', (string) $row['last_certification_at']);
     }
 
-    public function test_courses_earned_agrees_with_the_qualification_percentage(): void
+    public function test_qualification_percentage_is_the_job_titles_required_courses_completed(): void
     {
-        $learner = $this->learner('Consistent');
-        $this->enrol($learner, passed: true);
-        $this->enrol($learner, passed: true);
-        $this->enrol($learner, passed: false);
-        $this->enrol($learner, passed: false);
+        // D-086 (NEW2B-6224): "Courses Earned" counts every completed course,
+        // as the Website "Earned" counter; "Qualification (%)" is the share of
+        // the courses the job title's qualifications require.
+        $jobTitle = JobTitle::query()->create(['name' => 'Analyst', 'name_en' => 'Analyst']);
+        $skill    = \App\Models\QualificationSkill::query()->create(['name' => 'Reporting']);
+        $jobTitle->qualificationSkills()->attach($skill->id);
+        $learner = $this->learner('Consistent', $jobTitle);
+
+        $requiredDone = $this->enrol($learner, passed: true);
+        $requiredOpen = $this->enrol($learner, passed: false);
+        $this->enrol($learner, passed: true); // chosen by the learner, not required
+        foreach ([$requiredDone, $requiredOpen] as $course) {
+            DB::table('course_qualification_skills')->insert(['course_id' => $course->id, 'qualification_skill_id' => $skill->id]);
+        }
 
         ['headers' => $headers] = $this->adminToken();
         $row = $this->rowFor($headers, $learner);
 
-        // Both columns come from the same passed-course count, so they can
-        // never disagree on screen: 2 earned of 4 enrolled = 50%.
         $this->assertSame(2, $row['courses_earned']);
-        $this->assertSame(4, $row['enrolled_courses_count']);
+        $this->assertSame(3, $row['enrolled_courses_count']);
         $this->assertSame(50, $row['compliance_pct']);
+    }
+
+    public function test_qualification_percentage_is_null_without_required_courses(): void
+    {
+        $learner = $this->learner('Free');
+        $this->enrol($learner, passed: true);
+
+        ['headers' => $headers] = $this->adminToken();
+        $row = $this->rowFor($headers, $learner);
+
+        $this->assertSame(1, $row['courses_earned']);
+        $this->assertNull($row['compliance_pct']);
     }
 
     public function test_a_learner_with_no_data_reports_zero_and_null_not_missing_keys(): void

@@ -85,11 +85,14 @@ class LearnerQualificationTest extends ApiTestCase
                     'user_id'      => $user->id,
                     'course_id'    => $course->id,
                     'exam_id'      => $exam->id,
-                    'status'       => 'passed',
+                    'status'       => 'success',
+                    'submission_status' => 'submitted',
                     'submitted_at' => now()->subDays(2),
                     'created_at'   => now()->subDays(2),
                     'updated_at'   => now()->subDays(2),
                 ]);
+                // A certificate course is completed by its certificate (D-082, D-086).
+                \App\Models\UserCertificate::factory()->create(['user_id' => $user->id, 'course_id' => $course->id]);
             }
         }
 

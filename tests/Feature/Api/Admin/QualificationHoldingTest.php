@@ -47,9 +47,11 @@ class QualificationHoldingTest extends ApiTestCase
         DB::table('users_courses')->insert(['user_id' => $u->id, 'course_id' => $c->id, 'created_at' => now(), 'updated_at' => now()]);
         $exam = CourseExam::factory()->create(['course_id' => $c->id]);
         DB::table('user_exams')->insert([
-            'user_id' => $u->id, 'course_id' => $c->id, 'exam_id' => $exam->id, 'status' => 'passed',
-            'submitted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            'user_id' => $u->id, 'course_id' => $c->id, 'exam_id' => $exam->id, 'status' => 'success',
+            'submission_status' => 'submitted', 'submitted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
+        // A certificate course is completed by its certificate (D-082, D-086).
+        \App\Models\UserCertificate::factory()->create(['user_id' => $u->id, 'course_id' => $c->id]);
     }
 
     private function grant(User $u): void

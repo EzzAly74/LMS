@@ -3,118 +3,199 @@
 namespace App\Support;
 
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The single definition of "this learner completed this course" (B-104).
+ * The single definition of "this learner completed this course" (B-104,
+ * D-082, D-086).
  *
- * ── Why this class exists ────────────────────────────────────────────────────
- * The codebase carried two incompatible definitions at the same time:
+ * Every screen uses this class: the Website (My Learnings, profile counters,
+ * qualifications), the mobile API, and the Dashboard (learners list, learner
+ * detail, job titles, qualifications, home widgets, reports). Before D-086 the
+ * Dashboard matched `user_exams.status IN ('passed', 'completed')`, values the
+ * application never writes (it writes 'success' / 'fail'), so every Dashboard
+ * completion figure read 0 while the Website showed the real ones.
  *
- *   1. `users_courses.updated_at > created_at`
- *      — DashboardRepository, JobTitleRepository, JobTitleService
- *   2. `user_exams.status IN ('passed', 'completed')`
- *      — AdminUserService, AdminLearnerProfileService
+ * ── The rule (D-082) ─────────────────────────────────────────────────────────
+ * A course that offers a certificate is completed when the learner holds an
+ * ACTIVE certificate for it. Issuance already enforces the certificate rule
+ * (D-084), so a revoked certificate is not a completion.
  *
- * They disagree, and they disagreed on screens shown side by side: a job-title
- * card could report a learner as compliant while the learner detail it drills
- * into reported the same person as having completed nothing.
+ * A course without a certificate is completed by any of:
+ *   - every content module (lecture) of the course completed;
+ *   - a SUBMITTED, passing final exam (when the course is not evaluated);
+ *   - the course evaluation submitted (when the course is evaluated).
  *
- * (1) is not a completion check at all. `updated_at > created_at` is true as
- * soon as anything touches the enrolment row — a progress tick, a re-save, a
- * bulk update, a column backfill. It counts *activity*, and it silently
- * inflates every completion and compliance figure derived from it.
+ * "Submitted" matters: an opened rich quiz attempt is a row too, and it
+ * carries the column default status 'success' (B-162); see submittedExamSql().
  *
- * (2) is decided as the project-wide definition (7.2 in `06-open-questions.md`).
- * A course is completed when the learner has a passing exam record for it.
- *
- * ── Consequence, stated plainly ──────────────────────────────────────────────
- * Completion and compliance numbers FALL wherever (1) was inflating them. That
- * is a correction, not a regression, but it is visible: dashboard completion
- * counts, the completion trend, job-title compliance bars and "courses
- * completed" per learner all move.
- *
- * ── Courses with no exam ─────────────────────────────────────────────────────
- * A course that has no exam can never be completed under this definition. That
- * is deliberate: the alternative is to infer completion from activity, which is
- * exactly the defect being removed. Courses that should be completable without
- * an assessment need an explicit completion signal, which does not exist in the
- * schema today and is not invented here.
+ * The completion moment (`completed_at`) is the earliest signal for the pair.
  */
 final class CourseCompletion
 {
-    /**
-     * Statuses on `user_exams` that count as a pass.
-     *
-     * Compared case-insensitively because the column is free-form text and the
-     * existing data is mixed-case.
-     */
-    public const PASSING_STATUSES = ['passed', 'completed'];
+    /** `user_exams` rows (alias `ue`) that are a submitted pass. */
+    private const PASSED_EXAM_SQL = "ue.status = 'success' AND ";
 
     /**
-     * A correlated `EXISTS (...)` fragment for use inside raw SQL.
+     * A `user_exams` row (alias `$alias`) is a submission, not an opened
+     * attempt: a rich quiz (one with `question_en` questions) once
+     * `submission_status = 'submitted'`; a legacy exam always, since the legacy
+     * flow creates the row only on submit (B-162). `user_degree` cannot tell
+     * them apart: it is NOT NULL with a default of 0.
+     */
+    public static function submittedExamSql(string $alias): string
+    {
+        return "({$alias}.submission_status = 'submitted' OR NOT EXISTS (
+            SELECT 1 FROM course_exam_questions rich_q
+            WHERE rich_q.course_exam_id = {$alias}.exam_id AND rich_q.question_en IS NOT NULL
+        ))";
+    }
+
+    /**
+     * A correlated boolean SQL fragment: does `$userColumn` complete
+     * `$courseColumn`?
      *
      * Both arguments are SQL column references supplied by calling code, never
      * by user input — they are interpolated, so they must stay that way.
-     *
-     * Usable anywhere a boolean expression is: `whereRaw()`, a `CASE WHEN`, a
-     * `COUNT(DISTINCT CASE WHEN ... END)`.
-     *
-     * Example:
-     *   COUNT(DISTINCT CASE WHEN {existsSql} THEN users_courses.course_id END)
      */
     public static function existsSql(string $userColumn, string $courseColumn): string
     {
-        $statuses = implode(', ', array_map(
-            static fn (string $s) => "'".$s."'",
-            self::PASSING_STATUSES,
-        ));
+        $passed = self::PASSED_EXAM_SQL.self::submittedExamSql('ue');
 
-        return "EXISTS (
-            SELECT 1 FROM user_exams ce
-            WHERE ce.user_id   = {$userColumn}
-              AND ce.course_id = {$courseColumn}
-              AND LOWER(COALESCE(ce.status, '')) IN ({$statuses})
+        return "(
+            EXISTS (
+                SELECT 1 FROM user_certificates ccert
+                WHERE ccert.user_id = {$userColumn}
+                  AND ccert.course_id = {$courseColumn}
+                  AND ccert.status = 'active'
+            )
+            OR EXISTS (
+                SELECT 1 FROM courses ccrs
+                WHERE ccrs.id = {$courseColumn}
+                  AND ccrs.certificate = 0
+                  AND (
+                    (ccrs.is_evaluate = 0 AND EXISTS (
+                        SELECT 1 FROM user_exams ue
+                        JOIN course_exams cex ON cex.id = ue.exam_id
+                        WHERE ue.user_id = {$userColumn}
+                          AND ue.course_id = {$courseColumn}
+                          AND cex.is_final = 1
+                          AND {$passed}
+                    ))
+                    OR (ccrs.is_evaluate = 1 AND EXISTS (
+                        SELECT 1 FROM user_course_evaluations cev
+                        WHERE cev.user_id = {$userColumn}
+                          AND cev.course_id = {$courseColumn}
+                    ))
+                    OR (
+                        EXISTS (SELECT 1 FROM course_lectures clx WHERE clx.course_id = {$courseColumn})
+                        AND NOT EXISTS (
+                            SELECT 1 FROM course_lectures cly
+                            WHERE cly.course_id = {$courseColumn}
+                              AND NOT EXISTS (
+                                SELECT 1 FROM user_lecture_progress ulp
+                                WHERE ulp.lecture_id = cly.id
+                                  AND ulp.user_id = {$userColumn}
+                                  AND ulp.completed = 1
+                              )
+                        )
+                    )
+                  )
+            )
         )";
     }
 
     /**
-     * Distinct (user_id, course_id) pairs that are completed, with the moment
-     * completion happened.
+     * Completed (user_id, course_id) pairs with the moment completion happened.
      *
-     * `completed_at` is the EARLIEST passing submission for the pair, so a
-     * later retake cannot move a completion into a different reporting bucket.
-     * It falls back to `updated_at` for rows predating `submitted_at`.
+     * @param  list<int>|null  $userIds    limit to these learners (null: all)
+     * @param  list<int>|null  $courseIds  limit to these courses (null: all)
      */
-    public static function query(): Builder
+    public static function query(?array $userIds = null, ?array $courseIds = null): Builder
     {
-        $statuses = self::PASSING_STATUSES;
+        $scope = static function (Builder $q, string $userCol, string $courseCol) use ($userIds, $courseIds): Builder {
+            return $q
+                ->when($userIds !== null, fn (Builder $b) => $b->whereIn($userCol, $userIds ?: [0]))
+                ->when($courseIds !== null, fn (Builder $b) => $b->whereIn($courseCol, $courseIds ?: [0]));
+        };
 
-        return DB::table('user_exams')
-            ->selectRaw('user_id, course_id, MIN(COALESCE(submitted_at, updated_at)) AS completed_at')
-            ->whereRaw(
-                'LOWER(COALESCE(status, "")) IN ('.implode(', ', array_fill(0, count($statuses), '?')).')',
-                $statuses,
-            )
-            ->whereNotNull('course_id')
+        // Courses with a certificate: an active certificate.
+        $certificates = $scope(DB::table('user_certificates as ccert')
+            ->where('ccert.status', 'active')
+            ->selectRaw('ccert.user_id, ccert.course_id, COALESCE(ccert.issued_at, ccert.created_at) AS done_at'),
+            'ccert.user_id', 'ccert.course_id');
+
+        // Courses without a certificate, not evaluated: a submitted, passing final exam.
+        $exams = $scope(DB::table('user_exams as ue')
+            ->join('course_exams as cex', 'cex.id', '=', 'ue.exam_id')
+            ->join('courses as ccrs', 'ccrs.id', '=', 'ue.course_id')
+            ->where('cex.is_final', true)
+            ->where('ccrs.certificate', false)
+            ->where('ccrs.is_evaluate', false)
+            ->whereRaw(self::PASSED_EXAM_SQL.self::submittedExamSql('ue'))
+            ->selectRaw('ue.user_id, ue.course_id, COALESCE(ue.submitted_at, ue.updated_at) AS done_at'),
+            'ue.user_id', 'ue.course_id');
+
+        // Evaluated courses without a certificate: the evaluation submitted.
+        $evaluations = $scope(DB::table('user_course_evaluations as cev')
+            ->join('courses as ccrs', 'ccrs.id', '=', 'cev.course_id')
+            ->where('ccrs.is_evaluate', true)
+            ->where('ccrs.certificate', false)
+            ->selectRaw('cev.user_id, cev.course_id, MIN(cev.created_at) AS done_at')
+            ->groupBy('cev.user_id', 'cev.course_id'),
+            'cev.user_id', 'cev.course_id');
+
+        // Courses without a certificate: every content module completed.
+        $content = $scope(DB::table('user_lecture_progress as ulp')
+            ->join('course_lectures as cl', 'cl.id', '=', 'ulp.lecture_id')
+            ->join('courses as ccrs', 'ccrs.id', '=', 'cl.course_id')
+            ->where('ulp.completed', true)
+            ->where('ccrs.certificate', false)
+            ->selectRaw('ulp.user_id, cl.course_id, MAX(ulp.updated_at) AS done_at')
+            ->groupBy('ulp.user_id', 'cl.course_id')
+            ->havingRaw('COUNT(DISTINCT cl.id) = (SELECT COUNT(*) FROM course_lectures clt WHERE clt.course_id = cl.course_id)'),
+            'ulp.user_id', 'cl.course_id');
+
+        $signals = $certificates->unionAll($exams)->unionAll($evaluations)->unionAll($content);
+
+        return DB::query()
+            ->fromSub($signals, 'signals')
+            ->selectRaw('user_id, course_id, MIN(done_at) AS completed_at')
             ->groupBy('user_id', 'course_id');
     }
 
     /**
      * The course ids a single learner has completed.
      *
-     * @return \Illuminate\Support\Collection<int, int>
+     * @return Collection<int, int>
      */
-    public static function courseIdsFor(int $userId): \Illuminate\Support\Collection
+    public static function courseIdsFor(int $userId): Collection
     {
-        return DB::table('user_exams')
-            ->where('user_id', $userId)
-            ->whereRaw(
-                'LOWER(COALESCE(status, "")) IN (?, ?)',
-                self::PASSING_STATUSES,
-            )
-            ->whereNotNull('course_id')
-            ->distinct()
-            ->pluck('course_id');
+        return self::query([$userId])
+            ->pluck('course_id')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+    }
+
+    /**
+     * Completed pairs for a batch of learners, keyed "userId:courseId".
+     *
+     * @param  list<int>       $userIds
+     * @param  list<int>|null  $courseIds
+     * @return array<string, true>
+     */
+    public static function pairsFor(array $userIds, ?array $courseIds = null): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        $pairs = [];
+        foreach (self::query($userIds, $courseIds)->get(['user_id', 'course_id']) as $row) {
+            $pairs[$row->user_id.':'.$row->course_id] = true;
+        }
+
+        return $pairs;
     }
 }

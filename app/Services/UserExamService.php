@@ -8,6 +8,8 @@ use App\Models\CourseExam;
 use App\Models\CourseExamQuestionAnswer;
 use App\Models\User;
 use App\Models\UserExam;
+use App\Support\QuizVerdict;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Collection;
 
 class UserExamService
@@ -88,28 +90,35 @@ class UserExamService
             }
         }
 
-        $userExam = UserExam::create([
-            'user_id'   => $user->id,
-            'course_id' => $course->id,
-            'exam_id'   => $exam->id,
-        ]);
-
-        foreach ($rows as $row) {
-            $userExam->answers()->create($row);
-        }
-
         // Denominator is the exam's real question count, not the client's.
         $totalQuestions = $examQuestions->count();
         $userDegree     = $totalQuestions > 0
             ? ($exam->degree / $totalQuestions) * $correctAnswers
             : 0;
 
-        $status = $userDegree >= ($exam->degree / 2) ? 'success' : 'fail';
+        $status = QuizVerdict::status((float) $userDegree, null, (float) $exam->degree);
 
-        $userExam->update([
-            'user_degree' => $userDegree,
-            'status'      => $status,
-        ]);
+        // One write (P2-15): the row used to be created first with the column
+        // default status 'success' and graded afterwards, so a failure in
+        // between left a pass-looking row that also blocked a retry.
+        $userExam = DB::transaction(function () use ($user, $course, $exam, $rows, $userDegree, $status) {
+            $userExam = UserExam::create([
+                'user_id'           => $user->id,
+                'course_id'         => $course->id,
+                'exam_id'           => $exam->id,
+                'user_degree'       => $userDegree,
+                'status'            => $status,
+                'submission_status' => UserExam::SUBMISSION_SUBMITTED,
+                'submitted_at'      => now(),
+                'max_score'         => (int) $exam->degree,
+            ]);
+
+            foreach ($rows as $row) {
+                $userExam->answers()->create($row);
+            }
+
+            return $userExam;
+        });
 
         // Issue the first-class certificate the moment a final exam is
         // passed on a certificate-bearing course. Idempotent + eligibility

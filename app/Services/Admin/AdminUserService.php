@@ -12,6 +12,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Pagination\LengthAwarePaginator as PaginatorImpl;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Carbon;
+use App\Support\CourseCompletion;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -983,12 +984,24 @@ class AdminUserService
             ->groupBy('user_id')
             ->pluck('c', 'user_id');
 
-        $passedByUser = DB::table('user_exams')
-            ->whereIn('user_id', $learnerIds)
-            ->whereRaw('LOWER(COALESCE(status, "")) IN (?, ?)', ['passed', 'completed'])
-            ->select('user_id', DB::raw('COUNT(DISTINCT course_id) AS c'))
-            ->groupBy('user_id')
-            ->pluck('c', 'user_id');
+        // Completed courses per learner, by the one rule the Website uses too
+        // (App\Support\CourseCompletion, D-086).
+        $completedByUser = [];
+        foreach (CourseCompletion::query(array_map('intval', $learnerIds))->get() as $pair) {
+            $completedByUser[(int) $pair->user_id][(int) $pair->course_id] = true;
+        }
+
+        // Courses each job title requires (its qualifications' courses), as the
+        // Website "Required" counter counts them (D-083).
+        $requiredByJobTitle = DB::table('users')
+            ->whereIn('users.id', $learnerIds)
+            ->whereNotNull('users.job_title_id')
+            ->join('job_title_qualification_skill as jtqs', 'jtqs.job_title_id', '=', 'users.job_title_id')
+            ->join('course_qualification_skills as cqs', 'cqs.qualification_skill_id', '=', 'jtqs.qualification_skill_id')
+            ->distinct()
+            ->get(['users.job_title_id', 'cqs.course_id'])
+            ->groupBy('job_title_id')
+            ->map(fn ($rows) => $rows->pluck('course_id')->map(fn ($id) => (int) $id)->unique()->values()->all());
 
         /*
          * Three more columns the 2026 Figma learners list needs
@@ -1013,13 +1026,13 @@ class AdminUserService
         $jobTitleByUser = DB::table('users')
             ->whereIn('users.id', $learnerIds)
             ->leftJoin('job_titles', 'users.job_title_id', '=', 'job_titles.id')
-            ->select('users.id', 'job_titles.name', 'job_titles.name_en', 'job_titles.name_ar')
+            ->select('users.id', 'users.job_title_id', 'job_titles.name', 'job_titles.name_en', 'job_titles.name_ar')
             ->get()
             ->keyBy('id');
 
         $locale = app()->getLocale();
 
-        return $rows->map(function ($r) use ($enrolledByUser, $passedByUser, $lastCertByUser, $jobTitleByUser, $locale) {
+        return $rows->map(function ($r) use ($enrolledByUser, $completedByUser, $requiredByJobTitle, $lastCertByUser, $jobTitleByUser, $locale) {
             if (($r->source ?? null) !== 'user') {
                 $r->compliance_pct         = null;
                 $r->enrolled_courses_count = 0;
@@ -1029,22 +1042,23 @@ class AdminUserService
                 return $r;
             }
 
-            $enrolled = (int) ($enrolledByUser[$r->id] ?? 0);
-            $passed   = (int) ($passedByUser[$r->id]   ?? 0);
+            $completed = $completedByUser[(int) $r->id] ?? [];
+            $jt        = $jobTitleByUser[$r->id] ?? null;
+            $required  = $jt?->job_title_id !== null ? ($requiredByJobTitle[$jt->job_title_id] ?? []) : [];
 
-            $r->enrolled_courses_count = $enrolled;
-            $r->compliance_pct = $enrolled > 0
-                ? (int) round(($passed / $enrolled) * 100)
+            $r->enrolled_courses_count = (int) ($enrolledByUser[$r->id] ?? 0);
+
+            // "Courses Earned": every completed course, as the Website "Earned" counter (D-083, D-086).
+            $r->courses_earned = count($completed);
+
+            // "Qualification (%)": the job title's required courses completed (D-086);
+            // null when the job title requires none.
+            $r->compliance_pct = $required !== []
+                ? (int) round(100 * count(array_filter($required, fn (int $id) => isset($completed[$id]))) / count($required))
                 : null;
-
-            // "Courses Earned" in the Figma table. This is the same $passed
-            // count the compliance percentage is built from, so the two
-            // columns can never disagree with each other on screen.
-            $r->courses_earned = $passed;
 
             $r->last_certification_at = $lastCertByUser[$r->id] ?? null;
 
-            $jt = $jobTitleByUser[$r->id] ?? null;
             $r->job_title = $jt === null ? null : ($locale === 'ar'
                 ? ($jt->name_ar ?: $jt->name)
                 : ($jt->name_en ?: $jt->name));

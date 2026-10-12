@@ -7,6 +7,7 @@ use App\Models\CourseExam;
 use App\Models\CourseExamQuestion;
 use App\Models\User;
 use App\Models\UserExam;
+use App\Support\QuizVerdict;
 use App\Models\UserExamAnswer;
 use App\Services\CertificateService;
 use App\Services\Grading\QuestionAnswerGrader;
@@ -146,7 +147,14 @@ class LearnerQuizService
 
         if ($submission->submission_status !== UserExam::SUBMISSION_SUBMITTED) {
             $totals = $this->recalculateTotals($submission);
-            $passed = $quiz->pass_score !== null ? $totals['total_score'] >= $quiz->pass_score : null;
+            // D-087: the pass score when the quiz has one, else half the full
+            // mark. This stored 'success' for any score when no pass score was
+            // set (NEW2B-6232).
+            $passed = QuizVerdict::passes(
+                (float) $totals['total_score'],
+                $quiz->pass_score !== null ? (float) $quiz->pass_score : null,
+                (float) $totals['max_score'],
+            );
 
             $submission->update([
                 'submission_status' => UserExam::SUBMISSION_SUBMITTED,
@@ -155,10 +163,10 @@ class LearnerQuizService
                 // Legacy status column — kept in sync so CertificateService's
                 // existing final-exam-pass rule keeps working unchanged for
                 // rich quizzes flagged `is_final`, without forking that rule.
-                'status' => $passed === false ? 'fail' : 'success',
+                'status' => $passed ? 'success' : 'fail',
             ]);
 
-            if ($passed !== false) {
+            if ($passed) {
                 $this->certificates->issueFromExam($submission->fresh(['exam', 'course']));
             }
         }
@@ -213,7 +221,15 @@ class LearnerQuizService
             'max_score' => $totals['max_score'],
             'percent' => $percent,
             'pass_score' => $quiz->pass_score,
-            'passed' => $quiz->pass_score !== null ? $totals['total_score'] >= $quiz->pass_score : null,
+            // The same verdict the Dashboard and the certificate use (D-087);
+            // none while the attempt is still open.
+            'passed' => $submission->submission_status === UserExam::SUBMISSION_SUBMITTED
+                ? QuizVerdict::passes(
+                    (float) $totals['total_score'],
+                    $quiz->pass_score !== null ? (float) $quiz->pass_score : null,
+                    (float) $totals['max_score'],
+                )
+                : null,
             'submitted_at' => $submission->submitted_at?->format('Y-m-d H:i:s'),
             'answers' => $answerBreakdown,
         ];
@@ -239,6 +255,9 @@ class LearnerQuizService
             'course_id' => $course->id,
             'exam_id' => $quiz->id,
             'submission_status' => UserExam::SUBMISSION_PENDING,
+            // Not 'success' (the column default): an opened attempt is no
+            // result yet (B-162). finish() sets success / fail.
+            'status' => 'pending',
             'max_score' => $quiz->total_score,
         ]);
     }

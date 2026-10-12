@@ -162,10 +162,11 @@ class JobTitleService
 
         $passed = $enrolled = $progress = [];
         if ($courseIds !== []) {
-            $passed = $this->pairs(DB::table('user_exams')
-                ->whereIn('user_id', $userIds)
-                ->whereIn('course_id', $courseIds)
-                ->whereIn(DB::raw("LOWER(COALESCE(status, ''))"), CourseCompletion::PASSING_STATUSES));
+            // Completed by the one project rule (D-086).
+            $passed = CourseCompletion::pairsFor(
+                $userIds,
+                $courseIds,
+            );
             $enrolled = $this->pairs(DB::table('users_courses')
                 ->whereIn('user_id', $userIds)
                 ->whereIn('course_id', $courseIds));

@@ -4,6 +4,7 @@ namespace App\Services\Admin;
 
 use App\Http\Traits\HasFile;
 use App\Models\User;
+use App\Services\Mobile\QualificationProgressService;
 use App\Support\CourseCompletion;
 use App\Support\LocalizedJson;
 use App\Support\QualificationHolding;
@@ -23,9 +24,10 @@ use Illuminate\Support\Facades\DB;
  * definitions of a completed course, and picked the exam-based one so that
  * this screen agreed with the list it drills into. That was B-104.
  *
- * It is resolved: App\Support\CourseCompletion is now the single definition
- * project-wide, and it is the exam-based one. This service delegates to it
- * rather than repeating the status literals.
+ * It is resolved: App\Support\CourseCompletion is the single definition
+ * project-wide, the learner rule of D-082 (D-086). "Active" here is what the
+ * Website lists under Current: enrolled, not finished (completed or cohort
+ * ended), and not upcoming (first session still ahead).
  */
 class AdminLearnerProfileService
 {
@@ -34,24 +36,26 @@ class AdminLearnerProfileService
     /** Profile card + the five summary tiles. */
     public function profile(User $learner): array
     {
-        $enrolled = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')->where('user_id', $learner->id);
+        $states = $this->courseStates($learner);
 
-        $passedCourseIds = CourseCompletion::courseIdsFor($learner->id);
+        $completedCount = count(array_filter($states, fn (string $st) => $st === 'completed'));
+        $activeIds      = array_keys(array_filter($states, fn (string $st) => $st === 'active'));
 
-        $enrolledCount  = (clone $enrolled)->count();
-        $completedCount = $passedCourseIds->count();
-
+        // The latest submitted quiz: an opened attempt is not a result (B-162).
         $lastQuiz = $this->inScope(DB::table('user_exams'), 'user_exams.course_id')
-            ->where('user_id', $learner->id)
-            ->orderByDesc('submitted_at')
-            ->orderByDesc('id')
-            ->first(['user_degree', 'max_score', 'total_score', 'status', 'submitted_at']);
+            ->join('course_exams', 'course_exams.id', '=', 'user_exams.exam_id')
+            ->where('user_exams.user_id', $learner->id)
+            ->whereRaw(CourseCompletion::submittedExamSql('user_exams'))
+            ->orderByRaw('COALESCE(user_exams.submitted_at, user_exams.updated_at) DESC')
+            ->orderByDesc('user_exams.id')
+            ->first([
+                'user_exams.user_degree',
+                DB::raw(self::QUIZ_MAX_SQL.' AS max_score'),
+                DB::raw(self::QUIZ_STATUS_SQL.' AS status'),
+                DB::raw('COALESCE(user_exams.submitted_at, user_exams.updated_at) AS submitted_at'),
+            ]);
 
-        $lastActiveCourse = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')
-            ->join('courses', 'users_courses.course_id', '=', 'courses.id')
-            ->where('users_courses.user_id', $learner->id)
-            ->orderByDesc('users_courses.updated_at')
-            ->first(['courses.id', 'courses.title']);
+        $lastActiveCourse = $this->lastActiveCourse($learner);
 
         // Qualifications this learner holds, by the one project rule
         // (App\Support\QualificationHolding, D-056). This counted any
@@ -88,11 +92,11 @@ class AdminLearnerProfileService
             // Earned Qualification 1".
             'tiles' => [
                 'completed_courses' => $completedCount,
-                'active_courses'    => max(0, $enrolledCount - $completedCount),
-                'active_course_progress_percent' => $this->activeCourseProgress($learner, $passedCourseIds->all()),
+                'active_courses'    => count($activeIds),
+                'active_course_progress_percent' => $this->activeCourseProgress($learner, $activeIds),
                 'last_quiz' => $lastQuiz === null ? null : [
                     'score' => $lastQuiz->user_degree !== null ? (float) $lastQuiz->user_degree : null,
-                    'max'   => (float) ($lastQuiz->max_score ?? $lastQuiz->total_score ?? 0),
+                    'max'   => (float) $lastQuiz->max_score,
                     'status' => $lastQuiz->status,
                     'submitted_at' => $lastQuiz->submitted_at,
                 ],
@@ -102,20 +106,17 @@ class AdminLearnerProfileService
     }
 
     /**
-     * Lecture-completion percentage across the learner's not-yet-passed
-     * courses — the "Active Course 88.3%" tile.
+     * Content-completion percentage across the learner's active courses (the
+     * Website "Current" ones) — the "Active Course 88.3%" tile.
      *
      * Returns null rather than 0 when there is nothing in progress, so the UI
      * can render the design's "—" instead of an honest-looking zero.
+     *
+     * @param  list<int>  $activeCourseIds
      */
-    private function activeCourseProgress(User $learner, array $passedCourseIds): ?float
+    private function activeCourseProgress(User $learner, array $activeCourseIds): ?float
     {
-        $activeCourseIds = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')
-            ->where('user_id', $learner->id)
-            ->when($passedCourseIds !== [], fn ($q) => $q->whereNotIn('course_id', $passedCourseIds))
-            ->pluck('course_id');
-
-        if ($activeCourseIds->isEmpty()) {
+        if ($activeCourseIds === []) {
             return null;
         }
 
@@ -144,18 +145,21 @@ class AdminLearnerProfileService
      */
     public function courses(User $learner, int $perPage): LengthAwarePaginator
     {
-        $passedCourseIds = $this->inScope(DB::table('user_exams'), 'user_exams.course_id')
-            ->where('user_id', $learner->id)
-            ->whereRaw('LOWER(COALESCE(status, "")) IN (?, ?)', ['passed', 'completed'])
-            ->distinct()
-            ->pluck('course_id')
-            ->all();
+        $states = $this->courseStates($learner);
 
         // Sessions scheduled for the learner's cohort on this course.
         $scheduled = DB::table('course_sessions')
             ->selectRaw('COUNT(*)')
             ->whereColumn('course_sessions.course_id', 'users_courses.course_id')
             ->whereColumn('course_sessions.section_id', 'users_courses.group_id');
+
+        // Only sessions already over can be missed (P3-18): a future session
+        // is not an absence.
+        $past = DB::table('course_sessions')
+            ->selectRaw('COUNT(*)')
+            ->whereColumn('course_sessions.course_id', 'users_courses.course_id')
+            ->whereColumn('course_sessions.section_id', 'users_courses.group_id')
+            ->whereRaw("TIMESTAMP(course_sessions.session_date, COALESCE(course_sessions.time_to, '23:59:59')) < ?", [now()->format('Y-m-d H:i:s')]);
 
         $attended = DB::table('attendances')
             ->selectRaw('COUNT(DISTINCT attendances.session_id)')
@@ -176,14 +180,15 @@ class AdminLearnerProfileService
                 'users_courses.created_at as enrolled_at',
             ])
             ->selectSub($scheduled, 'sessions_scheduled')
+            ->selectSub($past, 'sessions_past')
             ->selectSub($attended, 'sessions_attended')
-            ->selectRaw(
-                'CASE WHEN users_courses.course_id IN ('
-                .($passedCourseIds === [] ? 'NULL' : implode(',', array_map('intval', $passedCourseIds)))
-                .') THEN "completed" ELSE "active" END as status'
-            )
             ->orderByDesc('users_courses.created_at')
             ->paginate($perPage);
+
+        // completed | active | upcoming | ended, as the Website buckets them.
+        foreach ($page->getCollection() as $row) {
+            $row->status = $states[(int) $row->course_id] ?? 'active';
+        }
 
         $this->attachCourseQualifications($page->getCollection());
 
@@ -232,6 +237,8 @@ class AdminLearnerProfileService
             ->join('course_exams', 'user_exams.exam_id', '=', 'course_exams.id')
             ->join('courses', 'user_exams.course_id', '=', 'courses.id')
             ->where('user_exams.user_id', $learner->id)
+            // An opened, unsubmitted attempt is not a result (B-162).
+            ->whereRaw(CourseCompletion::submittedExamSql('user_exams'))
             ->selectRaw('"quiz" as kind')
             ->selectRaw('user_exams.id as id')
             ->selectRaw('course_exams.title as name')
@@ -240,8 +247,8 @@ class AdminLearnerProfileService
             // keep the previous final-exam guess.
             ->selectRaw('COALESCE(course_exams.type, CASE WHEN course_exams.is_final = 1 THEN "post" ELSE "mid" END) as type')
             ->selectRaw('user_exams.user_degree as score')
-            ->selectRaw('COALESCE(user_exams.max_score, user_exams.total_score) as max_score')
-            ->selectRaw('user_exams.status as status')
+            ->selectRaw(self::QUIZ_MAX_SQL.' as max_score')
+            ->selectRaw(self::QUIZ_STATUS_SQL.' as status')
             ->selectRaw('COALESCE(user_exams.submitted_at, user_exams.updated_at) as last_updated');
 
         $assignments = DB::table('user_course_assignments')
@@ -275,6 +282,118 @@ class AdminLearnerProfileService
             ->fromSub($quizzes->unionAll($assignments), 'perf')
             ->orderByDesc('perf.last_updated')
             ->paginate($perPage);
+    }
+
+    /**
+     * The quiz's full mark: the attempt's stored maximum, else the quiz's total
+     * (rich quizzes) or degree (legacy exams). Never 0 for a legacy exam.
+     */
+    private const QUIZ_MAX_SQL = 'COALESCE(NULLIF(user_exams.max_score, 0), NULLIF(course_exams.total_score, 0), course_exams.degree, 0)';
+
+    /**
+     * Pass / fail from the score itself (NEW2B-6232), not the stored `status`
+     * column, which older rows default to 'success' and grading never updated:
+     * the quiz's pass score when it has one, else half the full mark (the
+     * rule the legacy exams always used, D-087). An attempt with open
+     * questions still to grade is "needs review" (no score yet).
+     */
+    private const QUIZ_STATUS_SQL = "CASE
+        WHEN EXISTS (
+            SELECT 1 FROM user_exam_answers uea
+            JOIN course_exam_questions ceq ON ceq.id = uea.question_id
+            WHERE uea.user_exam_id = user_exams.id AND ceq.type = 'open' AND uea.awarded_score IS NULL
+        ) THEN 'needs_review'
+        WHEN course_exams.pass_score IS NOT NULL AND user_exams.user_degree >= course_exams.pass_score THEN 'passed'
+        WHEN course_exams.pass_score IS NOT NULL THEN 'failed'
+        WHEN user_exams.user_degree * 2 >= COALESCE(NULLIF(user_exams.max_score, 0), NULLIF(course_exams.total_score, 0), course_exams.degree, 0) THEN 'passed'
+        ELSE 'failed'
+    END";
+
+    /**
+     * Each in-scope enrolment's state, as the Website buckets it (D-080,
+     * D-081, D-086): completed (CourseCompletion), ended (cohort over without a
+     * completion), upcoming (first session still ahead), else active.
+     *
+     * @return array<int, string>  course id => completed|ended|upcoming|active
+     */
+    private function courseStates(User $learner): array
+    {
+        $enrolments = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')
+            ->where('users_courses.user_id', $learner->id)
+            ->get(['users_courses.course_id', 'users_courses.group_id']);
+
+        if ($enrolments->isEmpty()) {
+            return [];
+        }
+
+        $completed = array_flip(CourseCompletion::courseIdsFor($learner->id)->all());
+        $finished  = array_flip(app(QualificationProgressService::class)
+            ->finishedCourseIdsForUser((int) $learner->id)
+            ->map(fn ($id) => (int) $id)
+            ->all());
+
+        // First session start per cohort (the Website's Upcoming flag).
+        $firstStarts = DB::table('course_sessions')
+            ->whereIn('section_id', $enrolments->pluck('group_id')->filter()->all() ?: [0])
+            ->groupBy('section_id')
+            ->selectRaw("section_id, MIN(TIMESTAMP(session_date, COALESCE(time_from, '00:00:00'))) AS first_start")
+            ->pluck('first_start', 'section_id');
+
+        $now    = now();
+        $states = [];
+        foreach ($enrolments as $e) {
+            $courseId = (int) $e->course_id;
+            $first    = $e->group_id !== null ? ($firstStarts[$e->group_id] ?? null) : null;
+
+            $states[$courseId] = match (true) {
+                isset($completed[$courseId])                              => 'completed',
+                isset($finished[$courseId])                               => 'ended',
+                $first !== null && \Illuminate\Support\Carbon::parse($first)->greaterThan($now) => 'upcoming',
+                default                                                   => 'active',
+            };
+        }
+
+        return $states;
+    }
+
+    /**
+     * The course the learner last worked on: the latest content progress,
+     * quiz submission or attendance (P1-5); before any activity, the latest
+     * enrolment. The enrolment row's updated_at moves on any admin edit, so it
+     * is not used.
+     */
+    private function lastActiveCourse(User $learner): ?object
+    {
+        $content = DB::table('user_lecture_progress')
+            ->join('course_lectures', 'course_lectures.id', '=', 'user_lecture_progress.lecture_id')
+            ->where('user_lecture_progress.user_id', $learner->id)
+            ->selectRaw('course_lectures.course_id AS course_id, user_lecture_progress.updated_at AS at');
+        $quizzes = DB::table('user_exams')
+            ->where('user_id', $learner->id)
+            ->whereNotNull('course_id')
+            ->selectRaw('course_id, COALESCE(submitted_at, updated_at) AS at');
+        $attendance = DB::table('attendances')
+            ->where('user_id', $learner->id)
+            ->selectRaw('course_id, created_at AS at');
+
+        $latest = $this->inScope(
+            DB::query()->fromSub($content->unionAll($quizzes)->unionAll($attendance), 'act'),
+            'act.course_id',
+        )
+            ->whereNotNull('act.at')
+            ->orderByDesc('act.at')
+            ->first(['act.course_id']);
+
+        $courseId = $latest?->course_id
+            ?? $this->inScope(DB::table('users_courses'), 'users_courses.course_id')
+                ->where('users_courses.user_id', $learner->id)
+                ->orderByDesc('users_courses.created_at')
+                ->orderByDesc('users_courses.id')
+                ->value('users_courses.course_id');
+
+        return $courseId === null
+            ? null
+            : DB::table('courses')->where('id', $courseId)->first(['id', 'title']);
     }
 
     /**

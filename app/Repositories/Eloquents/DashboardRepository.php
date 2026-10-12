@@ -112,6 +112,8 @@ class DashboardRepository implements DashboardRepositoryInterface
         $in = $courseIds === null ? null : implode(',', array_map('intval', $courseIds ?: [0]));
         $enrolWhere = $in === null ? '' : " AND course_id IN ({$in})";
 
+        $completions = CourseCompletion::query(null, $courseIds === null ? null : array_map('intval', $courseIds));
+
         $rows = DB::select("
             SELECT
                 d.gen_date AS date,
@@ -136,23 +138,15 @@ class DashboardRepository implements DashboardRepositoryInterface
                 GROUP BY DATE(created_at)
             ) e ON e.dt = d.gen_date
             LEFT JOIN (
-                -- B-104: a completion is a passing exam, dated by the FIRST
-                -- passing submission so a retake cannot move it into another
-                -- bucket. Previously this counted any enrolment row whose
-                -- updated_at had moved, which is activity, not completion.
+                -- D-086: a completion is App\Support\CourseCompletion (the
+                -- learner rule, D-082), dated by its first signal.
                 SELECT DATE(cc.completed_at) AS dt, COUNT(*) AS completions
-                FROM (
-                    SELECT user_id, course_id, MIN(COALESCE(submitted_at, updated_at)) AS completed_at
-                    FROM user_exams
-                    WHERE LOWER(COALESCE(status, '')) IN ('passed', 'completed')
-                      AND course_id IS NOT NULL{$enrolWhere}
-                    GROUP BY user_id, course_id
-                ) cc
+                FROM ({$completions->toSql()}) cc
                 WHERE cc.completed_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
                 GROUP BY DATE(cc.completed_at)
             ) c ON c.dt = d.gen_date
             ORDER BY d.gen_date ASC
-        ", [$days, $days, $days]);
+        ", [$days, $days, ...$completions->getBindings(), $days]);
 
         return array_map(static fn ($r) => [
             'date'        => $r->date,

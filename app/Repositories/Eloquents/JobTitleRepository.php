@@ -56,7 +56,7 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
             ->selectRaw('COUNT(DISTINCT tc.course_id)')
             ->join('job_title_qualification_skill as tj', 'tc.qualification_skill_id', '=', 'tj.qualification_skill_id')
             ->where('tj.job_title_id', $jobTitle->id)
-            // B-104: a passing exam, not "the row was touched".
+            // D-086: completed by the one project rule (CourseCompletion).
             ->whereRaw(CourseCompletion::existsSql('users.id', 'tc.course_id'));
 
         $query = User::query()

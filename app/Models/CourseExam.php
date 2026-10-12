@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\ScopedToAdminCourses;
+use App\Models\Concerns\VisibleToLearnerCohort;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Translatable\HasTranslations;
@@ -10,8 +11,12 @@ use Spatie\Translatable\HasTranslations;
 class CourseExam extends Model
 {
     use ScopedToAdminCourses;
+    use VisibleToLearnerCohort;
 
     use HasFactory, HasTranslations;
+
+    /** The cohorts chosen when cohort_scope is "specific" (NEW2B-6255). */
+    public const COHORT_PIVOT = ['course_exam_cohorts', 'course_exam_id'];
 
     public array $translatable = ['title'];
 

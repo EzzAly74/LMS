@@ -88,4 +88,40 @@ class AssessmentCohortsTest extends ApiTestCase
             }
         }
     }
+
+    public function test_an_assessment_for_one_cohort_reaches_only_that_cohorts_learners(): void
+    {
+        // NEW2B-6255: made for "Second Group", it showed to every cohort.
+        ['headers' => $h] = $this->adminToken();
+        $ids = [];
+        foreach (['assignments', 'quizzes'] as $kind) {
+            $ids[$kind] = (int) $this->postJson(self::BASE."/admin/$kind", $this->payload([$this->second->id]), $h)->assertSuccessful()->json('result.id');
+        }
+        DB::table('course_exams')->where('id', $ids['quizzes'])->update(['status' => 'active']);
+
+        $learner = function (CourseSection $cohort): array {
+            $user = \App\Models\User::factory()->create();
+            DB::table('users_courses')->insert(['user_id' => $user->id, 'course_id' => $this->course->id, 'group_id' => $cohort->id]);
+
+            return $this->userToken($user)['headers'];
+        };
+        $inSecond = $learner($this->second);
+        $inFirst  = $learner($this->first);
+
+        $items = fn (array $headers) => collect($this->getJson(self::BASE."/my/courses/{$this->course->id}/outline", $headers)->assertOk()->json('result.weeks'))
+            ->flatMap(fn ($w) => $w['items'])
+            ->map(fn ($i) => $i['kind'].':'.$i['id'])->all();
+
+        $this->assertContains('assignment:'.$ids['assignments'], $items($inSecond));
+        $this->assertContains('quiz:'.$ids['quizzes'], $items($inSecond));
+        $this->assertNotContains('assignment:'.$ids['assignments'], $items($inFirst));
+        $this->assertNotContains('quiz:'.$ids['quizzes'], $items($inFirst));
+
+        // Nor can the other cohort open them directly, or see them in my/assignments.
+        $this->getJson(self::BASE."/courses/{$this->course->id}/assignments/{$ids['assignments']}/take", $inFirst)->assertNotFound();
+        $this->getJson(self::BASE."/courses/{$this->course->id}/quizzes/{$ids['quizzes']}/take", $inFirst)->assertNotFound();
+        $this->getJson(self::BASE."/courses/{$this->course->id}/assignments/{$ids['assignments']}/take", $inSecond)->assertOk();
+        $mine = collect($this->getJson(self::BASE.'/my/assignments', $inFirst)->assertOk()->json('result'))->pluck('assignment_id')->all();
+        $this->assertNotContains($ids['assignments'], $mine);
+    }
 }

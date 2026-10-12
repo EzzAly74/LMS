@@ -71,7 +71,8 @@ class UserDashboardService
             ->where(fn ($q) => $q->where('for_public', true)
                 ->orWhereIn('id', fn ($sub) => $sub->select('course_id')->from('users_courses')->where('user_id', $userId))
             )
-            ->with(['assignments'])
+            // Only assignments made for every cohort or for the learner's (NEW2B-6255).
+            ->with(['assignments' => fn ($q) => $q->visibleTo((int) $userId)])
             ->latest()
             ->get();
 

@@ -50,11 +50,14 @@ class LearnerCoursePlayerService
 
         $lectures = collect($this->progress->getLectureProgress($user->id, $course->id));
 
+        // Only those made for every cohort or for the learner's (NEW2B-6255).
         $exams = CourseExam::where('course_id', $course->id)
+            ->visibleTo((int) $user->id)
             ->get()
             ->filter(fn (CourseExam $exam) => $this->isRichExam($exam));
 
         $assignments = CourseAssignment::where('course_id', $course->id)
+            ->visibleTo((int) $user->id)
             ->get()
             ->filter(fn (CourseAssignment $assignment) => $this->isRichAssignment($assignment));
 

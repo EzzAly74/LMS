@@ -76,5 +76,7 @@ class LearnerQuizController extends ApiController
     {
         abort_if($quiz->course_id !== $course->id, 404, __('messages.quiz_not_found_for_course'));
         abort_unless($this->service->isRichQuiz($quiz), 404, __('messages.quiz_not_found_for_course'));
+        // Made for other cohorts: not this learner's (NEW2B-6255).
+        abort_unless($quiz->isVisibleTo((int) request()->user()->id), 404, __('messages.quiz_not_found_for_course'));
     }
 }

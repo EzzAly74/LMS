@@ -26,7 +26,7 @@ class LearnerAssignmentController extends ApiController
     /** GET courses/{course}/assignments/{assignment}/take */
     public function take(Request $request, Course $course, CourseAssignment $assignment): JsonResponse
     {
-        $this->guard($course, $assignment);
+        $this->guard($course, $assignment, $request);
 
         return $this->success(
             __('messages.retrieved'),
@@ -41,7 +41,7 @@ class LearnerAssignmentController extends ApiController
         CourseAssignment $assignment,
         CourseAssignmentQuestion $question,
     ): JsonResponse {
-        $this->guard($course, $assignment);
+        $this->guard($course, $assignment, $request);
 
         if ($question->isFile()) {
             return $this->success(
@@ -63,7 +63,7 @@ class LearnerAssignmentController extends ApiController
     /** POST courses/{course}/assignments/{assignment}/finish */
     public function finish(Request $request, Course $course, CourseAssignment $assignment): JsonResponse
     {
-        $this->guard($course, $assignment);
+        $this->guard($course, $assignment, $request);
 
         return $this->success(
             __('messages.updated'),
@@ -74,7 +74,7 @@ class LearnerAssignmentController extends ApiController
     /** GET courses/{course}/assignments/{assignment}/results */
     public function results(Request $request, Course $course, CourseAssignment $assignment): JsonResponse
     {
-        $this->guard($course, $assignment);
+        $this->guard($course, $assignment, $request);
 
         return $this->success(
             __('messages.retrieved'),
@@ -86,9 +86,9 @@ class LearnerAssignmentController extends ApiController
      * GET …/questions/{question}/attachment - the instructor's file for a
      * file question, to an enrolled learner (route middleware `enrolled`).
      */
-    public function questionAttachment(Course $course, CourseAssignment $assignment, CourseAssignmentQuestion $question, AssignmentFileService $files): StreamedResponse
+    public function questionAttachment(Request $request, Course $course, CourseAssignment $assignment, CourseAssignmentQuestion $question, AssignmentFileService $files): StreamedResponse
     {
-        $this->guard($course, $assignment);
+        $this->guard($course, $assignment, $request);
         abort_if($question->course_assignment_id !== $assignment->id || $question->attachment_path === null, 404);
 
         return $files->download($question->attachment_path, (string) $question->attachment_name);
@@ -97,7 +97,7 @@ class LearnerAssignmentController extends ApiController
     /** GET …/questions/{question}/my-file - the learner's own uploaded answer. */
     public function myAnswerFile(Request $request, Course $course, CourseAssignment $assignment, CourseAssignmentQuestion $question, AssignmentFileService $files): StreamedResponse
     {
-        $this->guard($course, $assignment);
+        $this->guard($course, $assignment, $request);
         abort_if($question->course_assignment_id !== $assignment->id, 404);
 
         // Scoped to the caller's own submission: another learner's file is
@@ -108,9 +108,11 @@ class LearnerAssignmentController extends ApiController
         return $files->download($answer->file_path, (string) $answer->file_name);
     }
 
-    private function guard(Course $course, CourseAssignment $assignment): void
+    private function guard(Course $course, CourseAssignment $assignment, Request $request): void
     {
         abort_if($assignment->course_id !== $course->id, 404);
+        // Made for other cohorts: not this learner's (NEW2B-6255).
+        abort_unless($assignment->isVisibleTo((int) $request->user()->id), 404);
         abort_unless($this->service->isQuestionBased($assignment), 422, __('messages.assignment_not_question_based'));
     }
 }

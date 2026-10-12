@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\ScopedToAdminCourses;
+use App\Models\Concerns\VisibleToLearnerCohort;
 use App\Http\Traits\HasFile;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,8 +11,12 @@ use Illuminate\Database\Eloquent\Model;
 class CourseAssignment extends Model
 {
     use ScopedToAdminCourses;
+    use VisibleToLearnerCohort;
 
     use HasFactory, HasFile;
+
+    /** The cohorts chosen when cohort_scope is "specific" (NEW2B-6255). */
+    public const COHORT_PIVOT = ['course_assignment_cohorts', 'course_assignment_id'];
     protected $guarded = ['id'];
 
     protected $casts = [

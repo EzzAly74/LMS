@@ -125,7 +125,9 @@ class AdminUserService
                 $w->where('p.name_en',       'LIKE', $needle)
                   ->orWhere('p.name_ar',       'LIKE', $needle)
                   ->orWhere('p.name_fallback', 'LIKE', $needle)
-                  ->orWhere('p.email',         'LIKE', $needle);
+                  ->orWhere('p.email',         'LIKE', $needle)
+                  // The employee id (NEW2B-6220): the field is labelled "name or ID".
+                  ->orWhere('p.machine_code',  'LIKE', $needle);
             });
         }
 
@@ -824,6 +826,11 @@ class AdminUserService
             });
         }
 
+        if (! empty($f['job_title_ids'])) {
+            $query->whereIn('p.id', fn ($q) => $q->select('id')->from('users')
+                ->whereIn('job_title_id', $f['job_title_ids']));
+        }
+
         if (! empty($f['learner_types'])) {
             $query->whereIn('p.id', fn ($q) => $q->select('id')->from('users')
                 ->whereIn('learner_type', $f['learner_types']));
@@ -881,11 +888,16 @@ class AdminUserService
             ->selectRaw('email AS email')
             ->selectRaw('phone AS phone')
             ->selectRaw('machine_code AS machine_code')
-            ->selectRaw('department_name AS department_name')
+            // The department in the interface language (NEW2B-6227); Arabic
+            // is HR's default and the fallback.
+            ->selectRaw(app()->getLocale() === 'en' && Schema::hasColumn('users', 'department_name_en')
+                ? 'COALESCE(NULLIF(department_name_en, ""), department_name) AS department_name'
+                : 'department_name AS department_name')
             // Brief (instructor bio) — only instructors carry one.
             ->selectRaw('NULL AS bio_en')
             ->selectRaw('NULL AS bio_ar')
             ->selectRaw($usersHasImage ? 'image AS image' : 'NULL AS image')
+            ->selectRaw(Schema::hasColumn('users', 'hr_image_path') ? 'hr_image_path AS hr_image' : 'NULL AS hr_image')
             ->selectRaw('"learner" AS role_key')
             ->selectRaw('"Learner" AS role_label')
             ->selectRaw($usersHasStatus ? 'COALESCE(status, "active") AS status' : '"active" AS status')
@@ -912,6 +924,7 @@ class AdminUserService
             ->selectRaw($instHasBio ? 'CASE WHEN JSON_VALID(bio) THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(bio, "$.en")), "null") ELSE bio END AS bio_en' : 'NULL AS bio_en')
             ->selectRaw($instHasBio ? 'CASE WHEN JSON_VALID(bio) THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(bio, "$.ar")), "null") ELSE bio END AS bio_ar' : 'NULL AS bio_ar')
             ->selectRaw($instHasImage ? 'image AS image' : 'NULL AS image')
+            ->selectRaw('NULL AS hr_image')
             ->selectRaw('"instructor" AS role_key')
             ->selectRaw('"Instructor" AS role_label')
             ->selectRaw($instHasStatus ? 'COALESCE(status, "active") AS status' : '"active" AS status')
@@ -931,6 +944,7 @@ class AdminUserService
             ->selectRaw('NULL AS bio_en')
             ->selectRaw('NULL AS bio_ar')
             ->selectRaw($adminHasImage ? 'image AS image' : 'NULL AS image')
+            ->selectRaw('NULL AS hr_image')
             ->selectRaw('"admin" AS role_key')
             ->selectRaw('"Admin" AS role_label')
             ->selectRaw($adminHasStatus ? 'COALESCE(status, "active") AS status' : '"active" AS status')

@@ -16,7 +16,7 @@ class CourseSessionResource extends JsonResource
                 'id'   => $this->section->id,
                 'name' => $this->section->getTranslation('name', app()->getLocale()),
             ]),
-            'title'        => $this->title,
+            'title'        => \App\Support\SessionTitle::localize($this->title),
             'session_date' => $this->session_date,
             'time_from'    => $this->time_from,
             'time_to'      => $this->time_to,

@@ -40,7 +40,7 @@ class MarkAttendanceResultResource extends JsonResource
             'session'        => $row['session'] === null ? null : [
                 'id'                  => (int) ($row['session']->id ?? 0),
                 'course_id'           => (int) ($row['session']->course_id ?? 0),
-                'title'               => $row['session']->title ?? null,
+                'title'               => \App\Support\SessionTitle::localize($row['session']->title ?? null),
                 'session_date'        => $row['session']->session_date ?? null,
                 'time_from'           => $row['session']->time_from ?? null,
                 'time_to'             => $row['session']->time_to ?? null,

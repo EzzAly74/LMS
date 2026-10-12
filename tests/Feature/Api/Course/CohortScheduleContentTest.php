@@ -291,5 +291,34 @@ class CohortScheduleContentTest extends ApiTestCase
         $this->assertSame([$m[2]->id], $lectures[2]['ids']);
         $this->assertSame('Session 1', $lectures[0]['label']);
         $this->assertSame('Session 2', $lectures[1]['label']);
+        $this->assertSame('Course Content', $lectures[2]['label']);
+    }
+
+    public function test_session_titles_follow_the_readers_language_and_the_schedule_number(): void
+    {
+        [$course, $m] = $this->courseWithModules();
+        $id = $this->create($course, $this->xlsx([
+            [1, '2026-10-20', '09:00', '11:00', '', $m[0]->id],
+            [2, '2026-10-27', '09:00', '11:00', '', $m[1]->id],
+        ]))->assertCreated()->json('result.id');
+
+        // An Arabic admin added the second session, and an old run left it
+        // numbered 0: the title is stored in Arabic.
+        $second = DB::table('course_sessions')->where('section_id', $id)->orderBy('session_date')->skip(1)->value('id');
+        DB::table('course_sessions')->where('id', $second)->update(['title' => 'الجلسة 0']);
+
+        $user = User::factory()->create();
+        DB::table('users_courses')->insert(['user_id' => $user->id, 'course_id' => $course->id, 'group_id' => $id]);
+        ['headers' => $learner] = $this->userToken($user);
+        $url = self::BASE."/my/courses/{$course->id}/outline";
+
+        $en = collect($this->getJson($url, $learner + ['Accept-Language' => 'en'])->assertOk()->json('result.weeks'))->pluck('label')->all();
+        $ar = collect($this->getJson($url, $learner + ['Accept-Language' => 'ar'])->assertOk()->json('result.weeks'))->pluck('label')->all();
+        $this->assertSame(['Session 1', 'Session 2'], array_slice($en, 0, 2));
+        $this->assertSame(['الجلسة 1', 'الجلسة 2'], array_slice($ar, 0, 2));
+
+        // A title an admin typed is kept as it is.
+        $this->assertSame('Kick-off', \App\Support\SessionTitle::localize('Kick-off', 3, 'ar'));
+        $this->assertSame('جلسة مباشرة — 2026-10-20', \App\Support\SessionTitle::localize('Live Session — 2026-10-20', null, 'ar'));
     }
 }

@@ -45,6 +45,20 @@ class User extends Authenticatable
     ];
 
 
+    /**
+     * The learner's photo: one uploaded here first, else HR's (NEW2B-6219).
+     */
+    public function photoUrl(): ?string
+    {
+        if (filled($this->image)) {
+            $url = (new class { use \App\Http\Traits\HasFile; })->getFileUrl((string) $this->image);
+
+            return is_string($url) && $url !== '' ? $url : null;
+        }
+
+        return \App\Support\HrPhoto::url($this->hr_image_path ?? null);
+    }
+
     public function courses()
     {
         return $this->belongsToMany(Course::class, 'users_courses', 'user_id', 'course_id')

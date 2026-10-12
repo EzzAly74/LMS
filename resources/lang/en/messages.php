@@ -53,6 +53,8 @@ return [
     'rate_added'              => 'Thanks! Your feedback has been recorded.',
     'validation_failed'       => 'The given data was invalid.',
     'conflict'                => 'A conflict occurred with the current state of the resource.',
+    'hr_sync_started'         => 'The update from HR has started. New employees and job titles appear when it finishes.',
+    'hr_sync_running'         => 'An update from HR is already running.',
     'course_not_enrolled'     => 'You are not enrolled in this course.',
     'course_not_evaluatable'  => 'This course is not available for evaluation.',
     'submission_file_type'    => 'That file type is not accepted. Allowed: PDF, Word, Excel, PowerPoint, text, CSV, PNG, JPEG or ZIP.',

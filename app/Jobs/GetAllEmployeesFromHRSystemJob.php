@@ -2,65 +2,34 @@
 
 namespace App\Jobs;
 
-use App\Models\JobTitle;
-use App\Models\User;
-use App\Services\HRSystemService;
+use App\Services\HrEmployeeSyncService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
+/**
+ * The HR pull as a job: the Dashboard "Update Job titles" / "Update Learners"
+ * buttons dispatch it after the response (D-088). It used to carry its own
+ * copy of the sync that had lost the English names and the national id.
+ */
 class GetAllEmployeesFromHRSystemJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * Create a new job instance.
-     */
-    public function __construct()
+    public int $timeout = 900;
+
+    public function __construct(public readonly ?int $requestedBy = null)
     {
-        //
     }
 
-    /**
-     * Execute the job.
-     */
-    public function handle(): void
+    public function handle(HrEmployeeSyncService $sync): void
     {
-        $hrService = new HRSystemService();
-        $employees = $hrService->getAllEmployees();
+        // About a thousand employees plus three HR calls: more than a web
+        // request's 30 seconds when the queue runs inline.
+        @set_time_limit($this->timeout);
 
-        // Cache job-title rows keyed by jobName so the per-employee
-        // upsert stays O(distinct jobs) instead of O(employees).
-        $jobTitleCache = [];
-        $resolveTitleId = static function (?string $jobName) use (&$jobTitleCache): ?int {
-            $jobName = $jobName !== null ? trim($jobName) : '';
-            if ($jobName === '') {
-                return null;
-            }
-            if (array_key_exists($jobName, $jobTitleCache)) {
-                return $jobTitleCache[$jobName];
-            }
-            $row = JobTitle::firstOrCreate(['name' => $jobName]);
-            return $jobTitleCache[$jobName] = $row->id;
-        };
-
-        // 2026 admin Users redesign dropped the denormalized
-        // `users.job_title` string column. The link is now a proper
-        // FK (`users.job_title_id` → `job_titles.id`) that we keep
-        // aligned with HR's `jobName` field on every sync.
-        User::upsert($employees->map(static function ($employee) use ($resolveTitleId) {
-            return [
-                'system_id'       => $employee->id,
-                'name'            => $employee->name,
-                'email'           => $employee->email,
-                'phone'           => $employee->phone,
-                'machine_code'    => $employee->machineCode,
-                'department_name' => $employee->departmentName,
-                'job_title_id'    => $resolveTitleId($employee->jobName ?? null),
-            ];
-        })->toArray(), ['system_id'], ['name','email','phone','machine_code','department_name','job_title_id']);
+        $sync->runAndRecord($this->requestedBy);
     }
 }

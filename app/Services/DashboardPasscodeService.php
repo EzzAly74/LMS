@@ -500,7 +500,7 @@ final class DashboardPasscodeService
             'session'         => [
                 'id'           => (int) $session->id,
                 'number'       => $this->sessionOrdinal($session),
-                'title'        => $session->title,
+                'title'        => \App\Support\SessionTitle::localize($session->title),
                 'date'         => $session->session_date
                     ? Carbon::parse((string) $session->session_date)->toDateString()
                     : null,

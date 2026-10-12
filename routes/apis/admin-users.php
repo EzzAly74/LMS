@@ -34,6 +34,12 @@ Route::middleware(['auth.user', 'role:Admin', 'section:learners'])->prefix('admi
      * tables independent pagers.
      */
     Route::get('learners',                       [AdminLearnerController::class, 'index']);
+    // "Update Learners" (Figma 1986:74701, D-088): pull from HR now. The
+    // section has only "view"; the pull copies HR's own data, one run at a time.
+    Route::get('learners/hr-sync',               [\App\Http\Controllers\apis\Admin\AdminHrSyncController::class, 'show']);
+    Route::post('learners/hr-sync',              [\App\Http\Controllers\apis\Admin\AdminHrSyncController::class, 'store'])
+        ->ability('view')
+        ->middleware('throttle:6,1');
     Route::get('learners/filter-options',        [AdminLearnerController::class, 'filterOptions']);
     Route::get('learners/{learner}',             [AdminLearnerProfileController::class, 'show'])
         ->name('admin.learners.show');

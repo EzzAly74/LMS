@@ -25,6 +25,12 @@ Route::middleware(['auth.user', 'role:Admin', 'section:job-titles'])->group(func
     // Admin index with learner search + Filter modal (Figma 2078:102691 / 2463:138054, D1b).
     Route::get('admin/job-titles', [JobTitleController::class, 'adminIndex'])
         ->name('admin.job-titles.index');
+
+    // "Update Job titles" (Figma 2078:102691, NEW2B-6184, D-088): pull from HR now.
+    Route::get('admin/job-titles/hr-sync', [\App\Http\Controllers\apis\Admin\AdminHrSyncController::class, 'show']);
+    Route::post('admin/job-titles/hr-sync', [\App\Http\Controllers\apis\Admin\AdminHrSyncController::class, 'store'])
+        ->ability('edit')
+        ->middleware('throttle:6,1');
     Route::get('admin/job-titles/learner-options', [JobTitleController::class, 'learnerOptions'])
         ->middleware('throttle:60,1')
         ->name('admin.job-titles.learner-options');

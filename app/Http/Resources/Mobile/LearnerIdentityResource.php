@@ -48,7 +48,7 @@ class LearnerIdentityResource extends JsonResource
             'machine_code'    => $user->machine_code,
             'name'            => $user->getLocalizedName(),
             'email'           => $user->email,
-            'image'           => $this->absoluteUrl($user->image ?? null),
+            'image'           => $this->absoluteUrl($user->image ?? null) ?? \App\Support\HrPhoto::url($user->hr_image_path ?? null),
             'department_name' => $user->department_name,
             'job_title'       => $jobTitle ? [
                 'id'   => (int) $jobTitle->id,

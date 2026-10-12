@@ -10,13 +10,14 @@ use App\Models\CourseSection;
 use Tests\Feature\Api\ApiTestCase;
 
 /**
- * Course-player sidebar composite: lectures grouped by their section's
- * "Week N" label, a rich quiz placed in its own section's group, module
- * progress totals, and the certificate-status projection.
+ * Course-player sidebar composite: modules no session of the learner's cohort
+ * covers go to "Course Content" (a module's section is a cohort, whose name
+ * is not a heading), a rich quiz to "Assessments", module progress totals,
+ * and the certificate-status projection.
  */
 class LearnerCoursePlayerOutlineTest extends ApiTestCase
 {
-    public function test_outline_groups_lectures_by_section_and_includes_a_rich_quiz(): void
+    public function test_outline_groups_unscheduled_lectures_under_course_content_and_includes_a_rich_quiz(): void
     {
         ['model' => $learner, 'headers' => $headers] = $this->userToken();
 
@@ -74,15 +75,15 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
 
         $weeksByLabel = collect($result['weeks'])->keyBy('label');
 
-        $this->assertTrue($weeksByLabel->has('Week 1: Foundations'));
-        $this->assertTrue($weeksByLabel->has('Week 2: Practice'));
+        // The cohort names never become headings.
+        $this->assertSame(['Course Content', 'Assessments'], collect($result['weeks'])->pluck('label')->all());
 
-        $week1Items = collect($weeksByLabel->get('Week 1: Foundations')['items']);
-        $this->assertTrue($week1Items->contains(fn ($i) => $i['kind'] === 'lecture' && $i['id'] === $lecture1->id));
+        $contentItems = collect($weeksByLabel->get('Course Content')['items']);
+        $this->assertTrue($contentItems->contains(fn ($i) => $i['kind'] === 'lecture' && $i['id'] === $lecture1->id));
+        $this->assertTrue($contentItems->contains(fn ($i) => $i['kind'] === 'lecture' && $i['id'] === $lecture2->id));
 
-        $week2Items = collect($weeksByLabel->get('Week 2: Practice')['items']);
-        $this->assertTrue($week2Items->contains(fn ($i) => $i['kind'] === 'lecture' && $i['id'] === $lecture2->id));
-        $this->assertTrue($week2Items->contains(fn ($i) => $i['kind'] === 'quiz' && $i['id'] === $quiz->id && $i['completed'] === false));
+        $assessments = collect($weeksByLabel->get('Assessments')['items']);
+        $this->assertTrue($assessments->contains(fn ($i) => $i['kind'] === 'quiz' && $i['id'] === $quiz->id && $i['completed'] === false));
 
         // Exactly one item across the whole playlist is flagged active (the first incomplete one).
         $activeCount = collect($result['weeks'])

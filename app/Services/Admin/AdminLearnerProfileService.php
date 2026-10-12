@@ -76,10 +76,14 @@ class AdminLearnerProfileService
                 'job_title'   => $learner->jobTitle?->getLocalizedName(),
                 'employee_id' => $learner->machine_code,
                 'email'       => $learner->email,
-                'department'  => $learner->department_name,
+                // In the interface language (NEW2B-6227); HR's Arabic is the fallback.
+                'department'  => app()->getLocale() === 'en' && filled($learner->department_name_en)
+                    ? $learner->department_name_en
+                    : $learner->department_name,
                 // A URL the Dashboard can load, like every other resource. This
                 // returned the raw disk path, which no <img> can resolve.
-                'image_url'   => $learner->image ? $this->getFileUrl($learner->image) : null,
+                // HR's photo when none was uploaded here (NEW2B-6219).
+                'image_url'   => $learner->photoUrl(),
                 'status'      => $learner->status ?? 'active',
                 'last_active_at'     => $learner->last_active_at,
                 // Read with the query builder, so the stored JSON must be

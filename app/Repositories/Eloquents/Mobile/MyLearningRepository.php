@@ -171,7 +171,7 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
 
         return collect($rows)->map(fn ($row) => (object) [
             'id'           => (int) $row->id,
-            'title'        => (string) $row->title,
+            'title'        => (string) \App\Support\SessionTitle::localize((string) $row->title),
             'session_date' => $row->session_date,
             'time_from'    => $row->time_from,
             'time_to'      => $row->time_to,

@@ -29,7 +29,7 @@ class JobTitleLearnerResource extends JsonResource
             // secret, but note B-13: machine_code is the mobile identity, so
             // it stays behind admin auth and is not echoed to learners.
             'employee_id' => $this->machine_code,
-            'image_url'   => $this->image ? $this->getFileUrl($this->image) : null,
+            'image_url'   => $this->resource->photoUrl(),
             'department'  => $this->department_name,
 
             'courses' => [

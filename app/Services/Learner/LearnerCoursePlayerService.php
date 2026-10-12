@@ -70,8 +70,10 @@ class LearnerCoursePlayerService
 
         // Group by the learner's cohort schedule (D-079): a module sits under
         // the first session of their cohort whose "content" lists it.
-        // Modules no session lists fall back to their module/section name,
-        // then a trailing "General content" bucket. $order keeps sessions in
+        // Modules no session lists go to a trailing "Course content" group:
+        // their section_id is a cohort, whose name ("First Group") means
+        // nothing as a heading. Generated session titles are shown in the
+        // reader's language and numbered by the schedule (SessionTitle). $order keeps sessions in
         // schedule order ahead of the assessments tail.
         $sessionOf = $this->firstSessionByLecture($user, $course);
         $groups = [];
@@ -80,10 +82,10 @@ class LearnerCoursePlayerService
         foreach ($lectures as $lecture) {
             $session = $sessionOf[(int) $lecture['lecture_id']] ?? null;
             if ($session !== null) {
-                $label = $session['title'];
+                $label = \App\Support\SessionTitle::localize($session['title'], $session['number'], $locale) ?? $session['title'];
                 $sort  = $session['number'];
             } else {
-                $label = $lecture['module']['name'] ?? __('messages.course_player.general_content');
+                $label = __('messages.course_player.general_content');
                 $sort  = 9000;
             }
             $groups[$label][] = [
@@ -97,9 +99,7 @@ class LearnerCoursePlayerService
         }
 
         foreach ($exams as $exam) {
-            $label = $exam->section_id
-                ? ($this->sectionName($exam->section_id, $locale) ?? __('messages.course_player.assessments_group'))
-                : __('messages.course_player.assessments_group');
+            $label = __('messages.course_player.assessments_group');
 
             $userExam = $userExamsByExamId->get($exam->id);
 
@@ -277,18 +277,6 @@ class LearnerCoursePlayerService
     private function isRichAssignment(CourseAssignment $assignment): bool
     {
         return CourseAssignmentQuestion::where('course_assignment_id', $assignment->id)->exists();
-    }
-
-    private function sectionName(int $sectionId, string $locale): ?string
-    {
-        static $cache = [];
-
-        if (! array_key_exists($sectionId, $cache)) {
-            $section = CourseSection::find($sectionId);
-            $cache[$sectionId] = $section?->getTranslation('name', $locale);
-        }
-
-        return $cache[$sectionId];
     }
 
     /**

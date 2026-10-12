@@ -61,6 +61,9 @@ class AdminUserIndexRequest extends FormRequest
             'course_instructor_ids.*' => ['integer', 'min:1'],
             'qualification_ids'       => ['sometimes', 'array', 'max:100'],
             'qualification_ids.*'     => ['integer', 'min:1'],
+            // The learner's job title (NEW2B-6222).
+            'job_title_ids'           => ['sometimes', 'array', 'max:100'],
+            'job_title_ids.*'         => ['integer', 'min:1'],
             'learner_types'           => ['sometimes', 'array', 'max:3'],
             'learner_types.*'         => [Rule::in(self::LEARNER_TYPES)],
             // Last activity (users.last_active_at), inclusive calendar days.
@@ -79,12 +82,12 @@ class AdminUserIndexRequest extends FormRequest
      * The learner filters that were sent, typed. Empty arrays and blank dates
      * are dropped, so "no filter" and "filter on nothing" cannot be confused.
      *
-     * @return array{course_ids?: list<int>, course_instructor_ids?: list<int>, qualification_ids?: list<int>, learner_types?: list<string>, active_from?: string, active_to?: string}
+     * @return array{course_ids?: list<int>, course_instructor_ids?: list<int>, qualification_ids?: list<int>, job_title_ids?: list<int>, learner_types?: list<string>, active_from?: string, active_to?: string}
      */
     public function learnerFilters(): array
     {
         $out = [];
-        foreach (['course_ids', 'course_instructor_ids', 'qualification_ids'] as $key) {
+        foreach (['course_ids', 'course_instructor_ids', 'qualification_ids', 'job_title_ids'] as $key) {
             $ids = array_values(array_unique(array_map('intval', (array) $this->input($key, []))));
             if ($ids !== []) {
                 $out[$key] = $ids;

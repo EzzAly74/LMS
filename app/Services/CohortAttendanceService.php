@@ -112,7 +112,7 @@ class CohortAttendanceService
             return [
                 'id'              => (int) $s->id,
                 'index'           => $i + 1,
-                'title'           => (string) $s->title,
+                'title'           => (string) \App\Support\SessionTitle::localize((string) $s->title, $i + 1),
                 'date'            => $s->session_date,
                 'time_from'       => $s->time_from,
                 'time_to'         => $s->time_to,
@@ -136,7 +136,7 @@ class CohortAttendanceService
                     $absentSessions[] = [
                         'id'    => (int) $s->id,
                         'index' => $i + 1,
-                        'title' => (string) $s->title,
+                        'title' => (string) \App\Support\SessionTitle::localize((string) $s->title, $i + 1),
                         'date'  => $s->session_date,
                     ];
                 }

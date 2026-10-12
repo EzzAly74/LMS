@@ -50,6 +50,8 @@ class AdminUserListResource extends JsonResource
 
         $imageField = isset($row->image) ? (string) $row->image : '';
         $imageUrl   = $imageField !== '' ? $this->getFileUrl($imageField) : null;
+        // A learner with no upload shows HR's photo (NEW2B-6219).
+        $imageUrl   = $imageUrl ?: \App\Support\HrPhoto::url(isset($row->hr_image) ? (string) $row->hr_image : null);
 
         // "Brief" = the instructor's translatable bio. Null for non-instructor
         // rows. `brief` is the locale-resolved string for display; the per-

@@ -137,8 +137,12 @@ class ExternalTrainingService
             $q->where(fn ($w) => $w
                 ->whereRaw('LOWER(external_training_requests.title) LIKE ?', [$term])
                 ->orWhereRaw('LOWER(external_training_requests.provider) LIKE ?', [$term])
+                // The name the Dashboard shows is name_en / name_ar
+                // (NEW2B-6236); `name` is HR's original.
                 ->orWhereHas('user', fn ($u) => $u
                     ->whereRaw('LOWER(users.name) LIKE ?', [$term])
+                    ->orWhereRaw('LOWER(users.name_en) LIKE ?', [$term])
+                    ->orWhereRaw('LOWER(users.name_ar) LIKE ?', [$term])
                     ->orWhereRaw('LOWER(users.machine_code) LIKE ?', [$term])));
         }
 

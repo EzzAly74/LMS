@@ -26,6 +26,39 @@ namespace App\Support;
  */
 final class QualificationHolding
 {
+    /**
+     * The qualifications a learner's profile shows (NEW2B-6240): those of
+     * their job title, then any granted to them directly (an approved
+     * external training, D-045) that the job title does not list.
+     *
+     * @return \Illuminate\Support\Collection<int, object{id:int, name:string, granted:bool}>
+     */
+    public static function profileQualifications(int $userId, ?int $jobTitleId): \Illuminate\Support\Collection
+    {
+        $granted = \Illuminate\Support\Facades\DB::table('user_qualification_skill')
+            ->where('user_id', $userId)
+            ->pluck('qualification_skill_id')
+            ->map(fn ($v) => (int) $v)
+            ->flip();
+
+        $required = $jobTitleId === null ? collect() : \Illuminate\Support\Facades\DB::table('qualification_skills as qs')
+            ->join('job_title_qualification_skill as jtqs', 'jtqs.qualification_skill_id', '=', 'qs.id')
+            ->where('jtqs.job_title_id', $jobTitleId)
+            ->orderBy('qs.id')
+            ->get(['qs.id', 'qs.name']);
+        $requiredIds = $required->pluck('id')->map(fn ($v) => (int) $v)->flip();
+
+        $extra = $granted->isEmpty() ? collect() : \Illuminate\Support\Facades\DB::table('qualification_skills as qs')
+            ->whereIn('qs.id', $granted->keys()->all())
+            ->orderBy('qs.id')
+            ->get(['qs.id', 'qs.name'])
+            ->reject(fn ($q) => $requiredIds->has((int) $q->id));
+
+        return $required->concat($extra)
+            ->map(fn ($q) => (object) ['id' => (int) $q->id, 'name' => (string) $q->name, 'granted' => $granted->has((int) $q->id)])
+            ->values();
+    }
+
     /** Correlated count of the courses linked to qualification {$qualification}. */
     public static function linkedCoursesSql(string $qualification): string
     {

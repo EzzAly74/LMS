@@ -49,18 +49,12 @@ final class QualificationProgressService
      */
     public function forUser(User $user, string $locale): Collection
     {
-        if (empty($user->job_title_id)) {
-            return collect();
-        }
-
-        // Step 1: load the qualifications attached to the user's job
-        // title (via job_title_qualification_skill).
-        $qualifications = DB::table('qualification_skills as qs')
-            ->join('job_title_qualification_skill as jtqs', 'jtqs.qualification_skill_id', '=', 'qs.id')
-            ->where('jtqs.job_title_id', $user->job_title_id)
-            ->select(['qs.id', 'qs.name'])
-            ->orderBy('qs.id')
-            ->get();
+        // Step 1: the qualifications of the user's job title, plus any
+        // granted directly (an approved external training, NEW2B-6240).
+        $qualifications = \App\Support\QualificationHolding::profileQualifications(
+            (int) $user->id,
+            $user->job_title_id !== null ? (int) $user->job_title_id : null,
+        );
 
         if ($qualifications->isEmpty()) {
             return collect();
@@ -84,9 +78,10 @@ final class QualificationProgressService
         return $qualifications->map(function ($row) use ($locale, $courseCounts, $completedByQualification) {
             $total     = (int) ($courseCounts[$row->id] ?? 0);
             $completed = (int) ($completedByQualification[$row->id] ?? 0);
-            $percent   = $total > 0
+            // A direct grant holds it outright (D-056); counts stay real.
+            $percent   = $row->granted ? 100 : ($total > 0
                 ? (int) floor(($completed * 100) / $total)
-                : 0;
+                : 0);
 
             $decoded = json_decode((string) $row->name, true);
             $name    = is_array($decoded)
@@ -99,6 +94,7 @@ final class QualificationProgressService
                 'total_courses'     => $total,
                 'completed_courses' => $completed,
                 'percent'           => $percent,
+                'granted'           => (bool) $row->granted,
             ];
         })->values();
     }

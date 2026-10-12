@@ -76,7 +76,11 @@ final class ProfileDashboardService
      */
     public function qualifications(User $user, string $locale): Collection
     {
-        $qualifications = $this->requiredQualifications($user);
+        // The job title's, plus any granted directly (NEW2B-6240).
+        $qualifications = \App\Support\QualificationHolding::profileQualifications(
+            (int) $user->id,
+            $user->job_title_id !== null ? (int) $user->job_title_id : null,
+        );
         if ($qualifications->isEmpty()) {
             return collect();
         }
@@ -148,11 +152,14 @@ final class ProfileDashboardService
             }
 
             $total   = $courseIds->count();
-            $percent = $total > 0 ? (int) floor(($earned->count() * 100) / $total) : 0;
+            // A direct grant (an approved external training) holds the
+            // qualification outright (D-056); the course counts stay real.
+            $percent = $q->granted ? 100 : ($total > 0 ? (int) floor(($earned->count() * 100) / $total) : 0);
 
             return [
                 'id'                => $qid,
                 'name'              => $qualNames[$qid] ?? '',
+                'granted'           => (bool) $q->granted,
                 'total_courses'     => $total,
                 'completed_courses' => $earned->count(),
                 'percent'           => $percent,

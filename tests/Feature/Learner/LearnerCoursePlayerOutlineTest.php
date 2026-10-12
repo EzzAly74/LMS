@@ -135,4 +135,49 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
 
         $response->assertStatus(404);
     }
+
+    public function test_the_outline_reports_the_course_completion_step(): void
+    {
+        // NEW2B-5985: the player's last step needs the course-level state.
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
+        $course = Course::factory()->create(['certificate' => false, 'is_evaluate' => false]);
+        $course->users()->attach($learner->getKey());
+        $lecture = CourseLecture::factory()->create(['course_id' => $course->id, 'content_type' => 'video']);
+
+        $before = $this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")
+            ->assertOk()->json('result.completion');
+        $this->assertSame(
+            ['completed' => false, 'certificate_offered' => false, 'certificate_id' => null, 'evaluation_pending' => false, 'items_remaining' => 1],
+            $before,
+        );
+
+        $this->withHeaders($headers)
+            ->postJson(self::BASE."/courses/{$course->id}/lectures/{$lecture->id}/progress", ['confirmed' => true])
+            ->assertOk();
+
+        $after = $this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")
+            ->assertOk()->json('result.completion');
+        $this->assertTrue($after['completed']);
+        $this->assertSame(0, $after['items_remaining']);
+    }
+
+    public function test_a_certificate_course_is_completed_by_its_certificate_in_the_outline(): void
+    {
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
+        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => true]);
+        $course->users()->attach($learner->getKey());
+
+        $pending = $this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")
+            ->assertOk()->json('result.completion');
+        $this->assertFalse($pending['completed']);
+        $this->assertTrue($pending['certificate_offered']);
+        $this->assertTrue($pending['evaluation_pending']);
+
+        $certificate = \App\Models\UserCertificate::factory()->create(['user_id' => $learner->getKey(), 'course_id' => $course->id]);
+
+        $done = $this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")
+            ->assertOk()->json('result.completion');
+        $this->assertTrue($done['completed']);
+        $this->assertSame($certificate->id, $done['certificate_id']);
+    }
 }

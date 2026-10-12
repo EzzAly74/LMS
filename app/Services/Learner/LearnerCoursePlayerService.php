@@ -10,11 +10,13 @@ use App\Models\CourseExamQuestion;
 use App\Models\CourseLecture;
 use App\Models\CourseSection;
 use App\Models\User;
+use App\Models\UserCertificate;
 use App\Models\UserCourseAssignment;
 use App\Models\UserExam;
 use App\Models\UserLectureProgress;
 use App\Services\CertificateProjectionService;
 use App\Services\LectureProgressService;
+use App\Support\CourseCompletion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -139,6 +141,50 @@ class LearnerCoursePlayerService
             'modules_completed' => $modulesCompleted,
             'modules_total' => $modulesTotal,
             'weeks' => $weeks,
+            'completion' => $this->completion($user, $course, $weeks),
+        ];
+    }
+
+    /**
+     * The player's last step (Figma 2535:147143 / 2507:146778, NEW2B-5985):
+     * whether the course is completed by the one project rule (D-082, D-086),
+     * the learner's active certificate, and what is still open.
+     *
+     * @param  list<array{items: list<array{completed: bool}>}>  $weeks
+     * @return array{completed: bool, certificate_offered: bool, certificate_id: int|null,
+     *               evaluation_pending: bool, items_remaining: int}
+     */
+    private function completion(User $user, Course $course, array $weeks): array
+    {
+        $completed = DB::table('courses')
+            ->where('courses.id', $course->id)
+            ->whereRaw(CourseCompletion::existsSql((string) (int) $user->id, 'courses.id'))
+            ->exists();
+
+        $certificateId = UserCertificate::where('user_id', $user->id)
+            ->where('course_id', $course->id)
+            ->where('status', UserCertificate::STATUS_ACTIVE)
+            ->value('id');
+
+        $evaluationPending = (bool) $course->is_evaluate
+            && ! DB::table('user_course_evaluations')
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
+                ->exists();
+
+        $remaining = 0;
+        foreach ($weeks as $week) {
+            foreach ($week['items'] as $item) {
+                $remaining += $item['completed'] ? 0 : 1;
+            }
+        }
+
+        return [
+            'completed'           => $completed,
+            'certificate_offered' => (bool) $course->certificate,
+            'certificate_id'      => $certificateId !== null ? (int) $certificateId : null,
+            'evaluation_pending'  => $evaluationPending,
+            'items_remaining'     => $remaining,
         ];
     }
 

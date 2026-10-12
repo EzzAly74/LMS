@@ -156,7 +156,11 @@ class ExternalTrainingService
      * The three tiles on Figma 2181:116177: pending now, requests submitted
      * this calendar year, and rejected this year. Withdrawn never count.
      *
-     * @return array{pending:int, this_year:int, rejected_this_year:int, year:int}
+     * `compliance_updated_at` (NEW2B-6237, Figma "Compliance · Updated …"):
+     * the last approval, the moment external training last changed anyone's
+     * compliance; null before the first.
+     *
+     * @return array{pending:int, this_year:int, rejected_this_year:int, year:int, compliance_updated_at:?string}
      */
     public function stats(): array
     {
@@ -173,6 +177,9 @@ class ExternalTrainingService
             'this_year'          => (int) ($row->this_year ?? 0),
             'rejected_this_year' => (int) ($row->rejected_this_year ?? 0),
             'year'               => $year,
+            'compliance_updated_at' => ($last = DB::table('external_training_requests')
+                ->where('status', ExternalTrainingRequest::APPROVED)
+                ->max('decided_at')) !== null ? \Illuminate\Support\Carbon::parse($last)->toIso8601String() : null,
         ];
     }
 

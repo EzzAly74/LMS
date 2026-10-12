@@ -61,8 +61,11 @@ class ExternalTrainingDecisionsTest extends ApiTestCase
         $learner = User::factory()->create(['job_title_id' => $job]);
         $r = $this->request($learner);
         ['headers' => $h] = $this->adminToken();
+        $this->assertNull($this->getJson(self::ADMIN.'/stats', $h)->assertOk()->json('result.compliance_updated_at'));
 
         $this->postJson(self::ADMIN.'/'.$r->id.'/approve', ['qualification_skill_id' => $extra], $h)->assertOk();
+        // NEW2B-6237: "Compliance · Updated …" is the last approval.
+        $this->assertNotNull($this->getJson(self::ADMIN.'/stats', $h)->json('result.compliance_updated_at'));
 
         ['headers' => $l] = $this->userToken($learner);
         $rows = collect($this->getJson(self::BASE.'/learner/profile/qualifications', $l + ['Accept-Language' => 'en'])->assertOk()->json('result'));

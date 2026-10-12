@@ -68,7 +68,14 @@ class CourseLectureRequest extends FormRequest
             'type'               => 'nullable|in:url,file,article',
             'video'              => $videoRules,
             // Rich-text HTML body for article modules (dedicated column).
+            // `content` is the Arabic (main) text; `content_en` the optional
+            // English one.
             'content'            => $contentRules,
+            'content_en'         => ['nullable', 'string', 'max:'.self::ARTICLE_MAX],
+            // A document module's optional English file (stored path from
+            // lectures/upload) and its original name; `video` is the Arabic.
+            'video_en'           => ['nullable', 'string', 'max:2048'],
+            'file_name_en'       => ['nullable', 'string', 'max:255'],
 
             // Optional original filename for uploaded documents — preserved so
             // the Edit dialog can render "File Title.pdf · 313 KB" instead of a

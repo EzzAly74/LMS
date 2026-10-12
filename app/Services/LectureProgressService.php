@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\CourseLecture;
 use App\Models\User;
 use App\Models\UserLectureProgress;
+use App\Support\CohortModules;
 
 class LectureProgressService
 {
@@ -54,15 +55,17 @@ class LectureProgressService
      */
     public function getCourseProgress(int $userId, int $courseId): int
     {
-        $course = Course::with('lectures:id,course_id')->findOrFail($courseId);
+        Course::query()->findOrFail($courseId);
+        // The modules of the learner's cohort sheet (D-089).
+        $lectureIds = CohortModules::lectureIds($userId, $courseId);
 
-        $totalLectures = $course->lectures->count();
+        $totalLectures = count($lectureIds);
         if ($totalLectures === 0) {
             return 0;
         }
 
         $completed = UserLectureProgress::where('user_id', $userId)
-            ->whereIn('lecture_id', $course->lectures->pluck('id'))
+            ->whereIn('lecture_id', $lectureIds)
             ->where('completed', true)
             ->count();
 
@@ -85,7 +88,9 @@ class LectureProgressService
             return [];
         }
 
+        // Only the modules of the learner's cohort sheet (D-089).
         $totalsByCourse = CourseLecture::whereIn('course_id', $courseIds)
+            ->whereRaw(CohortModules::requiredSql((string) $userId, 'course_lectures'))
             ->selectRaw('course_id, COUNT(*) as total')
             ->groupBy('course_id')
             ->pluck('total', 'course_id');
@@ -96,6 +101,7 @@ class LectureProgressService
                     ->where('user_lecture_progress.user_id', '=', $userId)
                     ->where('user_lecture_progress.completed', '=', true);
             })
+            ->whereRaw(CohortModules::requiredSql((string) $userId, 'course_lectures'))
             ->selectRaw('course_lectures.course_id as course_id, COUNT(*) as completed')
             ->groupBy('course_lectures.course_id')
             ->pluck('completed', 'course_id');
@@ -125,13 +131,16 @@ class LectureProgressService
     public function getLectureProgress(int $userId, int $courseId): array
     {
         $course = Course::with(['lectures.section:id,name'])->findOrFail($courseId);
+        // Only the modules the learner's cohort sheet schedules (D-089).
+        $required = array_flip(CohortModules::lectureIds($userId, $courseId));
+        $lectures = $course->lectures->filter(fn ($lecture) => isset($required[(int) $lecture->id]))->values();
 
         $progressMap = UserLectureProgress::where('user_id', $userId)
-            ->whereIn('lecture_id', $course->lectures->pluck('id'))
+            ->whereIn('lecture_id', $lectures->pluck('id'))
             ->get()
             ->keyBy('lecture_id');
 
-        return $course->lectures->map(fn ($lecture) => [
+        return $lectures->map(fn ($lecture) => [
             'lecture_id'         => $lecture->id,
             'title'              => $lecture->title,
             'content_type'       => $lecture->content_type,

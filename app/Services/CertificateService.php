@@ -202,7 +202,8 @@ class CertificateService
             return null;
         }
 
-        $lectureIds = DB::table('course_lectures')->where('course_id', $course->id)->pluck('id');
+        // The modules of the learner's cohort sheet (D-089).
+        $lectureIds = collect(\App\Support\CohortModules::lectureIds((int) $user->id, (int) $course->id));
         if ($lectureIds->isEmpty()) {
             return null;
         }

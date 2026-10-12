@@ -85,9 +85,19 @@ class CourseLectureService
         } else {
             // url/file content types never carry a rich-text body.
             $data['content'] = null;
+            $data['content_en'] = null;
             if (empty($data['type'])) {
                 $data['type'] = $contentType === 'document' ? 'file' : 'url';
             }
+        }
+        // Only a document has a second (English) file.
+        if ($contentType !== 'document') {
+            $data['video_en'] = null;
+            $data['file_name_en'] = null;
+        }
+        // An empty English editor is no English text.
+        if (array_key_exists('content_en', $data) && trim(strip_tags((string) $data['content_en'])) === '') {
+            $data['content_en'] = null;
         }
 
         return $data;

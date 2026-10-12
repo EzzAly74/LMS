@@ -32,6 +32,8 @@ class LearnerCoursePlayerController extends ApiController
     public function lecture(Request $request, Course $course, CourseLecture $lecture): JsonResponse
     {
         abort_if($lecture->course_id !== $course->id, 404);
+        // Not in the learner's cohort sheet: hidden from them (D-089).
+        abort_unless(\App\Support\CohortModules::isRequired((int) $request->user()->id, (int) $lecture->id), 404);
 
         return $this->success(
             __('messages.retrieved'),

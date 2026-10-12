@@ -257,11 +257,24 @@ class JobTitleService
      */
     private function lectureProgress(array $userIds, array $courseIds): array
     {
+        // Every module counts for a learner without a cohort; an enrolled
+        // learner counts the modules of their cohort sheet (D-089).
         $totals = DB::table('course_lectures')
             ->whereIn('course_id', $courseIds)
             ->groupBy('course_id')
             ->selectRaw('course_id, COUNT(*) AS n')
             ->pluck('n', 'course_id');
+        $ownTotals = [];
+        DB::table('users_courses as uc')
+            ->join('course_lectures as cl', 'cl.course_id', '=', 'uc.course_id')
+            ->whereIn('uc.user_id', $userIds)
+            ->whereIn('uc.course_id', $courseIds)
+            ->whereRaw(\App\Support\CohortModules::requiredSql('uc.user_id', 'cl'))
+            ->groupBy('uc.user_id', 'uc.course_id')
+            ->get(['uc.user_id', 'uc.course_id', DB::raw('COUNT(DISTINCT cl.id) AS n')])
+            ->each(function ($r) use (&$ownTotals) {
+                $ownTotals[((int) $r->user_id).':'.((int) $r->course_id)] = (int) $r->n;
+            });
 
         $out = [];
         DB::table('user_lecture_progress as ulp')
@@ -269,10 +282,11 @@ class JobTitleService
             ->whereIn('ulp.user_id', $userIds)
             ->whereIn('cl.course_id', $courseIds)
             ->where('ulp.completed', true)
+            ->whereRaw(\App\Support\CohortModules::requiredSql('ulp.user_id', 'cl'))
             ->groupBy('ulp.user_id', 'cl.course_id')
             ->get(['ulp.user_id', 'cl.course_id', DB::raw('COUNT(*) AS done')])
-            ->each(function ($r) use ($totals, &$out) {
-                $total = (int) ($totals[$r->course_id] ?? 0);
+            ->each(function ($r) use ($totals, $ownTotals, &$out) {
+                $total = $ownTotals[((int) $r->user_id).':'.((int) $r->course_id)] ?? (int) ($totals[$r->course_id] ?? 0);
                 if ($total > 0) {
                     $out[((int) $r->user_id).':'.((int) $r->course_id)] = (int) min(100, round($r->done * 100 / $total));
                 }

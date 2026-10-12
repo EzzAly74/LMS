@@ -62,6 +62,9 @@ final class CourseCompletion
     public static function existsSql(string $userColumn, string $courseColumn): string
     {
         $passed = self::PASSED_EXAM_SQL.self::submittedExamSql('ue');
+        // Only the modules the learner's cohort sheet schedules (D-089).
+        $requiredX = CohortModules::requiredSql($userColumn, 'clx');
+        $requiredY = CohortModules::requiredSql($userColumn, 'cly');
 
         return "(
             EXISTS (
@@ -89,10 +92,11 @@ final class CourseCompletion
                           AND cev.course_id = {$courseColumn}
                     ))
                     OR (
-                        EXISTS (SELECT 1 FROM course_lectures clx WHERE clx.course_id = {$courseColumn})
+                        EXISTS (SELECT 1 FROM course_lectures clx WHERE clx.course_id = {$courseColumn} AND {$requiredX})
                         AND NOT EXISTS (
                             SELECT 1 FROM course_lectures cly
                             WHERE cly.course_id = {$courseColumn}
+                              AND {$requiredY}
                               AND NOT EXISTS (
                                 SELECT 1 FROM user_lecture_progress ulp
                                 WHERE ulp.lecture_id = cly.id
@@ -146,15 +150,18 @@ final class CourseCompletion
             ->groupBy('cev.user_id', 'cev.course_id'),
             'cev.user_id', 'cev.course_id');
 
-        // Courses without a certificate: every content module completed.
+        // Courses without a certificate: every module the learner's cohort
+        // sheet schedules completed (D-089).
         $content = $scope(DB::table('user_lecture_progress as ulp')
             ->join('course_lectures as cl', 'cl.id', '=', 'ulp.lecture_id')
             ->join('courses as ccrs', 'ccrs.id', '=', 'cl.course_id')
             ->where('ulp.completed', true)
             ->where('ccrs.certificate', false)
+            ->whereRaw(CohortModules::requiredSql('ulp.user_id', 'cl'))
             ->selectRaw('ulp.user_id, cl.course_id, MAX(ulp.updated_at) AS done_at')
             ->groupBy('ulp.user_id', 'cl.course_id')
-            ->havingRaw('COUNT(DISTINCT cl.id) = (SELECT COUNT(*) FROM course_lectures clt WHERE clt.course_id = cl.course_id)'),
+            ->havingRaw('COUNT(DISTINCT cl.id) = (SELECT COUNT(*) FROM course_lectures clt WHERE clt.course_id = cl.course_id AND '
+                .CohortModules::requiredSql('ulp.user_id', 'clt').')'),
             'ulp.user_id', 'cl.course_id');
 
         $signals = $certificates->unionAll($exams)->unionAll($evaluations)->unionAll($content);

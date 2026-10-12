@@ -199,10 +199,18 @@ class LearnerCoursePlayerService
     {
         $locale = app()->getLocale();
 
+        // The English article text / document file for an English reader,
+        // else the Arabic (main) one every module has.
+        $english = $locale === 'en';
+        $file = $english && $lecture->content_type === 'document' && filled($lecture->video_en)
+            ? $lecture->video_en
+            : $lecture->video;
+        $body = $english && filled($lecture->content_en) ? $lecture->content_en : $lecture->content;
+
         $contentUrl = match ($lecture->content_type) {
-            'video', 'document' => $lecture->type === 'file' && $lecture->video
-                ? $lecture->getFileUrl($lecture->video)
-                : $lecture->video,
+            'video', 'document' => $lecture->type === 'file' && $file
+                ? $lecture->getFileUrl($file)
+                : $file,
             'link' => $lecture->video,
             default => null,
         };
@@ -217,7 +225,7 @@ class LearnerCoursePlayerService
             'description' => $lecture->getTranslation('instructions', $locale),
             'content_type' => $lecture->content_type,
             'content_url' => $contentUrl ?: null,
-            'body' => $lecture->content_type === 'article' ? $lecture->content : null,
+            'body' => $lecture->content_type === 'article' ? $body : null,
             'duration_minutes' => $lecture->duration_minutes,
             'require_completion' => (bool) $lecture->require_completion,
             'completed' => (bool) ($progress?->completed ?? false),

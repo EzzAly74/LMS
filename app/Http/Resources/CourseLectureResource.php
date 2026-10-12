@@ -35,6 +35,14 @@ class CourseLectureResource extends JsonResource
             'file_url'           => $this->type === 'file' && $this->video
                 ? $this->getFileUrl($this->video)
                 : null,
+            // The optional English article text and document file; the
+            // fields above are the Arabic (main) version.
+            'content_en'         => $this->content_en,
+            'video_en'           => $this->video_en,
+            'file_name_en'       => $this->file_name_en,
+            'file_url_en'        => $this->type === 'file' && $this->video_en
+                ? $this->getFileUrl($this->video_en)
+                : null,
 
             'require_completion' => (bool) ($this->require_completion ?? false),
 

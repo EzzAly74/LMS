@@ -65,6 +65,8 @@ class LectureProgressController extends ApiController
     public function store(LectureProgressRequest $request, Course $course, CourseLecture $lecture): JsonResponse
     {
         abort_if($lecture->course_id !== $course->id, 404);
+        // Not in the learner's cohort sheet: not theirs to take (D-089).
+        abort_unless(\App\Support\CohortModules::isRequired((int) $request->user()->id, (int) $lecture->id), 404);
 
         $progress = $this->progressService->track(
             $request->user()->id,

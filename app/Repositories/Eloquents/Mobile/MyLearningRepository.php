@@ -42,8 +42,11 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
     {
         // 1. Total lectures in the course (the catalogue truth — not
         //    snapshotted on the user side).
+        // Only the modules of the learner's cohort sheet (D-089).
+        $required = \App\Support\CohortModules::requiredSql((string) (int) $user->id, 'course_lectures');
         $totalLectures = (int) DB::table('course_lectures')
             ->where('course_id', $courseId)
+            ->whereRaw($required)
             ->count();
 
         // 2. The user's completed lectures for this course.
@@ -52,6 +55,7 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
             ->where('user_lecture_progress.user_id', $user->id)
             ->where('course_lectures.course_id', $courseId)
             ->where('user_lecture_progress.completed', true)
+            ->whereRaw($required)
             ->count();
 
         // 3. Sessions counts (total + past) and attendance count.
@@ -94,6 +98,7 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
                 $q->whereNull('user_lecture_progress.completed')
                   ->orWhere('user_lecture_progress.completed', false);
             })
+            ->whereRaw($required)
             ->orderBy('course_lectures.id')
             ->select(['course_lectures.title'])
             ->first();

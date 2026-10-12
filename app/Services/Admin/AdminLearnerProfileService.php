@@ -127,6 +127,8 @@ class AdminLearnerProfileService
         // course_lectures carries course_id directly, so no join is needed.
         $totalLectures = DB::table('course_lectures')
             ->whereIn('course_id', $activeCourseIds)
+            // The modules of the learner's cohort sheets (D-089).
+            ->whereRaw(\App\Support\CohortModules::requiredSql((string) (int) $learner->id, 'course_lectures'))
             ->count();
 
         if ($totalLectures === 0) {
@@ -138,6 +140,7 @@ class AdminLearnerProfileService
             ->where('user_lecture_progress.user_id', $learner->id)
             ->where('user_lecture_progress.completed', true)
             ->whereIn('course_lectures.course_id', $activeCourseIds)
+            ->whereRaw(\App\Support\CohortModules::requiredSql((string) (int) $learner->id, 'course_lectures'))
             ->count();
 
         return round($completedLectures * 100 / $totalLectures, 1);

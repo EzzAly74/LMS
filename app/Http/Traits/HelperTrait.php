@@ -195,11 +195,13 @@ Trait HelperTrait
     //User Progress
     public function userCourseProgress($courseId, $userId)
     {
-        $course = Course::with('lectures')->findOrFail($courseId);
+        Course::query()->findOrFail($courseId);
+        // The modules of the learner's cohort sheet (D-089).
+        $lectureIds = \App\Support\CohortModules::lectureIds((int) $userId, (int) $courseId);
 
-        $totalLectures = $course->lectures->count();
+        $totalLectures = count($lectureIds);
         $completedLectures = UserLectureProgress::where('user_id', $userId)
-            ->whereIn('lecture_id', $course->lectures->pluck('id'))
+            ->whereIn('lecture_id', $lectureIds)
             ->where('completed', true)
             ->count();
 

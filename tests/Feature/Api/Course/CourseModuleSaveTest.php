@@ -112,4 +112,48 @@ class CourseModuleSaveTest extends ApiTestCase
             ->assertUnprocessable()->assertJsonValidationErrors('content');
         $this->assertSame(0, CourseLecture::query()->where('course_id', $course->id)->count());
     }
+
+    public function test_an_article_and_a_document_carry_an_arabic_and_an_english_version(): void
+    {
+        $course = Course::factory()->create();
+        CourseSection::factory()->create(['course_id' => $course->id]);
+        $headers = $this->instructorFor($course);
+        $url = self::BASE."/courses/{$course->id}/lectures";
+
+        $this->postJson($url, $this->article('<p>نص عربي</p>', ['content_en' => '<p>English text</p>']), $headers)->assertSuccessful();
+        $article = CourseLecture::query()->where('course_id', $course->id)->latest('id')->firstOrFail();
+        $this->assertSame('<p>نص عربي</p>', $article->content);
+        $this->assertSame('<p>English text</p>', $article->content_en);
+
+        $this->postJson($url, [
+            'title' => ['en' => 'Handbook', 'ar' => 'الدليل'], 'content_type' => 'document', 'type' => 'file',
+            'video' => 'course-lectures/ar.pdf', 'file_name' => 'دليل.pdf',
+            'video_en' => 'course-lectures/en.pdf', 'file_name_en' => 'handbook.pdf',
+            // An English article body on a document is dropped.
+            'content_en' => '<p>stray</p>',
+        ], $headers)->assertSuccessful();
+        $document = CourseLecture::query()->where('course_id', $course->id)->latest('id')->firstOrFail();
+        $this->assertSame('course-lectures/en.pdf', $document->video_en);
+        $this->assertSame('handbook.pdf', $document->file_name_en);
+        $this->assertNull($document->content_en);
+
+        // The Dashboard gets both versions back.
+        $row = collect($this->getJson(self::BASE."/courses/{$course->id}/modules", $headers)->assertOk()->json('result'))
+            ->firstWhere('id', $document->id);
+        $this->assertSame('handbook.pdf', $row['file_name_en']);
+        $this->assertStringEndsWith('course-lectures/en.pdf', $row['file_url_en']);
+
+        // A learner gets their language, and the Arabic when there is no English.
+        $learner = \App\Models\User::factory()->create();
+        DB::table('users_courses')->insert(['user_id' => $learner->id, 'course_id' => $course->id]);
+        ['headers' => $l] = $this->userToken($learner);
+        $get = fn (int $id, string $lang) => $this->getJson(self::BASE."/courses/{$course->id}/lectures/{$id}", $l + ['Accept-Language' => $lang])->assertOk()->json('result');
+        $this->assertSame('<p>English text</p>', $get($article->id, 'en')['body']);
+        $this->assertSame('<p>نص عربي</p>', $get($article->id, 'ar')['body']);
+        $this->assertStringEndsWith('course-lectures/en.pdf', $get($document->id, 'en')['content_url']);
+        $this->assertStringEndsWith('course-lectures/ar.pdf', $get($document->id, 'ar')['content_url']);
+
+        $article->update(['content_en' => null]);
+        $this->assertSame('<p>نص عربي</p>', $get($article->id, 'en')['body']);
+    }
 }

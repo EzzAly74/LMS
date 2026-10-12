@@ -69,21 +69,20 @@ class UserEnrollmentRepository implements UserEnrollmentRepositoryInterface
      */
     private function progressExpression(Course $course): array
     {
-        $lectureIds = $course->lectures()->pluck('id')->map(fn ($id) => (int) $id)->all();
-        $total      = count($lectureIds);
-
-        if ($total === 0) {
+        if (! $course->lectures()->exists()) {
             return ['0', []];
         }
 
-        $placeholders = implode(',', array_fill(0, $total, '?'));
+        // Each learner's own modules: those of their cohort sheet (D-089).
+        $total = 'SELECT COUNT(*) FROM course_lectures pt WHERE pt.course_id = ? AND '
+            .\App\Support\CohortModules::requiredSql('users_courses.user_id', 'pt');
+        $done  = 'SELECT COUNT(*) FROM user_lecture_progress pu JOIN course_lectures pd ON pd.id = pu.lecture_id
+                  WHERE pu.user_id = users_courses.user_id AND pu.completed = 1 AND pd.course_id = ? AND '
+            .\App\Support\CohortModules::requiredSql('users_courses.user_id', 'pd');
 
         return [
-            "FLOOR((SELECT COUNT(*) FROM user_lecture_progress
-                WHERE user_lecture_progress.user_id = users_courses.user_id
-                  AND user_lecture_progress.completed = 1
-                  AND user_lecture_progress.lecture_id IN ({$placeholders})) * 100 / ?)",
-            array_merge($lectureIds, [$total]),
+            "COALESCE(FLOOR(({$done}) * 100 / NULLIF(({$total}), 0)), 0)",
+            [(int) $course->id, (int) $course->id],
         ];
     }
 

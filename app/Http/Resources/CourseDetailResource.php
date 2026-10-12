@@ -185,6 +185,7 @@ class CourseDetailResource extends JsonResource
             return 0;
         }
 
+        // Each learner counts the modules of their cohort sheet (D-089).
         $completed = (int) DB::table('user_lecture_progress')
             ->join('course_lectures', 'course_lectures.id', '=', 'user_lecture_progress.lecture_id')
             ->join('users_courses', function ($join) {
@@ -193,9 +194,14 @@ class CourseDetailResource extends JsonResource
             })
             ->where('course_lectures.course_id', $this->id)
             ->where('user_lecture_progress.completed', true)
+            ->whereRaw(\App\Support\CohortModules::requiredSql('user_lecture_progress.user_id', 'course_lectures'))
             ->count();
 
-        $denominator = $totalLectures * $totalUsers;
+        $denominator = (int) DB::table('users_courses')
+            ->join('course_lectures', 'course_lectures.course_id', '=', 'users_courses.course_id')
+            ->where('users_courses.course_id', $this->id)
+            ->whereRaw(\App\Support\CohortModules::requiredSql('users_courses.user_id', 'course_lectures'))
+            ->count();
 
         return $denominator > 0
             ? (int) floor(($completed * 100) / $denominator)

@@ -285,13 +285,71 @@ class CohortScheduleContentTest extends ApiTestCase
             'ids'   => collect($w['items'])->where('kind', 'lecture')->pluck('id')->all(),
         ])->filter(fn ($w) => $w['ids'] !== [])->values()->all();
 
-        // Module 2 sits under its first session; Module 3 is in no session.
+        // Module 2 sits under its first session; Module 3 is in no session,
+        // so this cohort's learners do not get it (D-089).
         $this->assertSame([$m[1]->id], $lectures[0]['ids']);
         $this->assertSame([$m[0]->id], $lectures[1]['ids']);
-        $this->assertSame([$m[2]->id], $lectures[2]['ids']);
+        $this->assertCount(2, $lectures);
         $this->assertSame('Session 1', $lectures[0]['label']);
         $this->assertSame('Session 2', $lectures[1]['label']);
-        $this->assertSame('Course Content', $lectures[2]['label']);
+    }
+
+    // ─────────────────────────────────────────── required modules (D-089)
+
+    /** A learner on the course in the given cohort. @return array<string, string> */
+    private function learnerIn(Course $course, int $cohortId): array
+    {
+        $user = User::factory()->create();
+        DB::table('users_courses')->insert(['user_id' => $user->id, 'course_id' => $course->id, 'group_id' => $cohortId]);
+        ['headers' => $headers] = $this->userToken($user);
+
+        return $headers + ['user_id' => (string) $user->id];
+    }
+
+    public function test_a_learner_sees_counts_and_completes_only_the_modules_of_their_cohort_sheet(): void
+    {
+        [$course, $m] = $this->courseWithModules();
+        DB::table('courses')->where('id', $course->id)->update(['certificate' => false, 'is_evaluate' => false]);
+        $id = $this->create($course, $this->xlsx([
+            [1, '2026-10-20', '09:00', '11:00', '', $m[0]->id],
+            [2, '2026-10-27', '09:00', '11:00', '', $m[1]->id],
+        ]))->assertCreated()->json('result.id');
+        $headers = $this->learnerIn($course, $id);
+        $userId = (int) $headers['user_id'];
+        unset($headers['user_id']);
+
+        $outline = $this->getJson(self::BASE."/my/courses/{$course->id}/outline", $headers)->assertOk()->json('result');
+        $this->assertSame(2, $outline['modules_total']);
+        $ids = collect($outline['weeks'])->flatMap(fn ($w) => $w['items'])->where('kind', 'lecture')->pluck('id')->all();
+        $this->assertSame([$m[0]->id, $m[1]->id], $ids);
+
+        // The unscheduled module can be neither opened nor tracked.
+        $this->getJson(self::BASE."/courses/{$course->id}/lectures/{$m[2]->id}", $headers)->assertNotFound();
+        $this->postJson(self::BASE."/courses/{$course->id}/lectures/{$m[2]->id}/progress", ['confirmed' => true], $headers)->assertNotFound();
+
+        foreach ([$m[0], $m[1]] as $module) {
+            $this->postJson(self::BASE."/courses/{$course->id}/lectures/{$module->id}/progress", ['confirmed' => true], $headers)->assertOk();
+        }
+
+        // Both scheduled modules done: 100% and completed, module 3 untouched.
+        $this->assertSame(100, app(\App\Services\LectureProgressService::class)->getCourseProgress($userId, $course->id));
+        $this->assertSame([$course->id], \App\Support\CourseCompletion::courseIdsFor($userId)->all());
+        $this->assertTrue(DB::table('users')->where('id', $userId)
+            ->whereRaw(\App\Support\CourseCompletion::existsSql('users.id', (string) $course->id))->exists());
+        $this->assertSame(1, $this->getJson(self::BASE."/my/courses/{$course->id}/outline", $headers)->json('result.completion.completed') ? 1 : 0);
+    }
+
+    public function test_a_cohort_whose_sheet_schedules_no_module_keeps_every_module(): void
+    {
+        [$course, $m] = $this->courseWithModules();
+        $id = $this->create($course, $this->xlsx([
+            [1, '2026-10-20', '09:00', '11:00', '', ''],
+        ]))->assertCreated()->json('result.id');
+        $headers = $this->learnerIn($course, $id);
+        unset($headers['user_id']);
+
+        $this->assertSame(3, $this->getJson(self::BASE."/my/courses/{$course->id}/outline", $headers)->json('result.modules_total'));
+        $this->getJson(self::BASE."/courses/{$course->id}/lectures/{$m[2]->id}", $headers)->assertOk();
     }
 
     public function test_session_titles_follow_the_readers_language_and_the_schedule_number(): void

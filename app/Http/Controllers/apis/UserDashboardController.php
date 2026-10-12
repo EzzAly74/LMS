@@ -350,6 +350,17 @@ class UserDashboardController extends ApiController
     {
         $userId = $request->user()->id;
 
+        // The learner's own progress in a course they are enrolled in: this
+        // listed the lecture titles of any course, drafts included (B-165).
+        abort_unless(
+            \Illuminate\Support\Facades\DB::table('users_courses')
+                ->where('user_id', $userId)
+                ->where('course_id', $courseId)
+                ->exists(),
+            403,
+            __('messages.course_not_enrolled'),
+        );
+
         return $this->success(__('messages.retrieved'), [
             'course_id'        => $courseId,
             'overall_progress' => $this->progressService->getCourseProgress($userId, $courseId),

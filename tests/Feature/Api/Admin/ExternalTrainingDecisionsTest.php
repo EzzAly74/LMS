@@ -77,4 +77,18 @@ class ExternalTrainingDecisionsTest extends ApiTestCase
         $mobile = app(QualificationProgressService::class)->forUser($learner->refresh(), 'en');
         $this->assertSame(100, $mobile->firstWhere('id', $extra)['percent']);
     }
+
+    public function test_the_completed_list_says_when_the_certificate_is_a_photo(): void
+    {
+        // NEW2B-6241: the card's picture is the learner's own certificate photo.
+        $learner = User::factory()->create();
+        $photo = $this->request($learner, 'Photo');
+        $photo->forceFill(['certificate_mime' => 'image/png', 'status' => ExternalTrainingRequest::APPROVED])->save();
+        $this->request($learner, 'Pdf')->forceFill(['status' => ExternalTrainingRequest::APPROVED])->save();
+        ['headers' => $l] = $this->userToken($learner);
+
+        $rows = collect($this->getJson(self::BASE.'/learner/profile/completed', $l)->assertOk()->json('result'))->where('kind', 'external');
+        $this->assertTrue($rows->firstWhere('title', 'Photo')['certificate_is_image']);
+        $this->assertFalse($rows->firstWhere('title', 'Pdf')['certificate_is_image']);
+    }
 }

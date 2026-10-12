@@ -247,6 +247,10 @@ final class ProfileDashboardService
                 'title'               => $r->title,
                 'provider'            => $r->provider,
                 'image'               => null,
+                // The card's picture (NEW2B-6241): the learner's own
+                // certificate when it is a photo, loaded through the
+                // authorized certificate route.
+                'certificate_is_image' => str_starts_with((string) $r->certificate_mime, 'image/'),
                 'course_type'         => null,
                 'completed_at'        => $r->end_date?->toDateString(),
                 'hours'               => (float) $r->hours,

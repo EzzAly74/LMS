@@ -335,15 +335,9 @@ class AdminLearnerProfileService
             ->paginate($perPage);
     }
 
-    /** The submission has question answers (the question-based flow). */
-    private const HAS_ANSWERS_SQL = 'EXISTS (SELECT 1 FROM user_course_assignment_answers uca_a WHERE uca_a.user_course_assignment_id = user_course_assignments.id)';
+    private const HAS_ANSWERS_SQL = \App\Models\UserCourseAssignment::HAS_ANSWERS_SQL;
 
-    /**
-     * The assignment's grade (NEW2B-6232): a question-based submission keeps
-     * it in total_score and has none while a person still has to score an
-     * answer; a file-only (legacy) submission keeps it in `score`.
-     */
-    private const ASSIGNMENT_SCORE_SQL = '(CASE WHEN '.self::HAS_ANSWERS_SQL.' THEN (CASE WHEN EXISTS (SELECT 1 FROM user_course_assignment_answers uca_p WHERE uca_p.user_course_assignment_id = user_course_assignments.id AND uca_p.awarded_score IS NULL) THEN NULL ELSE user_course_assignments.total_score END) ELSE user_course_assignments.score END)';
+    private const ASSIGNMENT_SCORE_SQL = \App\Models\UserCourseAssignment::SCORE_SQL;
 
     /** A translatable JSON column (`{"en":…,"ar":…}`) contains the term in either language. */
     private function whereLocalizedLike($query, string $column, string $term)

@@ -26,6 +26,9 @@ class UserExamFactory extends Factory
             'exam_id'     => CourseExam::factory(),
             'user_degree' => 100,
             'status'      => 'success',
+            // A sent attempt, as most tests mean one; an opened attempt sets it.
+            'submission_status' => 'submitted',
+            'submitted_at' => now(),
         ];
     }
 

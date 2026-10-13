@@ -304,6 +304,8 @@ class AdminQuizService
         array $types = [],
     ): Builder {
         return UserExam::query()
+            // A sent attempt only: an opened rich attempt is a row too (B-162, B-172).
+            ->whereRaw(\App\Support\CourseCompletion::submittedExamSql('user_exams'))
             ->whereHas('exam', function ($q) {
                 // Any exam that has questions (legacy or rich) — mirrors the
                 // relaxed quiz list gate so a legacy quiz's submissions are
@@ -322,17 +324,20 @@ class AdminQuizService
             ->when(!empty($courseIds), fn ($q) => $q->whereIn('course_id', $courseIds))
             // B-134: as B-129 on assignments - an open answer still waiting
             // for a person's score keeps the attempt pending.
-            ->when($status === 'graded', fn ($q) => $q->whereNotNull('total_score')
+            // A legacy exam is scored in user_degree (B-172).
+            ->when($status === 'graded', fn ($q) => $q->whereRaw(self::SCORE_SQL.' IS NOT NULL')
                 ->whereDoesntHave('answers', fn ($a) => $this->pendingAnswer($a)))
-            ->when($status === 'pending', fn ($q) => $q->where(fn ($w) => $w->whereNull('total_score')
+            ->when($status === 'pending', fn ($q) => $q->where(fn ($w) => $w->whereRaw(self::SCORE_SQL.' IS NULL')
                 ->orWhereHas('answers', fn ($a) => $this->pendingAnswer($a))))
             // Figma 1983:42584 "Passed / Failed" (D-065): scored attempts only,
-            // against the quiz's own pass score, else the legacy pass status.
+            // by QuizVerdict (D-087): the quiz's pass score, else half the
+            // full mark - never the stored status (B-172).
             ->when($result === 'passed' || $result === 'failed', fn ($q) => $q
-                ->whereNotNull('total_score')
+                ->whereRaw(self::SCORE_SQL.' IS NOT NULL')
                 ->whereDoesntHave('answers', fn ($a) => $this->pendingAnswer($a))
                 ->whereHas('exam', fn ($e) => $e->whereRaw(
-                    '(CASE WHEN course_exams.pass_score IS NULL THEN LOWER(COALESCE(user_exams.status, \'\')) IN (\'passed\', \'completed\', \'success\') ELSE user_exams.total_score >= course_exams.pass_score END) = ?',
+                    '(CASE WHEN course_exams.pass_score IS NOT NULL THEN '.self::SCORE_SQL.' >= course_exams.pass_score'
+                    .' ELSE ('.self::MAX_SQL.') > 0 AND '.self::SCORE_SQL.' * 2 >= ('.self::MAX_SQL.') END) = ?',
                     [$result === 'passed' ? 1 : 0],
                 )))
             ->when($types !== [], fn ($q) => $q->whereHas('exam', fn ($e) => $e->whereIn('type', $types)))
@@ -437,6 +442,16 @@ class AdminQuizService
      * awarded score. Legacy auto-graded answers never carry awarded_score,
      * so the question type decides, not the null alone.
      */
+    /**
+     * The attempt's score: an attempt of the rich flow (it records a
+     * submission_status) keeps it in total_score, null while waiting for a
+     * person; a legacy exam row keeps it in user_degree.
+     */
+    public const SCORE_SQL = '(CASE WHEN user_exams.submission_status IS NOT NULL THEN user_exams.total_score ELSE user_exams.user_degree END)';
+
+    /** The attempt's full mark, as the learner profile reads it. */
+    public const MAX_SQL = 'COALESCE(NULLIF(user_exams.max_score, 0), NULLIF(course_exams.total_score, 0), course_exams.degree, 0)';
+
     private function pendingAnswer($answers)
     {
         return $answers->whereNull('awarded_score')

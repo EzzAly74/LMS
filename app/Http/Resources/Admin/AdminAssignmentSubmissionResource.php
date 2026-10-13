@@ -23,8 +23,9 @@ class AdminAssignmentSubmissionResource extends JsonResource
             ? $this->assignment->cohorts->map(fn ($c) => optional($c->cohort)->name)->filter()->values()
             : collect();
 
-        $max     = $this->max_score ?? 0;
-        $awarded = $this->total_score;
+        // A file-only (legacy) submission is graded into `score` (B-172).
+        $max     = $this->max_score ?: ($assignment ? (int) $this->assignment->total_score : 0);
+        $awarded = $this->total_score ?? $this->score;
         // Projected by paginateSubmissions; callers without it fall back to
         // the loaded answers, then to "none pending" (the old behaviour).
         $pendingAnswers = (int) ($this->pending_answers_count

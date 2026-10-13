@@ -20,8 +20,10 @@ class AdminQuizSubmissionResource extends JsonResource
             ? $this->exam->cohorts->map(fn ($c) => optional($c->cohort)->name)->filter()->values()
             : collect();
 
-        $max     = $this->max_score ?? 0;
-        $awarded = $this->total_score;
+        // A legacy exam keeps its score in user_degree and its full mark on
+        // the exam (B-172), as the learner profile reads them.
+        $max     = $this->max_score ?: ($quiz ? ($this->exam->total_score ?: $this->exam->degree) : 0) ?: 0;
+        $awarded = $this->submission_status !== null ? $this->total_score : $this->user_degree;
         // B-134: projected by paginateSubmissions; absent elsewhere, then none pending.
         $pendingAnswers = (int) ($this->pending_answers_count ?? 0);
         $percent = ($max > 0 && $awarded !== null) ? (int) round(($awarded / $max) * 100) : null;
@@ -51,10 +53,10 @@ class AdminQuizSubmissionResource extends JsonResource
             'total_score'     => $awarded !== null ? (int) $awarded : null,
             'max_score'       => (int) $max,
             'score_percent'   => $percent,
-            // Against the quiz's own pass score (Q-031), as the learner side
-            // decides it; null while ungraded or when the quiz sets none.
-            'passed'          => $quiz && $awarded !== null && $pendingAnswers === 0 && $this->exam->pass_score !== null
-                ? $awarded >= $this->exam->pass_score
+            // QuizVerdict (D-087): the quiz's pass score, else half the full
+            // mark; null while an answer still waits for a person.
+            'passed'          => $quiz && $awarded !== null && $pendingAnswers === 0
+                ? \App\Support\QuizVerdict::passes((float) $awarded, $this->exam->pass_score !== null ? (float) $this->exam->pass_score : null, (float) $max)
                 : null,
             'attempts'        => (int) ($this->attempts_count ?? 1),
             'status'          => $awarded !== null && $pendingAnswers === 0 ? 'graded' : 'pending',

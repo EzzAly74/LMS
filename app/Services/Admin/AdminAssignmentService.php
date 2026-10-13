@@ -261,6 +261,8 @@ class AdminAssignmentService
         array $types = [],
     ): Builder {
         return UserCourseAssignment::query()
+            // Sent only: a question-based attempt being answered is not a result (B-172).
+            ->whereRaw(UserCourseAssignment::SENT_SQL)
             ->when($assignmentId, fn ($q) => $q->where('course_assignment_id', $assignmentId))
             ->when($userId, fn ($q) => $q->where('user_id', $userId))
             ->when($courseId, fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->where('course_id', $courseId)))
@@ -270,20 +272,18 @@ class AdminAssignmentService
             // B-129: the learner flow writes a running total from the first
             // answer, so `total_score` alone called every submission graded.
             // Graded = scored and no answer still waiting for a person.
-            ->when($status === 'graded', fn ($q) => $q->whereNotNull('total_score')
-                ->whereDoesntHave('answers', fn ($a) => $a->whereNull('awarded_score')))
-            ->when($status === 'pending', fn ($q) => $q->where(fn ($w) => $w->whereNull('total_score')
-                ->orWhereHas('answers', fn ($a) => $a->whereNull('awarded_score'))))
+            // The grade is total_score, or `score` for a file-only submission (B-172).
+            ->when($status === 'graded', fn ($q) => $q->whereRaw(UserCourseAssignment::SCORE_SQL.' IS NOT NULL'))
+            ->when($status === 'pending', fn ($q) => $q->whereRaw(UserCourseAssignment::SCORE_SQL.' IS NULL'))
             ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
             ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_course_assignments.user_id', $courseId, $sectionId))
             // Passed / Failed (Figma 1983:42584, D-065): only a fully graded
             // submission has a result, against the pass score or half the
             // total when none was set (D-090), as the resource's `passed`.
             ->when($result === 'passed' || $result === 'failed', fn ($q) => $q
-                ->whereNotNull('user_course_assignments.total_score')
-                ->whereDoesntHave('answers', fn ($a) => $a->whereNull('awarded_score'))
+                ->whereRaw(UserCourseAssignment::SCORE_SQL.' IS NOT NULL')
                 ->whereHas('assignment', fn ($a) => $a
-                    ->whereRaw('user_course_assignments.total_score '.($result === 'passed' ? '>=' : '<').' '.CourseAssignment::PASS_SCORE_SQL)))
+                    ->whereRaw(UserCourseAssignment::SCORE_SQL.' '.($result === 'passed' ? '>=' : '<').' '.CourseAssignment::PASS_SCORE_SQL)))
             ->when($types !== [], fn ($q) => $q->whereHas('assignment', fn ($a) => $a->whereIn('type', $types)));
     }
 

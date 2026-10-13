@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests\Api\Admin;
 
+use App\Models\CourseAssignment;
 use App\Models\CourseAssignmentQuestion;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
 class AdminAssignmentStoreRequest extends FormRequest
@@ -53,11 +55,40 @@ class AdminAssignmentStoreRequest extends FormRequest
         ];
     }
 
+    /** Plain messages for the limits an author can hit (NEW2B-6251, NEW2B-6268). */
+    public function messages(): array
+    {
+        return [
+            'title.max'          => __('messages.assignment_title_too_long', ['max' => 255]),
+            'title_ar.max'       => __('messages.assignment_title_too_long', ['max' => 255]),
+            'questions.*.score.min' => __('messages.assignment_score_negative'),
+            'pass_score.min'     => __('messages.assignment_score_negative'),
+        ];
+    }
+
     public function withValidator($validator): void
     {
         $validator->after(function ($v) {
             $scope    = $this->input('cohort_scope');
             $cohorts  = $this->input('cohort_ids', []);
+
+            // A new due date cannot be in the past (NEW2B-6256); an edit may
+            // keep the date it already had.
+            $due = $this->input('due_date');
+            if (filled($due) && ! $v->errors()->has('due_date')) {
+                $day = Carbon::parse($due)->startOfDay();
+                $id = $this->route('assignment');
+                $kept = $id !== null ? CourseAssignment::whereKey((int) $id)->value('due_date') : null;
+                if ($day->lt(today()) && ($kept === null || Carbon::parse($kept)->toDateString() !== $day->toDateString())) {
+                    $v->errors()->add('due_date', __('messages.assignment_due_date_past'));
+                }
+            }
+
+            // The pass score is out of the questions' total.
+            $total = array_sum(array_map(fn ($q) => max(0, (int) ($q['score'] ?? 0)), (array) $this->input('questions', [])));
+            if ($this->filled('pass_score') && ! $v->errors()->has('pass_score') && (int) $this->input('pass_score') > $total) {
+                $v->errors()->add('pass_score', __('messages.assignment_pass_score_over_total', ['total' => $total]));
+            }
 
             if ($scope === 'specific' && (empty($cohorts) || !is_array($cohorts))) {
                 $v->errors()->add('cohort_ids', __('Select at least one cohort when scope is specific.'));

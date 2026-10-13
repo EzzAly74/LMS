@@ -41,7 +41,7 @@ class AdminAssignmentSubmissionDetailResource extends JsonResource
                 'title_ar'     => $this->assignment->title_ar,
                 'status'       => $this->assignment->status,
                 'cohort_scope' => $this->assignment->cohort_scope,
-                'pass_score'   => $this->assignment->pass_score !== null ? (int) $this->assignment->pass_score : null,
+                'pass_score'   => $this->assignment->effectivePassScore(),
                 'total_score'  => (int) $this->assignment->total_score,
             ] : null,
             'course_title'     => $course?->title,

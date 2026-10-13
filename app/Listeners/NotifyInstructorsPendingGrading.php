@@ -44,7 +44,8 @@ class NotifyInstructorsPendingGrading
         $submission = $event->submission;
         $assignment = $submission->assignment;
 
-        if (! $assignment || ! $assignment->questions()->where('type', 'open')->exists()) {
+        // Open and file answers are scored by a person (MANUAL_TYPES).
+        if (! $assignment || ! $assignment->questions()->whereIn('type', \App\Models\CourseAssignmentQuestion::MANUAL_TYPES)->exists()) {
             return;
         }
 

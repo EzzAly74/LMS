@@ -68,10 +68,11 @@ class AdminAssignmentSubmissionResource extends JsonResource
             'total_score'      => $awarded !== null ? (int) $awarded : null,
             'max_score'        => (int) $max,
             'score_percent'    => $percent,
-            // Against the assignment's own pass score (Q-031), as the learner
-            // side decides it; null while ungraded or when it sets none.
-            'passed'           => $assignment && $awarded !== null && $pendingAnswers === 0 && $this->assignment->pass_score !== null
-                ? $awarded >= $this->assignment->pass_score
+            // Against the assignment's pass score (Q-031), half the total when
+            // it sets none (D-090), as the learner side decides it; null while
+            // ungraded.
+            'passed'           => $assignment && $awarded !== null && $pendingAnswers === 0
+                ? $awarded >= $this->assignment->effectivePassScore()
                 : null,
             'feedback'         => $this->feedback,
             // B-129: an answer still awaiting a person's score keeps it pending.

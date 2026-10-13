@@ -68,6 +68,7 @@ class LearnerCoursePlayerService
 
         $userAssignmentsByAssignmentId = UserCourseAssignment::where('user_id', $user->id)
             ->whereIn('course_assignment_id', $assignments->pluck('id'))
+            ->withCount(['answers as unscored_count' => fn ($a) => $a->whereNull('awarded_score')])
             ->get()
             ->keyBy('course_assignment_id');
 
@@ -120,12 +121,21 @@ class LearnerCoursePlayerService
             $label = __('messages.course_player.assessments_group');
             $userAssignment = $userAssignmentsByAssignmentId->get($assignment->id);
 
+            // Sent: passed, failed, or waiting for a person's score. Only a
+            // pass completes it (NEW2B-6277, D-090); a fail shows a cross.
+            $result = null;
+            if ($userAssignment?->submitted_at !== null) {
+                $result = (int) $userAssignment->unscored_count > 0 ? 'pending'
+                    : ((int) $userAssignment->total_score >= $assignment->effectivePassScore() ? 'passed' : 'failed');
+            }
+
             $groups[$label][] = [
                 'kind' => 'assignment',
                 'id' => $assignment->id,
                 'title' => $assignment->localizedTitle($locale),
                 'content_type' => null,
-                'completed' => $userAssignment?->submitted_at !== null,
+                'completed' => $result === 'passed',
+                'result' => $result,
             ];
             $order[$label] ??= 9999;
         }
@@ -304,7 +314,8 @@ class LearnerCoursePlayerService
 
         $weeks = collect($groups)->map(function (array $items, string $label) use (&$activeAssigned) {
             $items = array_map(function (array $item) use (&$activeAssigned) {
-                $isActive = ! $activeAssigned && ! $item['completed'];
+                // A sent assignment is not "next", whatever its result.
+                $isActive = ! $activeAssigned && ! $item['completed'] && ($item['result'] ?? null) === null;
                 if ($isActive) {
                     $activeAssigned = true;
                 }

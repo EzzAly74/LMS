@@ -103,6 +103,7 @@ class AdminAssignmentService
     public function create(array $data, ?Authenticatable $creator): CourseAssignment
     {
         return DB::transaction(function () use ($data, $creator) {
+            $total = $this->sumQuestionScores($data['questions'] ?? []);
             $assignment = CourseAssignment::query()->create([
                 'course_id'       => $data['course_id'],
                 'title'           => $data['title'],
@@ -111,11 +112,12 @@ class AdminAssignmentService
                 'instructions_ar' => $data['instructions_ar'] ?? null,
                 'due_date'        => $data['due_date'] ?? null,
                 'cohort_scope'    => $data['cohort_scope'],
-                'pass_score'      => $data['pass_score'] ?? null,
+                // Left empty: half the total (NEW2B-6276, D-090).
+                'pass_score'      => $data['pass_score'] ?? CourseAssignment::defaultPassScore($total),
                 'status'          => $data['status'] ?? 'draft',
                 'type'            => $data['type'] ?? null,
                 'created_by'      => $creator?->id,
-                'total_score'     => $this->sumQuestionScores($data['questions'] ?? []),
+                'total_score'     => $total,
             ]);
 
             $this->syncQuestions($assignment, $data['questions'] ?? []);
@@ -128,6 +130,7 @@ class AdminAssignmentService
     public function update(CourseAssignment $assignment, array $data): CourseAssignment
     {
         return DB::transaction(function () use ($assignment, $data) {
+            $total = $this->sumQuestionScores($data['questions'] ?? []);
             $assignment->update([
                 'course_id'       => $data['course_id'],
                 'title'           => $data['title'],
@@ -136,10 +139,10 @@ class AdminAssignmentService
                 'instructions_ar' => $data['instructions_ar'] ?? null,
                 'due_date'        => $data['due_date'] ?? null,
                 'cohort_scope'    => $data['cohort_scope'],
-                'pass_score'      => $data['pass_score'] ?? null,
+                'pass_score'      => $data['pass_score'] ?? CourseAssignment::defaultPassScore($total),
                 'status'          => $data['status'] ?? $assignment->status,
                 'type'            => $data['type'] ?? null,
-                'total_score'     => $this->sumQuestionScores($data['questions'] ?? []),
+                'total_score'     => $total,
             ]);
 
             $this->syncQuestions($assignment, $data['questions'] ?? []);
@@ -274,13 +277,13 @@ class AdminAssignmentService
             ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
             ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_course_assignments.user_id', $courseId, $sectionId))
             // Passed / Failed (Figma 1983:42584, D-065): only a fully graded
-            // submission of an assignment that sets a pass score has a result,
-            // the same rule the resource's `passed` uses.
+            // submission has a result, against the pass score or half the
+            // total when none was set (D-090), as the resource's `passed`.
             ->when($result === 'passed' || $result === 'failed', fn ($q) => $q
                 ->whereNotNull('user_course_assignments.total_score')
                 ->whereDoesntHave('answers', fn ($a) => $a->whereNull('awarded_score'))
-                ->whereHas('assignment', fn ($a) => $a->whereNotNull('course_assignments.pass_score')
-                    ->whereColumn('user_course_assignments.total_score', $result === 'passed' ? '>=' : '<', 'course_assignments.pass_score')))
+                ->whereHas('assignment', fn ($a) => $a
+                    ->whereRaw('user_course_assignments.total_score '.($result === 'passed' ? '>=' : '<').' '.CourseAssignment::PASS_SCORE_SQL)))
             ->when($types !== [], fn ($q) => $q->whereHas('assignment', fn ($a) => $a->whereIn('type', $types)));
     }
 

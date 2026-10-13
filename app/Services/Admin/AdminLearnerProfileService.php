@@ -274,13 +274,12 @@ class AdminLearnerProfileService
              * An ungraded submission is "needs review" in the design, not a
              * fail. A graded one is pass/fail against the assignment's own
              * pass_score — deciding that here rather than in the resource,
-             * because only the query has the threshold to hand. When an
-             * assignment defines no pass_score, any grade counts as a pass.
+             * because only the query has the threshold to hand. Without a
+             * pass_score the pass mark is half the total (D-090).
              */
             ->selectRaw('CASE
                 WHEN user_course_assignments.score IS NULL THEN "needs_review"
-                WHEN course_assignments.pass_score IS NULL THEN "passed"
-                WHEN user_course_assignments.score >= course_assignments.pass_score THEN "passed"
+                WHEN user_course_assignments.score >= '.\App\Models\CourseAssignment::PASS_SCORE_SQL.' THEN "passed"
                 ELSE "failed"
             END as status')
             ->selectRaw('COALESCE(user_course_assignments.submitted_at, user_course_assignments.updated_at) as last_updated');

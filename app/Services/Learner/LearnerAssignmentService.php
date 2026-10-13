@@ -2,6 +2,7 @@
 
 namespace App\Services\Learner;
 
+use App\Events\AssignmentSubmitted;
 use App\Models\Course;
 use App\Models\CourseAssignment;
 use App\Models\CourseAssignmentQuestion;
@@ -39,6 +40,20 @@ class LearnerAssignmentService
 
     public function startOrResume(User $user, Course $course, CourseAssignment $assignment): array
     {
+        // Past its due date an unsent assignment only says so: no attempt is
+        // opened and no question is handed out (NEW2B-6258).
+        if ($this->isClosedFor($user, $assignment)) {
+            $existing = $this->existingAttempt($user, $assignment);
+
+            return [
+                'assignment' => $this->assignmentMeta($assignment, $assignment->questions()->count(), 0, true),
+                'submission_id' => $existing?->id,
+                'submission_status' => 'closed',
+                'resume_question_id' => null,
+                'questions' => [],
+            ];
+        }
+
         $submission = $this->findOrCreateAttempt($user, $assignment);
 
         $questions = $assignment->questions()->get();
@@ -83,6 +98,7 @@ class LearnerAssignmentService
     public function answerQuestion(User $user, Course $course, CourseAssignment $assignment, CourseAssignmentQuestion $question, array $payload): array
     {
         abort_if($question->course_assignment_id !== $assignment->id, 404, __('messages.assignment_question_not_in_assignment'));
+        $this->assertOpen($user, $assignment);
 
         $submission = $this->findOrCreateAttempt($user, $assignment);
 
@@ -141,6 +157,10 @@ class LearnerAssignmentService
     {
         abort_if($question->course_assignment_id !== $assignment->id, 404, __('messages.assignment_question_not_in_assignment'));
         abort_unless($question->isFile(), 422, __('messages.assignment_question_not_file'));
+        // After the due date not even a sent file is replaced.
+        if ($assignment->isOverdue()) {
+            throw new HttpException(409, __('messages.assignment_closed'));
+        }
 
         $submission = $this->findOrCreateAttempt($user, $assignment);
 
@@ -243,14 +263,19 @@ class LearnerAssignmentService
 
     public function finish(User $user, Course $course, CourseAssignment $assignment): array
     {
+        $this->assertOpen($user, $assignment);
         $submission = $this->findOrCreateAttempt($user, $assignment);
 
         if ($submission->submitted_at === null) {
-            $totals = $this->recalculateTotals($submission);
+            $this->recalculateTotals($submission);
 
             $submission->update([
                 'submitted_at' => now(),
             ]);
+
+            // The course's instructors hear of it; answers a person scores
+            // also ask them to review (NEW2B-6250).
+            event(new AssignmentSubmitted($submission));
         }
 
         return $this->results($user, $course, $assignment);
@@ -275,10 +300,19 @@ class LearnerAssignmentService
             ->get()
             ->keyBy('course_assignment_question_id');
 
-        $answerBreakdown = $questions->map(function (CourseAssignmentQuestion $question) use ($answers, $locale) {
+        $passScore = $assignment->effectivePassScore();
+        $maxTotal = max(1, $totals['max_score']);
+
+        $answerBreakdown = $questions->map(function (CourseAssignmentQuestion $question) use ($answers, $locale, $passScore, $maxTotal) {
             $answer = $answers->get($question->id);
-            $pending = in_array($question->type, CourseAssignmentQuestion::MANUAL_TYPES, true)
-                && ($answer === null || $answer->awarded_score === null);
+            $manual = in_array($question->type, CourseAssignmentQuestion::MANUAL_TYPES, true);
+            $pending = $manual && ($answer === null || $answer->awarded_score === null);
+            // A person's score is "right" when it reaches the assignment's
+            // pass share of the question's points (NEW2B-6277, D-090): 16 of
+            // 20 with a pass score of 16/20 is green, not a red cross.
+            $right = $manual
+                ? ! $pending && (int) $answer->awarded_score * $maxTotal >= $passScore * (int) $question->score
+                : (bool) ($answer?->is_correct ?? false);
 
             return [
                 'question_id' => $question->id,
@@ -287,7 +321,7 @@ class LearnerAssignmentService
                 'question' => $locale === 'ar' ? ($question->question_ar ?? $question->question_en) : ($question->question_en ?? $question->question_ar),
                 'score' => $question->score,
                 'awarded_score' => $answer?->awarded_score,
-                'state' => $pending ? 'pending' : (($answer?->is_correct ?? false) ? 'correct' : 'incorrect'),
+                'state' => $pending ? 'pending' : ($right ? 'correct' : 'incorrect'),
                 'my_answer' => $answer?->answer,
                 'my_file' => $answer ? $this->myFileFor($question, $answer) : null,
                 'correct_answer' => $pending ? null : $this->grader->correctAnswerForDisplay($question, $locale),
@@ -295,6 +329,7 @@ class LearnerAssignmentService
         })->values()->all();
 
         $percent = $totals['max_score'] > 0 ? (int) round(($totals['total_score'] / $totals['max_score']) * 100) : 0;
+        $awaiting = collect($answerBreakdown)->contains('state', 'pending');
 
         return [
             'submission_id' => $submission->id,
@@ -302,8 +337,9 @@ class LearnerAssignmentService
             'total_score' => $totals['total_score'],
             'max_score' => $totals['max_score'],
             'percent' => $percent,
-            'pass_score' => $assignment->pass_score,
-            'passed' => $assignment->pass_score !== null ? $totals['total_score'] >= $assignment->pass_score : null,
+            'pass_score' => $passScore,
+            // No verdict while a person still has to score an answer.
+            'passed' => $awaiting ? null : $totals['total_score'] >= $passScore,
             'submitted_at' => $submission->submitted_at?->format('Y-m-d H:i:s'),
             'answers' => $answerBreakdown,
         ];
@@ -312,6 +348,26 @@ class LearnerAssignmentService
     /* ------------------------------------------------------------------ *
      |  INTERNAL HELPERS                                                  |
      * ------------------------------------------------------------------ */
+
+    private function existingAttempt(User $user, CourseAssignment $assignment): ?UserCourseAssignment
+    {
+        return UserCourseAssignment::where('user_id', $user->id)
+            ->where('course_assignment_id', $assignment->id)
+            ->first();
+    }
+
+    /** Overdue and not yet sent (NEW2B-6258): a sent one still shows its results. */
+    public function isClosedFor(User $user, CourseAssignment $assignment): bool
+    {
+        return $assignment->isOverdue() && $this->existingAttempt($user, $assignment)?->submitted_at === null;
+    }
+
+    private function assertOpen(User $user, CourseAssignment $assignment): void
+    {
+        if ($this->isClosedFor($user, $assignment)) {
+            throw new HttpException(409, __('messages.assignment_closed'));
+        }
+    }
 
     private function findOrCreateAttempt(User $user, CourseAssignment $assignment): UserCourseAssignment
     {
@@ -341,7 +397,7 @@ class LearnerAssignmentService
         return ['total_score' => $total, 'max_score' => $max];
     }
 
-    private function assignmentMeta(CourseAssignment $assignment, int $questionsCount, int $answeredCount): array
+    private function assignmentMeta(CourseAssignment $assignment, int $questionsCount, int $answeredCount, bool $closed = false): array
     {
         $locale = app()->getLocale();
 
@@ -349,9 +405,11 @@ class LearnerAssignmentService
             'id' => $assignment->id,
             'title' => $assignment->localizedTitle($locale),
             'instructions' => $locale === 'ar' ? ($assignment->instructions_ar ?? $assignment->instructions_en) : ($assignment->instructions_en ?? $assignment->instructions_ar),
-            'pass_score' => $assignment->pass_score,
+            'pass_score' => $assignment->effectivePassScore(),
             'total_score' => $assignment->total_score,
             'due_date' => $assignment->due_date?->format('Y-m-d'),
+            // Past the due date and not sent: answering is over (NEW2B-6258).
+            'closed' => $closed,
             'questions_count' => $questionsCount,
             'answered_count' => $answeredCount,
         ];

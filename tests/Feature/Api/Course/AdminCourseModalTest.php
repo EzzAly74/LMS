@@ -296,7 +296,8 @@ class AdminCourseModalTest extends ApiTestCase
         $this->configureCertificateRule(CertificatePolicy::BASIS_ATTENDANCE, 70, 30);
         $policy = app(CertificatePolicy::class);
 
-        $general = Course::factory()->create();
+        // Sessions courses: an online course drops attendance (D-092).
+        $general = Course::factory()->create(['course_type' => 'hybrid']);
         $own     = Course::factory()->create([
             'certificate_custom_rule'          => true,
             'certificate_mode'                 => 'score',
@@ -304,10 +305,12 @@ class AdminCourseModalTest extends ApiTestCase
             'certificate_attendance_threshold' => null,
         ]);
         // A legacy row: mode columns set, flag off - it must keep the general rule.
-        $legacy = Course::factory()->create(['certificate_mode' => 'score', 'certificate_score_threshold' => 99]);
+        $legacy = Course::factory()->create(['course_type' => 'hybrid', 'certificate_mode' => 'score', 'certificate_score_threshold' => 99]);
 
         $this->assertSame('attendance', $policy->forCourse($general)->basis);
         $this->assertSame('attendance', $policy->forCourse($legacy)->basis);
+        // An online course has no sessions: the attendance-only rule leaves nothing to measure.
+        $this->assertSame([], $policy->forCourse(Course::factory()->create(['course_type' => 'online']))->requiredMetrics());
 
         $rule = $policy->forCourse($own);
         $this->assertSame(['score'], $rule->requiredMetrics());

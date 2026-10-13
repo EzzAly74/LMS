@@ -464,6 +464,88 @@ class AdminLearnerDetailTest extends ApiTestCase
         $this->assertNull($row['grade_label']);
     }
 
+    // ------------------------------------------ search and From / To (NEW2B-6226)
+
+    public function test_search_finds_courses_and_assessments_by_name_in_either_language(): void
+    {
+        $learner = $this->learner();
+        $excel = Course::factory()->create(['title' => ['en' => 'Excel Basics', 'ar' => 'أساسيات إكسل']]);
+        $safety = Course::factory()->create(['title' => ['en' => 'Safety', 'ar' => 'السلامة']]);
+        foreach ([$excel, $safety] as $c) {
+            DB::table('users_courses')->insert(['user_id' => $learner->id, 'course_id' => $c->id, 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $exam = CourseExam::factory()->create(['course_id' => $safety->id, 'title' => ['en' => 'Fire Drill Quiz', 'ar' => 'اختبار الحريق']]);
+        DB::table('user_exams')->insert([
+            'user_id' => $learner->id, 'course_id' => $safety->id, 'exam_id' => $exam->id, 'user_degree' => 5, 'max_score' => 10,
+            'status' => 'success', 'submission_status' => 'submitted', 'submitted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        ['headers' => $h] = $this->adminToken();
+
+        $courses = fn (string $q) => array_column($this->getJson($this->url($learner, '/courses?search='.urlencode($q)), $h + ['Accept-Language' => 'en'])->assertOk()->json('result'), 'course');
+        $this->assertSame(['Excel Basics'], $courses('excel'));
+        $this->assertSame(['Excel Basics'], $courses('إكسل'));
+        $this->assertSame([], $courses('100%'));
+
+        $perf = fn (string $q) => count($this->getJson($this->url($learner, '/performance?search='.urlencode($q)), $h)->assertOk()->json('result'));
+        $this->assertSame(1, $perf('fire'));     // the quiz's name
+        $this->assertSame(1, $perf('السلامة'));  // its course's name
+        $this->assertSame(0, $perf('excel'));
+    }
+
+    public function test_from_and_to_filter_cohort_dates_and_last_updates(): void
+    {
+        $learner = $this->learner();
+        $old = CourseSection::factory()->create(['start_date' => '2026-01-01', 'end_date' => '2026-02-01']);
+        $new = CourseSection::factory()->create(['start_date' => '2026-06-01', 'end_date' => '2026-07-01']);
+        $this->enrol($learner, $old);
+        $course = $this->enrol($learner, $new);
+        DB::table('user_exams')->insert([
+            'user_id' => $learner->id, 'course_id' => $course->id, 'exam_id' => CourseExam::factory()->create(['course_id' => $course->id])->id,
+            'user_degree' => 5, 'max_score' => 10, 'status' => 'success', 'submission_status' => 'submitted',
+            'submitted_at' => '2026-06-15 10:00:00', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        ['headers' => $h] = $this->adminToken();
+
+        $rows = fn (string $table, string $q) => $this->getJson($this->url($learner, "/$table?$q"), $h)->assertOk()->json('result');
+        $this->assertSame([$new->id], array_column($rows('courses', 'from=2026-05-01&to=2026-12-31'), 'cohort_id'));
+        $this->assertSame([$old->id], array_column($rows('courses', 'to=2026-03-01'), 'cohort_id'));
+        $this->assertCount(1, $rows('performance', 'from=2026-06-15&to=2026-06-15'));
+        $this->assertCount(0, $rows('performance', 'from=2026-06-16'));
+
+        $this->getJson($this->url($learner, '/courses?from=2026-05-01&to=2026-04-01'), $h)->assertStatus(422)->assertJsonValidationErrors('to');
+    }
+
+    public function test_a_question_based_assignment_shows_its_grade_once_scored(): void
+    {
+        $learner = $this->learner();
+        $course = $this->enrol($learner);
+        $assignment = CourseAssignment::factory()->create(['course_id' => $course->id, 'pass_score' => 10, 'total_score' => 20]);
+        $question = \App\Models\CourseAssignmentQuestion::create(['course_assignment_id' => $assignment->id, 'position' => 0, 'type' => 'open', 'score' => 20, 'question_en' => 'Why?']);
+        $submission = DB::table('user_course_assignments')->insertGetId([
+            'user_id' => $learner->id, 'course_assignment_id' => $assignment->id, 'score' => null, 'total_score' => 0, 'max_score' => 20,
+            'submitted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $answer = DB::table('user_course_assignment_answers')->insertGetId([
+            'user_course_assignment_id' => $submission, 'course_assignment_question_id' => $question->id, 'answer' => json_encode(['value' => 'x']),
+            'awarded_score' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        ['headers' => $h] = $this->adminToken();
+        $row = fn () => collect($this->getJson($this->url($learner, '/performance'), $h)->assertOk()->json('result'))->firstWhere('kind', 'assignment');
+
+        // Waiting for the instructor.
+        $this->assertSame('needs_review', $row()['status']);
+
+        // Scored 16 of 20 (kept in total_score, not the legacy `score`).
+        DB::table('user_course_assignment_answers')->where('id', $answer)->update(['awarded_score' => 16]);
+        DB::table('user_course_assignments')->where('id', $submission)->update(['total_score' => 16]);
+        $this->assertSame('pass', $row()['status']);
+        $this->assertSame('16/20', $row()['grade_label']);
+
+        // An opened attempt that was never sent is not a result.
+        DB::table('user_course_assignments')->where('id', $submission)->update(['submitted_at' => null]);
+        $this->assertNull($row());
+    }
+
     // -------------------------------------------------- pagination / auth /404
 
     public function test_both_tables_bound_per_page(): void

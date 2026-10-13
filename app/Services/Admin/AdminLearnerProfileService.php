@@ -149,9 +149,18 @@ class AdminLearnerProfileService
     /**
      * "Active & Completed Courses" table: course + cohort, attended, absent,
      * status, progress, started on, ended on.
+     *
+     * Filters (NEW2B-6226): the course's name in either language, and a
+     * cohort whose dates overlap From / To.
+     *
+     * @param  array{search?: ?string, from?: ?string, to?: ?string}  $filters
      */
-    public function courses(User $learner, int $perPage): LengthAwarePaginator
+    public function courses(User $learner, int $perPage, array $filters = []): LengthAwarePaginator
     {
+        $search = $filters['search'] ?? null;
+        $from = $filters['from'] ?? null;
+        $to = $filters['to'] ?? null;
+
         $states = $this->courseStates($learner);
 
         // Sessions scheduled for the learner's cohort on this course.
@@ -177,6 +186,9 @@ class AdminLearnerProfileService
             ->join('courses', 'users_courses.course_id', '=', 'courses.id')
             ->leftJoin('course_sections', 'users_courses.group_id', '=', 'course_sections.id')
             ->where('users_courses.user_id', $learner->id)
+            ->when($search !== null, fn ($q) => $this->whereLocalizedLike($q, 'courses.title', $search))
+            ->when($from !== null, fn ($q) => $q->where(fn ($w) => $w->whereNull('course_sections.end_date')->orWhereDate('course_sections.end_date', '>=', $from)))
+            ->when($to !== null, fn ($q) => $q->where(fn ($w) => $w->whereNull('course_sections.start_date')->orWhereDate('course_sections.start_date', '<=', $to)))
             ->select([
                 'users_courses.course_id',
                 'courses.title as course_title',
@@ -237,15 +249,24 @@ class AdminLearnerProfileService
      * The two live in different tables with different shapes, so they are
      * normalised into a common row via UNION ALL rather than merged in PHP,
      * which would break pagination.
+     *
+     * Filters (NEW2B-6226): the quiz / assignment or course name in either
+     * language, and the last update within From / To.
+     *
+     * @param  array{search?: ?string, from?: ?string, to?: ?string}  $filters
      */
-    public function performance(User $learner, int $perPage): LengthAwarePaginator
+    public function performance(User $learner, int $perPage, array $filters = []): LengthAwarePaginator
     {
+        $search = $filters['search'] ?? null;
+
         $quizzes = $this->inScope(DB::table('user_exams'), 'user_exams.course_id')
             ->join('course_exams', 'user_exams.exam_id', '=', 'course_exams.id')
             ->join('courses', 'user_exams.course_id', '=', 'courses.id')
             ->where('user_exams.user_id', $learner->id)
             // An opened, unsubmitted attempt is not a result (B-162).
             ->whereRaw(CourseCompletion::submittedExamSql('user_exams'))
+            ->when($search !== null, fn ($q) => $q->where(fn ($w) => $this->whereLocalizedLike($w, 'course_exams.title', $search)
+                ->orWhere(fn ($c) => $this->whereLocalizedLike($c, 'courses.title', $search))))
             ->selectRaw('"quiz" as kind')
             ->selectRaw('user_exams.id as id')
             ->selectRaw('course_exams.title as name')
@@ -263,12 +284,18 @@ class AdminLearnerProfileService
             ->tap(fn ($q) => $this->inScope($q, 'course_assignments.course_id'))
             ->join('courses', 'course_assignments.course_id', '=', 'courses.id')
             ->where('user_course_assignments.user_id', $learner->id)
+            // A question-based attempt counts once sent, like a quiz (B-162).
+            ->where(fn ($w) => $w->whereNotNull('user_course_assignments.submitted_at')->orWhereRaw('NOT '.self::HAS_ANSWERS_SQL))
+            ->when($search !== null, fn ($q) => $q->where(fn ($w) => $w
+                ->where('course_assignments.title', 'like', '%'.$this->escapeLike($search).'%')
+                ->orWhere('course_assignments.title_ar', 'like', '%'.$this->escapeLike($search).'%')
+                ->orWhere(fn ($c) => $this->whereLocalizedLike($c, 'courses.title', $search))))
             ->selectRaw('"assignment" as kind')
             ->selectRaw('user_course_assignments.id as id')
             ->selectRaw('course_assignments.title as name')
             ->selectRaw('courses.title as course_title')
             ->selectRaw('"assignment" as type')
-            ->selectRaw('user_course_assignments.score as score')
+            ->selectRaw(self::ASSIGNMENT_SCORE_SQL.' as score')
             ->selectRaw('COALESCE(user_course_assignments.max_score, user_course_assignments.total_score) as max_score')
             /*
              * An ungraded submission is "needs review" in the design, not a
@@ -278,16 +305,43 @@ class AdminLearnerProfileService
              * pass_score the pass mark is half the total (D-090).
              */
             ->selectRaw('CASE
-                WHEN user_course_assignments.score IS NULL THEN "needs_review"
-                WHEN user_course_assignments.score >= '.\App\Models\CourseAssignment::PASS_SCORE_SQL.' THEN "passed"
+                WHEN '.self::ASSIGNMENT_SCORE_SQL.' IS NULL THEN "needs_review"
+                WHEN '.self::ASSIGNMENT_SCORE_SQL.' >= '.\App\Models\CourseAssignment::PASS_SCORE_SQL.' THEN "passed"
                 ELSE "failed"
             END as status')
             ->selectRaw('COALESCE(user_course_assignments.submitted_at, user_course_assignments.updated_at) as last_updated');
 
         return DB::query()
             ->fromSub($quizzes->unionAll($assignments), 'perf')
+            ->when($filters['from'] ?? null, fn ($q, $from) => $q->where('perf.last_updated', '>=', $from.' 00:00:00'))
+            ->when($filters['to'] ?? null, fn ($q, $to) => $q->where('perf.last_updated', '<=', $to.' 23:59:59'))
             ->orderByDesc('perf.last_updated')
             ->paginate($perPage);
+    }
+
+    /** The submission has question answers (the question-based flow). */
+    private const HAS_ANSWERS_SQL = 'EXISTS (SELECT 1 FROM user_course_assignment_answers uca_a WHERE uca_a.user_course_assignment_id = user_course_assignments.id)';
+
+    /**
+     * The assignment's grade (NEW2B-6232): a question-based submission keeps
+     * it in total_score and has none while a person still has to score an
+     * answer; a file-only (legacy) submission keeps it in `score`.
+     */
+    private const ASSIGNMENT_SCORE_SQL = '(CASE WHEN '.self::HAS_ANSWERS_SQL.' THEN (CASE WHEN EXISTS (SELECT 1 FROM user_course_assignment_answers uca_p WHERE uca_p.user_course_assignment_id = user_course_assignments.id AND uca_p.awarded_score IS NULL) THEN NULL ELSE user_course_assignments.total_score END) ELSE user_course_assignments.score END)';
+
+    /** A translatable JSON column (`{"en":…,"ar":…}`) contains the term in either language. */
+    private function whereLocalizedLike($query, string $column, string $term)
+    {
+        $like = '%'.$this->escapeLike($term).'%';
+
+        return $query->where(fn ($w) => $w
+            ->whereRaw("JSON_UNQUOTE(JSON_EXTRACT($column, '$.en')) LIKE ?", [$like])
+            ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT($column, '$.ar')) LIKE ?", [$like]));
+    }
+
+    private function escapeLike(string $term): string
+    {
+        return addcslashes($term, '%_\\');
     }
 
     /**

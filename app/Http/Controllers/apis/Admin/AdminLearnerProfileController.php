@@ -34,7 +34,7 @@ class AdminLearnerProfileController extends ApiController
         return $this->paginated(
             __('messages.retrieved'),
             AdminLearnerCourseRowResource::collection(
-                $this->service->courses($learner, $request->perPage()),
+                $this->service->courses($learner, $request->perPage(), $request->filters()),
             ),
         );
     }
@@ -45,7 +45,7 @@ class AdminLearnerProfileController extends ApiController
         return $this->paginated(
             __('messages.retrieved'),
             AdminLearnerPerformanceRowResource::collection(
-                $this->service->performance($learner, $request->perPage()),
+                $this->service->performance($learner, $request->perPage(), $request->filters()),
             ),
         );
     }

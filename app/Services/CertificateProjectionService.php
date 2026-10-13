@@ -50,7 +50,14 @@ class CertificateProjectionService
         $scorePercent = $this->scorePercent($user, $course);
         $courseEnded = $this->isCourseEnded($user, $course);
 
-        return $this->decide($course, $hasCertificate, $attendancePercent, $scorePercent, $courseEnded);
+        $cohortId = UsersCourse::where('user_id', $user->id)->where('course_id', $course->id)->value('group_id');
+        $cohort = $cohortId ? CourseSection::find($cohortId) : null;
+        $held = $cohortId ? CourseSession::where('section_id', $cohortId)->ended()->count() : 0;
+        $attended = Attendance::where('user_id', $user->id)->where('course_id', $course->id)->whereNotNull('session_id')
+            ->distinct('session_id')->count('session_id');
+        $onPace = $this->attendanceOnPace($course, $cohort, $attended, $held);
+
+        return $this->decide($course, $hasCertificate, $attendancePercent, $scorePercent, $courseEnded, $onPace);
     }
 
     /**
@@ -101,6 +108,7 @@ class CertificateProjectionService
 
         $attemptsByExam = UserExam::where('user_id', $user->id)
             ->whereIn('exam_id', $examIds)
+            ->whereRaw(\App\Support\CourseCompletion::submittedExamSql('user_exams'))
             ->get()
             ->keyBy('exam_id');
 
@@ -146,7 +154,14 @@ class CertificateProjectionService
                 $cohortId ? (int) ($heldSessionsByCohort->get($cohortId) ?? 0) : 0,
             );
 
-            $results[$courseId] = $this->decide($course, $hasCertificate, $attendancePercent, $scorePercent, $courseEnded);
+            $onPace = $this->attendanceOnPace(
+                $course,
+                $cohort,
+                (int) ($distinctSessionAttendance->get($courseId) ?? 0),
+                $cohortId ? (int) ($heldSessionsByCohort->get($cohortId) ?? 0) : 0,
+            );
+
+            $results[$courseId] = $this->decide($course, $hasCertificate, $attendancePercent, $scorePercent, $courseEnded, $onPace);
         }
 
         return $results;
@@ -194,7 +209,7 @@ class CertificateProjectionService
      |  SHARED DECISION LOGIC                                             |
      * ------------------------------------------------------------------ */
 
-    private function decide(Course $course, bool $hasCertificate, ?int $attendancePercent, ?int $scorePercent, bool $courseEnded): array
+    private function decide(Course $course, bool $hasCertificate, ?int $attendancePercent, ?int $scorePercent, bool $courseEnded, ?bool $attendanceOnPace = null): array
     {
         if ($hasCertificate) {
             return array_merge($this->baseShape($course), ['status' => self::STATUS_EARNED]);
@@ -206,6 +221,14 @@ class CertificateProjectionService
         $checks = $this->policy->forCourse($course)->checks($attendancePercent, $scorePercent);
 
         $failing = array_keys(array_filter($checks, fn ($meets) => $meets === false));
+
+        // While the cohort runs, attendance is judged on the sessions held so
+        // far, not the whole course (D-091): before the first session, or
+        // while attending every session, the learner is on track, not at
+        // risk for sessions that have not happened yet.
+        if (! $courseEnded && $attendanceOnPace === true) {
+            $failing = array_values(array_diff($failing, ['attendance']));
+        }
 
         $status = self::STATUS_ON_TRACK;
         $blockedReason = null;
@@ -320,7 +343,8 @@ class CertificateProjectionService
     private function scorePercent(User $user, Course $course): ?int
     {
         $exam = CourseExam::where('course_id', $course->id)->where('is_final', true)->first();
-        $attempt = $exam ? UserExam::where('user_id', $user->id)->where('exam_id', $exam->id)->first() : null;
+        $attempt = $exam ? UserExam::where('user_id', $user->id)->where('exam_id', $exam->id)
+            ->whereRaw(\App\Support\CourseCompletion::submittedExamSql('user_exams'))->first() : null;
 
         return $this->computeScorePercent($exam, $attempt);
     }
@@ -344,7 +368,7 @@ class CertificateProjectionService
 
     private function computeAttendancePercent(Course $course, ?CourseSection $cohort, int $distinctSessionCount, int $rawRowCount): ?int
     {
-        $target = $cohort?->number_of_sessions ?? $course->number_of_sessions;
+        $target = $this->sessionTarget($course, $cohort);
 
         if (!$target || $target <= 0) {
             return null;
@@ -353,6 +377,51 @@ class CertificateProjectionService
         $attended = $distinctSessionCount > 0 ? $distinctSessionCount : $rawRowCount;
 
         return (int) min(100, round(($attended / $target) * 100));
+    }
+
+    /**
+     * Is the learner keeping up with the attendance rule so far (D-091)?
+     * True before any session is held, or when the sessions attended so far
+     * meet the threshold and the rest can still bring the total up to it.
+     * False when behind, or when even attending every remaining session
+     * cannot reach it. Null when the rule does not ask for attendance or the
+     * course has no session count.
+     */
+    private function attendanceOnPace(Course $course, ?CourseSection $cohort, int $attended, int $held): ?bool
+    {
+        $rule = $this->policy->forCourse($course);
+        $target = (int) $this->sessionTarget($course, $cohort);
+        if (! $rule->requires(CertificatePolicy::METRIC_ATTENDANCE) || $target <= 0) {
+            return null;
+        }
+
+        $threshold = (float) $rule->minAttendance;
+        $reachable = ($attended + max(0, $target - $held)) * 100 / $target;
+        if ($reachable < $threshold) {
+            return false;
+        }
+
+        return $held === 0 || $attended * 100 / $held >= $threshold;
+    }
+
+    /**
+     * How many sessions the cohort has: its sheet's session rows, the same
+     * count My Learnings, mobile and "ended" use (B-182); the stored planned
+     * number only when the sheet has none.
+     */
+    private function sessionTarget(Course $course, ?CourseSection $cohort): ?int
+    {
+        $rows = $cohort !== null ? CourseSession::where('section_id', $cohort->id)->count() : 0;
+
+        return $rows > 0 ? $rows : ($cohort?->number_of_sessions ?? $course->number_of_sessions);
+    }
+
+    /** The cohort's own session count (sheet rows, else its planned number): when it is over. */
+    private function cohortSessionCount(CourseSection $cohort): ?int
+    {
+        $rows = CourseSession::where('section_id', $cohort->id)->count();
+
+        return $rows > 0 ? $rows : $cohort->number_of_sessions;
     }
 
     private function computeScorePercent(?CourseExam $exam, ?UserExam $attempt): ?int
@@ -378,7 +447,7 @@ class CertificateProjectionService
             $start = $cohort->start_date instanceof Carbon ? $cohort->start_date : ($cohort->start_date ? Carbon::parse($cohort->start_date) : null);
             $end = $cohort->end_date instanceof Carbon ? $cohort->end_date : ($cohort->end_date ? Carbon::parse($cohort->end_date) : null);
 
-            return Course::deriveCohortStatus($cohort->status, $start, $end, $cohort->number_of_sessions, $heldSessions) === 'completed';
+            return Course::deriveCohortStatus($cohort->status, $start, $end, $this->cohortSessionCount($cohort), $heldSessions) === 'completed';
         }
 
         return $course->effectiveStatus() === 'inactive';

@@ -54,7 +54,9 @@ class CertificateService
      */
     public function issueFromExam(UserExam $exam): ?UserCertificate
     {
-        return $this->fromExam($exam, applyPolicy: true);
+        // The exam may not be this course's completion event (an evaluated
+        // course), or not the last missing piece: evaluate() decides (B-179).
+        return $this->fromExam($exam, applyPolicy: true) ?? $this->evaluateFor($exam->user, $exam->course);
     }
 
     /**
@@ -90,13 +92,21 @@ class CertificateService
         if ($applyPolicy && $exam->user && !$this->projection->satisfiesPolicy($exam->user, $course)) {
             return null;
         }
+        if ($applyPolicy && $this->wasRevoked((int) $exam->user_id, (int) $course->id)) {
+            return null;
+        }
+        // Only a sent attempt is a pass (B-162).
+        if (! UserExam::query()->whereKey($exam->id)->whereRaw(\App\Support\CourseCompletion::submittedExamSql('user_exams'))->exists()) {
+            return null;
+        }
 
         return $this->issue(
             userId: (int) $exam->user_id,
             courseId: (int) $course->id,
             sourceType: UserCertificate::SOURCE_EXAM,
             sourceId: (int) $exam->id,
-            issuedAt: $exam->created_at ?? now(),
+            // When it was sent, not when it was opened.
+            issuedAt: $exam->submitted_at ?? $exam->created_at ?? now(),
             issuedBy: null,
             metadata: $this->snapshot($exam->user, $course, [
                 'source'            => UserCertificate::SOURCE_EXAM,
@@ -113,7 +123,22 @@ class CertificateService
      */
     public function issueFromEvaluation(UserCourseEvaluation $evaluation): ?UserCertificate
     {
-        return $this->fromEvaluation($evaluation, applyPolicy: true);
+        return $this->fromEvaluation($evaluation, applyPolicy: true) ?? $this->evaluateFor($evaluation->user, $evaluation->course);
+    }
+
+    private function evaluateFor(?User $user, ?Course $course): ?UserCertificate
+    {
+        return $user !== null && $course !== null ? $this->evaluate($user, $course) : null;
+    }
+
+    /**
+     * An admin revoked this learner's certificate for the course: no trigger
+     * mints a new one by itself (B-180, D-091); an admin issues it again.
+     */
+    private function wasRevoked(int $userId, int $courseId): bool
+    {
+        return UserCertificate::query()->where('user_id', $userId)->where('course_id', $courseId)
+            ->where('status', UserCertificate::STATUS_REVOKED)->exists();
     }
 
     /** Grandfathered variant for the backfill — see {@see backfillFromExam}. */
@@ -135,6 +160,9 @@ class CertificateService
             return null;
         }
         if ($applyPolicy && $evaluation->user && !$this->projection->satisfiesPolicy($evaluation->user, $course)) {
+            return null;
+        }
+        if ($applyPolicy && $this->wasRevoked((int) $evaluation->user_id, (int) $course->id)) {
             return null;
         }
 
@@ -168,23 +196,80 @@ class CertificateService
      */
     public function issueFromAttendance(User $user, Course $course): ?UserCertificate
     {
-        if (!$course->certificate) {
+        // Attendance alone no longer skips the course's own completion event
+        // (final exam, evaluation or content); evaluate() checks both (D-091).
+        return $this->evaluate($user, $course);
+    }
+
+    /**
+     * Issue the certificate the moment the learner has everything it needs,
+     * whichever came last (D-091): the course's completion event AND the
+     * certificate rule. Every trigger calls this (a module completed,
+     * attendance recorded, a quiz passed, an evaluation sent), so a learner
+     * who finishes the content before the sessions are held still receives
+     * the certificate once their attendance meets the rule.
+     *
+     * The completion event is the evaluation (evaluated course), else a
+     * submitted pass of the final exam (course with one), else every module
+     * of the learner's cohort sheet (D-089); a course with no modules at all
+     * is earned by the rule alone. Idempotent; null while not yet eligible.
+     */
+    public function evaluate(User $user, Course $course): ?UserCertificate
+    {
+        if (! $course->certificate) {
             return null;
         }
-        if (!$this->projection->meetsIssuanceCriteria($user, $course)) {
+        $held = UserCertificate::query()->where('user_id', $user->id)->where('course_id', $course->id)->active()->first();
+        if ($held !== null) {
+            return $held;
+        }
+        if ($this->wasRevoked((int) $user->id, (int) $course->id) || ! $this->projection->meetsIssuanceCriteria($user, $course)) {
             return null;
         }
+
+        if ($course->is_evaluate) {
+            $evaluation = UserCourseEvaluation::query()
+                ->where('user_id', $user->id)->where('course_id', $course->id)
+                ->orderBy('id')->first();
+
+            if ($evaluation === null) {
+                return null;
+            }
+            // The final exam, when the course has one, is part of the rule's
+            // score; the evaluation is the completion event.
+            return $this->fromEvaluation($evaluation, applyPolicy: false);
+        }
+
+        $finalExamId = DB::table('course_exams')->where('course_id', $course->id)->where('is_final', true)->value('id');
+        if ($finalExamId !== null) {
+            $pass = UserExam::query()
+                ->where('user_id', $user->id)->where('exam_id', $finalExamId)->where('status', 'success')
+                ->whereRaw(\App\Support\CourseCompletion::submittedExamSql('user_exams'))
+                ->orderBy('id')->first();
+
+            return $pass ? $this->fromExam($pass, applyPolicy: false) : null;
+        }
+
+        $lectureIds = \App\Support\CohortModules::lectureIds((int) $user->id, (int) $course->id);
+        if ($lectureIds !== []) {
+            $done = DB::table('user_lecture_progress')
+                ->where('user_id', $user->id)->whereIn('lecture_id', $lectureIds)->where('completed', true)
+                ->count();
+            if ($done < count($lectureIds)) {
+                return null;
+            }
+        }
+
+        $source = $lectureIds !== [] ? UserCertificate::SOURCE_CONTENT : UserCertificate::SOURCE_ATTENDANCE;
 
         return $this->issue(
             userId: (int) $user->id,
             courseId: (int) $course->id,
-            sourceType: UserCertificate::SOURCE_ATTENDANCE,
+            sourceType: $source,
             sourceId: null,
             issuedAt: now(),
             issuedBy: null,
-            metadata: $this->snapshot($user, $course, [
-                'source' => UserCertificate::SOURCE_ATTENDANCE,
-            ]),
+            metadata: $this->snapshot($user, $course, ['source' => $source]),
         );
     }
 
@@ -202,34 +287,10 @@ class CertificateService
             return null;
         }
 
-        // The modules of the learner's cohort sheet (D-089).
-        $lectureIds = collect(\App\Support\CohortModules::lectureIds((int) $user->id, (int) $course->id));
-        if ($lectureIds->isEmpty()) {
-            return null;
-        }
-        $done = DB::table('user_lecture_progress')
-            ->where('user_id', $user->id)
-            ->whereIn('lecture_id', $lectureIds)
-            ->where('completed', true)
-            ->count();
         // The rule (Platform Config, or the course's own) must be met with
         // real evidence: finishing the content is no proof of attendance or
-        // score by itself (human, 2026-10-11).
-        if ($done < $lectureIds->count() || ! $this->projection->meetsIssuanceCriteria($user, $course)) {
-            return null;
-        }
-
-        return $this->issue(
-            userId: (int) $user->id,
-            courseId: (int) $course->id,
-            sourceType: UserCertificate::SOURCE_CONTENT,
-            sourceId: null,
-            issuedAt: now(),
-            issuedBy: null,
-            metadata: $this->snapshot($user, $course, [
-                'source' => UserCertificate::SOURCE_CONTENT,
-            ]),
-        );
+        // score by itself (human, 2026-10-11). evaluate() checks both.
+        return $this->evaluate($user, $course);
     }
 
     /** Is finishing the content this course's completion event? */

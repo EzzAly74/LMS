@@ -32,6 +32,14 @@ class LectureProgressService
             $completed = $resolvedProgress >= 90;
         }
 
+        // Watching a finished video again reports a lower progress: that
+        // must not undo the completion, only the learner's own "No" does.
+        $existing = UserLectureProgress::query()->where('user_id', $userId)->where('lecture_id', $lectureId)->first();
+        if ($existing !== null && $existing->completed && $confirmed === null) {
+            $completed = true;
+            $resolvedProgress = max((int) $existing->progress, $resolvedProgress);
+        }
+
         $row = UserLectureProgress::updateOrCreate(
             ['user_id' => $userId, 'lecture_id' => $lectureId],
             ['progress' => $resolvedProgress, 'completed' => $completed],

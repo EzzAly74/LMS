@@ -148,7 +148,9 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
         $before = $this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")
             ->assertOk()->json('result.completion');
         $this->assertSame(
-            ['completed' => false, 'certificate_offered' => false, 'certificate_id' => null, 'evaluation_pending' => false, 'items_remaining' => 1],
+            ['completed' => false, 'certificate_offered' => false, 'certificate_id' => null, 'evaluation_pending' => false, 'items_remaining' => 1,
+                // What is left, for the certificate step (D-091).
+                'waiting_for' => [['reason' => 'content', 'remaining' => 1]]],
             $before,
         );
 

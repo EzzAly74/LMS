@@ -38,12 +38,11 @@ class AdminLearnerCourseRowResource extends JsonResource
             'sessions_scheduled' => $scheduled,
             // completed | active | upcoming | ended (D-086).
             'status'      => $this->status,
-            // Attendance-based progress. Null rather than 0 when the cohort has
-            // no scheduled sessions, so the UI renders "—" instead of implying
-            // the learner attended nothing.
-            'progress_percent' => $scheduled > 0
-                ? (int) round($attended * 100 / $scheduled)
-                : null,
+            // Module progress, the same figure the Website shows (B-170):
+            // the learner's cohort modules completed, rounded. A completed
+            // course is 100; null when the course has no modules to measure.
+            'progress_percent' => $this->status === 'completed' ? 100
+                : ((int) $this->modules_total > 0 ? (int) round((int) $this->modules_done * 100 / (int) $this->modules_total) : null),
             'started_on'  => $this->start_date,
             'ended_on'    => $this->end_date,
             'enrolled_at' => $this->enrolled_at,

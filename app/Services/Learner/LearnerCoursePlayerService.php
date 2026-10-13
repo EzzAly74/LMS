@@ -147,14 +147,16 @@ class LearnerCoursePlayerService
         $modulesTotal = $lectures->count();
         $modulesCompleted = $lectures->filter(fn ($l) => $l['completed'])->count();
 
+        $certificateStatus = $this->certificates->projectForCourse($user, $course);
+
         return [
             'course_id' => $course->id,
             'course_title' => $course->getTranslation('title', $locale),
-            'certificate_status' => $this->certificates->projectForCourse($user, $course),
+            'certificate_status' => $certificateStatus,
             'modules_completed' => $modulesCompleted,
             'modules_total' => $modulesTotal,
             'weeks' => $weeks,
-            'completion' => $this->completion($user, $course, $weeks),
+            'completion' => $this->completion($user, $course, $weeks, $certificateStatus),
         ];
     }
 
@@ -167,7 +169,7 @@ class LearnerCoursePlayerService
      * @return array{completed: bool, certificate_offered: bool, certificate_id: int|null,
      *               evaluation_pending: bool, items_remaining: int}
      */
-    private function completion(User $user, Course $course, array $weeks): array
+    private function completion(User $user, Course $course, array $weeks, array $certificateStatus = []): array
     {
         $completed = DB::table('courses')
             ->where('courses.id', $course->id)
@@ -198,7 +200,73 @@ class LearnerCoursePlayerService
             'certificate_id'      => $certificateId !== null ? (int) $certificateId : null,
             'evaluation_pending'  => $evaluationPending,
             'items_remaining'     => $remaining,
+            'waiting_for'         => $completed ? [] : $this->waitingFor($user, $course, $remaining, $evaluationPending, $certificateStatus),
         ];
+    }
+
+    /**
+     * What still stands between the learner and completing the course
+     * (D-091), so the certificate step says it instead of "Items left: 0":
+     * the cohort not started yet, content left, the final exam, the
+     * evaluation, and the certificate rule's attendance and score.
+     *
+     * @param  array<string, mixed>  $certificateStatus  the outline's certificate_status
+     * @return list<array<string, mixed>>
+     */
+    private function waitingFor(User $user, Course $course, int $remaining, bool $evaluationPending, array $certificateStatus): array
+    {
+        $waiting = [];
+        $cohortId = DB::table('users_courses')->where('user_id', $user->id)->where('course_id', $course->id)->value('group_id');
+
+        if ($cohortId !== null) {
+            $first = DB::table('course_sessions')->where('section_id', $cohortId)
+                ->selectRaw("MIN(TIMESTAMP(session_date, COALESCE(time_from, '00:00:00'))) as first_start")
+                ->value('first_start');
+            if ($first !== null && \Illuminate\Support\Carbon::parse($first)->isFuture()) {
+                $waiting[] = ['reason' => 'starts', 'date' => \Illuminate\Support\Carbon::parse($first)->toDateString()];
+            }
+        }
+
+        if ($remaining > 0) {
+            $waiting[] = ['reason' => 'content', 'remaining' => $remaining];
+        }
+
+        $finalExam = CourseExam::where('course_id', $course->id)->where('is_final', true)->value('id');
+        if ($finalExam !== null && ! UserExam::where('user_id', $user->id)->where('exam_id', $finalExam)->where('status', 'success')
+            ->whereRaw(CourseCompletion::submittedExamSql('user_exams'))->exists()) {
+            $waiting[] = ['reason' => 'final_exam'];
+        }
+
+        if ($evaluationPending) {
+            $waiting[] = ['reason' => 'evaluation'];
+        }
+
+        if ($course->certificate && ($certificateStatus['status'] ?? null) !== CertificateProjectionService::STATUS_EARNED) {
+            $attendanceThreshold = $certificateStatus['attendance_threshold'] ?? null;
+            if ($attendanceThreshold !== null) {
+                // The sheet's session rows, as the certificate rule counts them (B-182).
+                $rows = $cohortId !== null ? DB::table('course_sessions')->where('section_id', $cohortId)->count() : 0;
+                $total = $rows > 0 ? $rows : (int) ($cohortId !== null
+                    ? (DB::table('course_sections')->where('id', $cohortId)->value('number_of_sessions') ?? $course->number_of_sessions)
+                    : $course->number_of_sessions);
+                if ($total > 0) {
+                    $needed = (int) ceil($attendanceThreshold * $total / 100);
+                    $attended = (int) DB::table('attendances')->where('user_id', $user->id)->where('course_id', $course->id)
+                        ->whereNotNull('session_id')->distinct()->count('session_id');
+                    if ($attended < $needed) {
+                        $waiting[] = ['reason' => 'attendance', 'attended' => $attended, 'needed' => $needed, 'total' => $total];
+                    }
+                }
+            }
+
+            $scoreThreshold = $certificateStatus['score_threshold'] ?? null;
+            $score = $certificateStatus['score_percent'] ?? null;
+            if ($scoreThreshold !== null && ($score === null || $score < $scoreThreshold)) {
+                $waiting[] = ['reason' => 'score', 'threshold' => (int) $scoreThreshold];
+            }
+        }
+
+        return $waiting;
     }
 
     /**

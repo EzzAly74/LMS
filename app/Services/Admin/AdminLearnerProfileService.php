@@ -182,6 +182,19 @@ class AdminLearnerProfileService
             ->whereColumn('attendances.user_id', 'users_courses.user_id')
             ->whereColumn('attendances.course_id', 'users_courses.course_id');
 
+        // The learner's own modules: those of their cohort sheet (D-089).
+        $modulesTotal = DB::table('course_lectures as mt')
+            ->selectRaw('COUNT(*)')
+            ->whereColumn('mt.course_id', 'users_courses.course_id')
+            ->whereRaw(\App\Support\CohortModules::requiredSql('users_courses.user_id', 'mt'));
+        $modulesDone = DB::table('user_lecture_progress as mp')
+            ->join('course_lectures as md', 'md.id', '=', 'mp.lecture_id')
+            ->selectRaw('COUNT(*)')
+            ->whereColumn('mp.user_id', 'users_courses.user_id')
+            ->whereColumn('md.course_id', 'users_courses.course_id')
+            ->where('mp.completed', true)
+            ->whereRaw(\App\Support\CohortModules::requiredSql('users_courses.user_id', 'md'));
+
         $page = $this->inScope(DB::table('users_courses'), 'users_courses.course_id')
             ->join('courses', 'users_courses.course_id', '=', 'courses.id')
             ->leftJoin('course_sections', 'users_courses.group_id', '=', 'course_sections.id')
@@ -201,6 +214,9 @@ class AdminLearnerProfileService
             ->selectSub($scheduled, 'sessions_scheduled')
             ->selectSub($past, 'sessions_past')
             ->selectSub($attended, 'sessions_attended')
+            // Module progress, as the Website shows it (B-170, D-089).
+            ->selectSub($modulesTotal, 'modules_total')
+            ->selectSub($modulesDone, 'modules_done')
             ->orderByDesc('users_courses.created_at')
             ->paginate($perPage);
 

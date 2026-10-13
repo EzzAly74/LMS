@@ -73,6 +73,14 @@ class AttendanceService
             'updated_at'           => now(),
         ]);
 
+        // Attendance may be the last thing the certificate waited for (D-091).
+        // The attendance is saved either way; a certificate failure is logged.
+        try {
+            app(\App\Services\CertificateService::class)->evaluate($user, $course);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         return ['success' => true, 'message' => __('messages.attendance_recorded')];
     }
 

@@ -13,6 +13,7 @@ use Illuminate\Pagination\LengthAwarePaginator as PaginatorImpl;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Carbon;
 use App\Support\CourseCompletion;
+use App\Support\QualificationHolding;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -1005,17 +1006,23 @@ class AdminUserService
             $completedByUser[(int) $pair->user_id][(int) $pair->course_id] = true;
         }
 
-        // Courses each job title requires (its qualifications' courses), as the
-        // Website "Required" counter counts them (D-083).
-        $requiredByJobTitle = DB::table('users')
-            ->whereIn('users.id', $learnerIds)
-            ->whereNotNull('users.job_title_id')
-            ->join('job_title_qualification_skill as jtqs', 'jtqs.job_title_id', '=', 'users.job_title_id')
-            ->join('course_qualification_skills as cqs', 'cqs.qualification_skill_id', '=', 'jtqs.qualification_skill_id')
-            ->distinct()
-            ->get(['users.job_title_id', 'cqs.course_id'])
+        // Qualifications each job title requires, and the courses of each
+        // (B-173: compliance is per qualification, direct grants count).
+        $qualsByJobTitle = DB::table('job_title_qualification_skill')
+            ->whereIn('job_title_id', DB::table('users')->whereIn('id', $learnerIds)->whereNotNull('job_title_id')->select('job_title_id'))
+            ->get(['job_title_id', 'qualification_skill_id'])
             ->groupBy('job_title_id')
+            ->map(fn ($rows) => $rows->pluck('qualification_skill_id')->map(fn ($id) => (int) $id)->unique()->values()->all());
+        $coursesByQual = DB::table('course_qualification_skills')
+            ->whereIn('qualification_skill_id', $qualsByJobTitle->flatten()->unique()->all() ?: [0])
+            ->get(['qualification_skill_id', 'course_id'])
+            ->groupBy('qualification_skill_id')
             ->map(fn ($rows) => $rows->pluck('course_id')->map(fn ($id) => (int) $id)->unique()->values()->all());
+        $grantedByUser = DB::table('user_qualification_skill')
+            ->whereIn('user_id', $learnerIds)
+            ->get(['user_id', 'qualification_skill_id'])
+            ->groupBy('user_id')
+            ->map(fn ($rows) => array_flip($rows->pluck('qualification_skill_id')->map(fn ($id) => (int) $id)->all()));
 
         /*
          * Three more columns the 2026 Figma learners list needs
@@ -1028,8 +1035,8 @@ class AdminUserService
         // Last Certification Date — most recent active certificate.
         $lastCertByUser = DB::table('user_certificates')
             ->whereIn('user_id', $learnerIds)
-            ->whereRaw('LOWER(COALESCE(status, "active")) = ?', ['active'])
-            ->select('user_id', DB::raw('MAX(issued_at) AS d'))
+            ->where('status', 'active')
+            ->select('user_id', DB::raw('MAX(COALESCE(issued_at, created_at)) AS d'))
             ->groupBy('user_id')
             ->pluck('d', 'user_id');
 
@@ -1046,7 +1053,7 @@ class AdminUserService
 
         $locale = app()->getLocale();
 
-        return $rows->map(function ($r) use ($enrolledByUser, $completedByUser, $requiredByJobTitle, $lastCertByUser, $jobTitleByUser, $locale) {
+        return $rows->map(function ($r) use ($enrolledByUser, $completedByUser, $qualsByJobTitle, $coursesByQual, $grantedByUser, $lastCertByUser, $jobTitleByUser, $locale) {
             if (($r->source ?? null) !== 'user') {
                 $r->compliance_pct         = null;
                 $r->enrolled_courses_count = 0;
@@ -1058,18 +1065,22 @@ class AdminUserService
 
             $completed = $completedByUser[(int) $r->id] ?? [];
             $jt        = $jobTitleByUser[$r->id] ?? null;
-            $required  = $jt?->job_title_id !== null ? ($requiredByJobTitle[$jt->job_title_id] ?? []) : [];
+            $quals     = $jt?->job_title_id !== null ? ($qualsByJobTitle[$jt->job_title_id] ?? []) : [];
+            $granted   = $grantedByUser[(int) $r->id] ?? [];
 
             $r->enrolled_courses_count = (int) ($enrolledByUser[$r->id] ?? 0);
 
             // "Courses Earned": every completed course, as the Website "Earned" counter (D-083, D-086).
             $r->courses_earned = count($completed);
 
-            // "Qualification (%)": the job title's required courses completed (D-086);
-            // null when the job title requires none.
-            $r->compliance_pct = $required !== []
-                ? (int) round(100 * count(array_filter($required, fn (int $id) => isset($completed[$id]))) / count($required))
-                : null;
+            // "Qualification (%)" (B-173, D-093): the mean of the job title's
+            // qualification percents, a direct grant counting 100; null when
+            // the job title requires none. The job-title page shows the same.
+            $r->compliance_pct = QualificationHolding::compliance(array_map(function (int $q) use ($coursesByQual, $completed, $granted) {
+                $courses = $coursesByQual[$q] ?? [];
+
+                return QualificationHolding::percent(isset($granted[$q]), count($courses), count(array_filter($courses, fn (int $id) => isset($completed[$id]))));
+            }, $quals));
 
             $r->last_certification_at = $lastCertByUser[$r->id] ?? null;
 

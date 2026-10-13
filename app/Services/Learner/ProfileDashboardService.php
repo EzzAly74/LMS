@@ -154,7 +154,7 @@ final class ProfileDashboardService
             $total   = $courseIds->count();
             // A direct grant (an approved external training) holds the
             // qualification outright (D-056); the course counts stay real.
-            $percent = $q->granted ? 100 : ($total > 0 ? (int) floor(($earned->count() * 100) / $total) : 0);
+            $percent = \App\Support\QualificationHolding::percent((bool) $q->granted, $total, $earned->count());
 
             return [
                 'id'                => $qid,

@@ -55,9 +55,9 @@ class JobTitleLearnerResource extends JsonResource
             // Whole percent, matching how JobTitleResource renders the card's
             // compliance bar. A learner with no relevant enrolments is 0, not
             // null, so the table never renders an empty cell for them.
-            'completion_percent' => $total > 0
-                ? (int) min(100, max(0, round($completed * 100 / $total)))
-                : 0,
+            // Qualification compliance (B-173): grants count, as on the
+            // learners list; 0 when the job title requires none.
+            'completion_percent' => (int) ($this->qualification_compliance ?? 0),
 
             // Kept for callers that only need the flat list; the per-learner
             // progress lives in `qualification_breakdown` above.

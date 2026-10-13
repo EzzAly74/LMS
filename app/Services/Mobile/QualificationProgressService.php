@@ -79,9 +79,7 @@ final class QualificationProgressService
             $total     = (int) ($courseCounts[$row->id] ?? 0);
             $completed = (int) ($completedByQualification[$row->id] ?? 0);
             // A direct grant holds it outright (D-056); counts stay real.
-            $percent   = $row->granted ? 100 : ($total > 0
-                ? (int) floor(($completed * 100) / $total)
-                : 0);
+            $percent   = \App\Support\QualificationHolding::percent((bool) $row->granted, $total, $completed);
 
             $decoded = json_decode((string) $row->name, true);
             $name    = is_array($decoded)

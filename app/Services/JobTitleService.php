@@ -213,6 +213,8 @@ class JobTitleService
             // A qualification with no courses attached and no direct grant is
             // not counted - nothing has happened to earn it.
             $user->qualifications_completed = $breakdown->where('earned', true)->count();
+            // The row's percent: the same compliance as the learners list (B-173).
+            $user->qualification_compliance = \App\Support\QualificationHolding::compliance($breakdown->pluck('percent')->all());
 
             $narrow = $matchedSkillIds !== [] && ! $this->learnerMatches($user, (string) $search);
             $user->qualification_match     = $narrow;

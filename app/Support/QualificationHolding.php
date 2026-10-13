@@ -117,4 +117,17 @@ final class QualificationHolding
 
         return $linked > 0 ? (int) min(100, max(0, round($passed * 100 / $linked))) : 0;
     }
+
+    /**
+     * A learner's compliance (B-173, D-093): the mean of their job title's
+     * qualification percents, a direct grant counting 100. Null when the job
+     * title requires no qualification. The learners list, the job-title
+     * page and the profile all use it.
+     *
+     * @param  array<int, int>  $percents  one percent() per required qualification
+     */
+    public static function compliance(array $percents): ?int
+    {
+        return $percents === [] ? null : (int) round(array_sum($percents) / count($percents));
+    }
 }

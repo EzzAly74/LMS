@@ -203,8 +203,9 @@ class CourseDetailResource extends JsonResource
             ->whereRaw(\App\Support\CohortModules::requiredSql('users_courses.user_id', 'course_lectures'))
             ->count();
 
+        // Rounded, as every other progress figure (D-092).
         return $denominator > 0
-            ? (int) floor(($completed * 100) / $denominator)
+            ? (int) round(($completed * 100) / $denominator)
             : 0;
     }
 }

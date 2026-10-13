@@ -107,12 +107,21 @@ class LearnerCoursePlayerService
 
             $userExam = $userExamsByExamId->get($exam->id);
 
+            // As assignments (D-090): sent and passed completes it, a fail
+            // shows a cross, an open answer still to score is pending; the
+            // stored verdict is QuizVerdict's (D-087).
+            $result = null;
+            if ($userExam?->submission_status === UserExam::SUBMISSION_SUBMITTED) {
+                $result = $userExam->total_score === null ? 'pending' : ($userExam->status === 'success' ? 'passed' : 'failed');
+            }
+
             $groups[$label][] = [
                 'kind' => 'quiz',
                 'id' => $exam->id,
                 'title' => $exam->getTranslation('title', $locale),
                 'content_type' => null,
-                'completed' => $userExam?->submission_status === UserExam::SUBMISSION_SUBMITTED,
+                'completed' => $result === 'passed',
+                'result' => $result,
             ];
             $order[$label] ??= 9500;
         }

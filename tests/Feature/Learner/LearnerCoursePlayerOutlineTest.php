@@ -7,6 +7,7 @@ use App\Models\CourseExam;
 use App\Models\CourseExamQuestion;
 use App\Models\CourseLecture;
 use App\Models\CourseSection;
+use App\Models\UserExam;
 use Tests\Feature\Api\ApiTestCase;
 
 /**
@@ -162,6 +163,30 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
             ->assertOk()->json('result.completion');
         $this->assertTrue($after['completed']);
         $this->assertSame(0, $after['items_remaining']);
+    }
+
+    public function test_a_sent_quiz_is_completed_only_when_passed(): void
+    {
+        // B-183: as assignments (D-090), a failed quiz shows a cross and is not done.
+        ['model' => $learner, 'headers' => $headers] = $this->userToken();
+        $course = Course::factory()->create(['certificate' => false]);
+        $course->users()->attach($learner->getKey());
+        $quiz = CourseExam::factory()->create(['course_id' => $course->id]);
+        CourseExamQuestion::create([
+            'course_exam_id' => $quiz->id, 'position' => 0, 'type' => 'mcq', 'score' => 10,
+            'question' => json_encode(['en' => 'x', 'ar' => 'x']), 'question_en' => 'Q?', 'options_en' => ['A', 'B'], 'correct_answer_en' => 'A',
+        ]);
+        $attempt = UserExam::factory()->create([
+            'user_id' => $learner->getKey(), 'course_id' => $course->id, 'exam_id' => $quiz->id,
+            'total_score' => 2, 'max_score' => 10, 'status' => 'fail',
+        ]);
+        $item = fn () => collect($this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")->assertOk()->json('result.weeks'))
+            ->flatMap(fn ($w) => $w['items'])->firstWhere('kind', 'quiz');
+
+        $this->assertSame(['completed' => false, 'result' => 'failed'], ['completed' => $item()['completed'], 'result' => $item()['result']]);
+
+        $attempt->update(['total_score' => 8, 'status' => 'success']);
+        $this->assertSame(['completed' => true, 'result' => 'passed'], ['completed' => $item()['completed'], 'result' => $item()['result']]);
     }
 
     public function test_a_certificate_course_is_completed_by_its_certificate_in_the_outline(): void

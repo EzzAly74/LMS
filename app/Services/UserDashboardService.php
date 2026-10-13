@@ -54,7 +54,8 @@ class UserDashboardService
 
         return Course::where('for_public', true)
             ->orWhereIn('id', fn ($q) => $q->select('course_id')->from('users_courses')->where('user_id', $userId))
-            ->with(['category:id,name', 'usersCourses' => fn ($q) => $q->where('user_id', $userId)])
+            // sections: CourseResource's status reads them for every card (B-181).
+            ->with(['category:id,name', 'sections:id,course_id,start_date,end_date,status', 'usersCourses' => fn ($q) => $q->where('user_id', $userId)])
             ->withCount([
                 'attendances as user_attendances_count' => fn ($q) => $q->where('user_id', $userId),
             ])

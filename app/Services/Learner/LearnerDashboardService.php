@@ -65,6 +65,9 @@ class LearnerDashboardService
         // Batch-resolve the active certificate id per course (one query, no
         // N+1) so the card can render a "Download Certificate" action instead
         // of "Continue Learning" once the course is done.
+        // The one completion rule (D-086), not a re-derivation (B-181).
+        $completedIds = array_flip(\App\Support\CourseCompletion::courseIdsFor((int) $user->id)->map(fn ($id) => (int) $id)->all());
+
         $certificateIdByCourse = DB::table('user_certificates')
             ->where('user_id', $user->id)
             ->where('status', 'active')
@@ -73,7 +76,9 @@ class LearnerDashboardService
             ->mapWithKeys(fn ($r) => [(int) $r->course_id => (int) $r->id])
             ->all();
 
-        return $courses->map(function (Course $course) use ($request, $cohortIdsByCourse, $cohorts, $progressByCourse, $certificateStatusByCourse, $certificateIdByCourse) {
+        $today = now()->toDateString();
+
+        return $courses->map(function (Course $course) use ($request, $cohortIdsByCourse, $cohorts, $progressByCourse, $certificateStatusByCourse, $certificateIdByCourse, $completedIds, $today) {
             $cohortId = $cohortIdsByCourse->get($course->id);
             /** @var CourseSection|null $cohort */
             $cohort = $cohortId ? $cohorts->get($cohortId) : null;
@@ -87,14 +92,17 @@ class LearnerDashboardService
                 'start_date' => $cohort ? self::day($cohort->sessions_min_session_date) ?? $cohort->start_date?->format('Y-m-d') : null,
                 'end_date' => $cohort ? self::day($cohort->sessions_max_session_date) ?? $cohort->end_date?->format('Y-m-d') : null,
             ];
+            // The learner's cohort has not started: "Starts on", not "Started" (B-175).
+            $card['cohort']['is_upcoming'] = $card['cohort']['start_date'] !== null && $card['cohort']['start_date'] > $today;
             $percent = (int) ($progressByCourse[$course->id] ?? 0);
             $card['module_progress_percent'] = $percent;
             $card['certificate_status'] = $certificateStatusByCourse[$course->id] ?? null;
             // Explicit completion + downloadable certificate id so the
             // frontend can swap "Continue Learning" for certificate actions.
             $card['certificate_id'] = $certificateIdByCourse[$course->id] ?? null;
-            // A course with a certificate is completed by holding it (NEW2B-6205).
-            $card['completed'] = $card['certificate_id'] !== null || (! $course->certificate && $percent >= 100);
+            // The one rule (D-086): a certificate course by its certificate,
+            // otherwise all modules, a passed final exam or the evaluation.
+            $card['completed'] = isset($completedIds[$course->id]);
 
             return $card;
         })->values()->all();

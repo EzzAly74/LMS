@@ -44,7 +44,7 @@ class EnrolmentConfirmationResource extends JsonResource
             'course' => $course ? [
                 'id'    => (int) $course->id,
                 'title' => $course->getTranslation('title', $locale),
-                'image' => $course->image,
+                'image' => $course->image ? (str_starts_with((string) $course->image, 'http') ? $course->image : asset('storage/'.ltrim((string) $course->image, '/'))) : null,
             ] : null,
 
             'cohort' => $cohort ? [
@@ -57,9 +57,8 @@ class EnrolmentConfirmationResource extends JsonResource
                     ? $cohort->end_date->format('Y-m-d')
                     : $cohort->end_date,
                 'capacity'            => app(\App\Services\Mobile\AcademyService::class)->effectiveCapacity($cohort),
-                'enrolment_closes_at' => $cohort->enrolment_closes_at instanceof \Carbon\Carbon
-                    ? $cohort->enrolment_closes_at->format('Y-m-d')
-                    : $cohort->enrolment_closes_at,
+                // The deadline the enrolment was checked against.
+                'enrolment_closes_at' => app(\App\Services\Mobile\AcademyService::class)->effectiveDeadline($cohort)?->toDateString(),
             ] : null,
         ];
     }

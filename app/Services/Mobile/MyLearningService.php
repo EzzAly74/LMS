@@ -42,6 +42,46 @@ final class MyLearningService
         );
     }
 
+    /**
+     * Load what a page of active-course cards needs in a few queries instead
+     * of a dozen per card: the certificate projection (the Website's batch,
+     * with each course's own rule), the progress percent (the Website's
+     * rule, D-089 / D-094), each cohort's session rows and the learner's
+     * ratings. The card resource reads them from these attributes.
+     *
+     * @param  iterable<Course>  $courses
+     */
+    public function prepareCards(User $user, iterable $courses): void
+    {
+        $courses = collect($courses);
+        if ($courses->isEmpty()) {
+            return;
+        }
+        $ids = $courses->map(fn (Course $c) => (int) $c->id)->all();
+
+        $projections = app(\App\Services\CertificateProjectionService::class)->projectForCourses($user, $courses);
+        $percents = app(\App\Services\LectureProgressService::class)->getCourseProgressBatch((int) $user->id, $ids);
+
+        $cohortIds = $courses->map(fn (Course $c) => $c->usersCourses->first()?->group_id)->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $sessions = $cohortIds === [] ? collect() : \Illuminate\Support\Facades\DB::table('course_sessions')
+            ->whereIn('section_id', $cohortIds)
+            ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
+            ->get(['id', 'section_id', 'session_date', 'time_from', 'time_to'])
+            ->groupBy('section_id');
+
+        $ratings = \App\Models\CourseRating::query()
+            ->where('user_id', $user->id)->whereIn('course_id', $ids)
+            ->get(['course_id', 'rating'])->keyBy('course_id');
+
+        foreach ($courses as $course) {
+            $cohortId = (int) ($course->usersCourses->first()?->group_id ?? 0);
+            $course->setAttribute('card_projection', $projections[(int) $course->id] ?? null);
+            $course->setAttribute('card_progress', $percents[(int) $course->id] ?? null);
+            $course->setAttribute('card_sessions', $sessions->get($cohortId, collect())->values());
+            $course->setAttribute('card_rating', $ratings->has($course->id) ? (int) $ratings[$course->id]->rating : null);
+        }
+    }
+
     public function progressFor(User $user, Course $course, int $cohortId, string $locale): array
     {
         return $this->repository->courseProgressSummary(

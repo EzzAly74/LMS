@@ -632,6 +632,18 @@ final class AcademyRepository implements AcademyRepositoryInterface
      *
      * @return array<int, int>
      */
+    public function isOfferedTo(Course $course, User $user): bool
+    {
+        $courseSkills = DB::table('course_qualification_skills')
+            ->where('course_id', $course->id)
+            ->pluck('qualification_skill_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        return $courseSkills === []
+            || array_intersect($courseSkills, $this->employeeQualificationSkillIds($user)) !== [];
+    }
+
     private function employeeQualificationSkillIds(?User $user): array
     {
         if (empty($user?->job_title_id)) {

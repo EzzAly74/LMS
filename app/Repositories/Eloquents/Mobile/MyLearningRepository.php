@@ -74,11 +74,16 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
             ->ended()
             ->count();
 
+        // Distinct sessions of this cohort, as the Website counts them
+        // (LectureProgressService): a duplicate row or one without a session
+        // is not a second attendance.
         $attended = (int) DB::table('attendances')
             ->where('user_id', $user->id)
             ->where('course_id', $courseId)
             ->where('section_id', $cohortId)
-            ->count();
+            ->whereNotNull('session_id')
+            ->distinct()
+            ->count('session_id');
 
         // Absences are the number of *past* sessions for which the
         // user has no attendance row. We cap at 0 so manual / extra
@@ -235,7 +240,7 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
 
         return [
             'number' => $number,
-            'name'   => $locale === 'ar' ? "الجلسة {$number}" : "Session {$number}",
+            'name'   => trans('messages.schedule_session_title', ['n' => $number], $locale),
         ];
     }
 
@@ -321,7 +326,9 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
     private function activeCoursesQuery(User $user, array $excludeCourseIds = [])
     {
         return $this->course->newQuery()
-            ->select(['courses.id', 'courses.title', 'courses.course_type', 'courses.image', 'courses.hours', 'courses.is_evaluate'])
+            // The whole row: the certificate projection reads the course's own
+            // rule (certificate_custom_rule / mode / thresholds) and session plan.
+            ->select('courses.*')
             // Drop courses the learner is already done with (completed
             // competency OR ended cohort). Without this a session course whose
             // cohort has ended lingered here with a meaningless 0% progress.

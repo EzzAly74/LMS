@@ -77,6 +77,8 @@ class MyLearningController extends MobileBaseController
         $locale = app()->getLocale();
 
         $activePreview         = $this->myLearning->activeCoursesPreview($user);
+        $this->myLearning->prepareCards($user, $activePreview);
+        // Only its total is shown here; the cards are the preview's.
         $activePaginator       = $this->myLearning->activeCoursesPaginated($user);
         $qualificationsAll     = $this->qualifications->forUser($user, $locale);
         $qualificationsPreview = $this->qualifications->preview(
@@ -111,16 +113,19 @@ class MyLearningController extends MobileBaseController
      *     path="/mobile/my-learning/active",
      *     tags={"Mobile"},
      *     summary="📱 [MOBILE · S-05] My active courses",
-     *     description="📱 **MOBILE** · Screen **S-05 — My Learning · Active Courses tab** · Audience: Employee/Learner mobile app · Paginated active enrolments with live progress / attendance counts and a Live-Now badge.",
+     *     description="📱 **MOBILE** · Screen **S-05 — My Learning · Active Courses tab** · Audience: Employee/Learner mobile app · Paginated active enrolments with live progress / attendance counts and a Live-Now badge. Figures match the Website: progress from the learner's cohort modules (else attendance of the cohort's sessions), attendance by distinct session, certificate projection with the course's own rule. A completed (certified) or ended course leaves this list for `completed`.",
      *     @OA\Parameter(ref="#/components/parameters/MobileAuthorization"),
      *     @OA\Parameter(ref="#/components/parameters/EmployeeCode"),
      *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),
-     *     @OA\Response(response=200, description="OK")
+     *     @OA\Response(response=200, description="OK", @OA\JsonContent(
+     *         @OA\Property(property="status", type="string", example="success"),
+     *         @OA\Property(property="result", type="array", @OA\Items(ref="#/components/schemas/MobileActiveCourseCard"))))
      * )
      */
     public function active(Request $request): JsonResponse
     {
         $paginator = $this->myLearning->activeCoursesPaginated($request->user());
+        $this->myLearning->prepareCards($request->user(), $paginator->getCollection());
 
         return $this->paginated(
             __('messages.mobile.my_learning_courses'),
@@ -133,11 +138,13 @@ class MyLearningController extends MobileBaseController
      *     path="/mobile/my-learning/qualifications",
      *     tags={"Mobile"},
      *     summary="📱 [MOBILE · S-05] My qualifications progress",
-     *     description="📱 **MOBILE** · Screen **S-05 — My Learning · Qualifications tab** · Audience: Employee/Learner mobile app · Derived live from `job_title_qualification_skill` × `course_qualification_skills` × completion sources.",
+     *     description="📱 **MOBILE** · Screen **S-05 — My Learning · Qualifications tab** · Audience: Employee/Learner mobile app · Derived live from `job_title_qualification_skill` × `course_qualification_skills` × completion (an active certificate). A granted qualification is 100% (`granted`).",
      *     @OA\Parameter(ref="#/components/parameters/MobileAuthorization"),
      *     @OA\Parameter(ref="#/components/parameters/EmployeeCode"),
      *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),
-     *     @OA\Response(response=200, description="OK")
+     *     @OA\Response(response=200, description="OK", @OA\JsonContent(
+     *         @OA\Property(property="status", type="string", example="success"),
+     *         @OA\Property(property="result", type="array", @OA\Items(ref="#/components/schemas/MobileQualificationProgress"))))
      * )
      */
     public function qualifications(Request $request): JsonResponse
@@ -189,7 +196,7 @@ class MyLearningController extends MobileBaseController
      *     path="/mobile/my-learning/certificates",
      *     tags={"Mobile"},
      *     summary="📱 [MOBILE · S-07] Certificates list",
-     *     description="📱 **MOBILE** · Screen **S-07 — Certificates** · Audience: Employee/Learner mobile app · Paginated, derived from final-exam pass + course-evaluation submission (no `user_certificates` table).",
+     *     description="📱 **MOBILE** · Screen **S-07 — Certificates** · Audience: Employee/Learner mobile app · Paginated; the learner's **active** `user_certificates` (a revoked certificate is never listed). Every course issues a certificate once its completion event and the configured rule are met (D-094).",
      *     @OA\Parameter(ref="#/components/parameters/MobileAuthorization"),
      *     @OA\Parameter(ref="#/components/parameters/EmployeeCode"),
      *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),

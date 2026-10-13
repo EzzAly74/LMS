@@ -46,7 +46,15 @@ final class EnrolmentService
                 return ['outcome' => EnrolmentOutcome::AlreadyEnrolled, 'cohort' => $existing];
             }
 
-            // 2. Resolve cohort.
+            // The catalogue's role rule, on the server: a course tied to
+            // another job title's qualifications is not offered to this
+            // learner, whatever id the client sends.
+            if (! $this->academyRepository->isOfferedTo($course, $user)) {
+                return ['outcome' => EnrolmentOutcome::NotOffered, 'cohort' => null];
+            }
+
+            // 2. Resolve cohort. A chosen cohort must be one the catalogue
+            //    shows (not started, inside its visibility window).
             $cohort = $requestedCohortId !== null
                 ? CourseSection::query()->where('course_id', $course->id)->find($requestedCohortId)
                 : $this->academyRepository->nextJoinableCohort(
@@ -64,6 +72,9 @@ final class EnrolmentService
             }
             if ($cohort === null || $cohort->status === 'inactive') {
                 return ['outcome' => EnrolmentOutcome::NoCohort, 'cohort' => null];
+            }
+            if ($requestedCohortId !== null && ! $this->isVisible($cohort)) {
+                return ['outcome' => EnrolmentOutcome::EnrolmentClosed, 'cohort' => $cohort];
             }
 
             // 3. Deadline still alive? It always ends before the start date,
@@ -85,6 +96,20 @@ final class EnrolmentService
 
             return ['outcome' => EnrolmentOutcome::Enrolled, 'cohort' => $cohort];
         });
+    }
+
+    /**
+     * The catalogue's visibility window (AcademyRepository::applyAvailableExists):
+     * not started, and either opened early or within the visibility days.
+     */
+    private function isVisible(CourseSection $cohort): bool
+    {
+        if ($cohort->start_date === null || ! $cohort->start_date->isAfter(now()->startOfDay())) {
+            return false;
+        }
+
+        return $cohort->status === 'open_for_enrollment'
+            || $cohort->start_date->copy()->subDays(max(0, $this->academyService->scheduledVisibilityDays()))->lte(now());
     }
 
     /** The course's next cohort that has not started, joinable or not. */

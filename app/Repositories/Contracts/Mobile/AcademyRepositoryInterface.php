@@ -116,6 +116,12 @@ interface AcademyRepositoryInterface
     public function findForDetail(int $courseId): Course;
 
     /**
+     * The catalogue's role rule for one course: no qualification, or one
+     * the learner's job title requires.
+     */
+    public function isOfferedTo(Course $course, User $user): bool;
+
+    /**
      * Return the *next joinable* cohort for the user, or `null` if
      * none exists. "Joinable" = stored status not `inactive`, start
      * date >= today, enrolment deadline >= today, and seats remaining.

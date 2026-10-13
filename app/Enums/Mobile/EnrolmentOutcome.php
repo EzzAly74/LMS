@@ -20,6 +20,9 @@ enum EnrolmentOutcome: string
     case CohortFull       = 'cohort_full';
     case EnrolmentClosed  = 'enrolment_closed';
     case NoCohort         = 'no_cohort';
+    // The course belongs to another job title's qualifications (the
+    // catalogue never shows it to this learner).
+    case NotOffered       = 'not_offered';
 
     public function isSuccess(): bool
     {
@@ -34,6 +37,7 @@ enum EnrolmentOutcome: string
             self::CohortFull,
             self::EnrolmentClosed,
             self::NoCohort        => 409,
+            self::NotOffered      => 403,
         };
     }
 
@@ -45,6 +49,7 @@ enum EnrolmentOutcome: string
             self::CohortFull      => 'messages.mobile.enrolment_cohort_full',
             self::EnrolmentClosed => 'messages.mobile.enrolment_closed',
             self::NoCohort        => 'messages.mobile.enrolment_no_cohort',
+            self::NotOffered      => 'messages.mobile.enrolment_not_offered',
         };
     }
 }

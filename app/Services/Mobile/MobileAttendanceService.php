@@ -130,6 +130,13 @@ final class MobileAttendanceService
         // Insert the denormalized attendance row + audit log inside
         // a transaction so partial failure is impossible.
         $attendanceId = DB::transaction(function () use ($user, $course, $session, $cohortId) {
+            // Two taps (or two devices) at once: the session row lock makes
+            // the second wait, and the re-check sees the first one's row.
+            DB::table('course_sessions')->where('id', $session->id)->lockForUpdate()->first(['id']);
+            if ($this->repository->hasAttendedSession($user, (int) $session->id)) {
+                return null;
+            }
+
             $course->loadMissing('category');
 
             $sessionsCount = (int) DB::table('course_sessions')
@@ -175,6 +182,10 @@ final class MobileAttendanceService
 
             return (int) $attendanceId;
         });
+
+        if ($attendanceId === null) {
+            return $this->failure(AttendanceMarkFailure::AlreadyMarked, $session);
+        }
 
         // Attendance just changed — a session/offline course may now clear its
         // attendance-threshold certificate. Idempotent + guarded so a

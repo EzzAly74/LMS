@@ -23,6 +23,8 @@ class QualificationProgressResource extends JsonResource
             'total_courses'     => (int) $row['total_courses'],
             'completed_courses' => (int) $row['completed_courses'],
             'percent'           => (int) $row['percent'],
+            // Held outright (granted / external training): 100% whatever the courses (D-093).
+            'granted'           => (bool) ($row['granted'] ?? false),
         ];
     }
 }

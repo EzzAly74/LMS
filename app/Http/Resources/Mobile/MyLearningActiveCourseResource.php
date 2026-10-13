@@ -46,29 +46,23 @@ class MyLearningActiveCourseResource extends JsonResource
                 'next_unit_title' => null,
             ];
 
-        $span = $cohort
-            ? \Illuminate\Support\Facades\DB::table('course_sessions')->where('section_id', $cohort->id)
-                ->selectRaw('MIN(session_date) AS first_day, MAX(session_date) AS last_day')->first()
-            : null;
-        if ($span !== null && $span->first_day === null) {
-            $span = null;
-        }
-        $firstFrom = $span
-            ? \Illuminate\Support\Facades\DB::table('course_sessions')->where('section_id', $cohort->id)
-                ->where('session_date', $span->first_day)->min('time_from')
-            : null;
-        $firstStart = $span
-            ? \Illuminate\Support\Carbon::parse(substr((string) $span->first_day, 0, 10).' '.($firstFrom ?: '00:00:00'))
-            : null;
-        if ($span !== null) {
-            $span->first_day = substr((string) $span->first_day, 0, 10);
-            $span->last_day  = substr((string) $span->last_day, 0, 10);
-        }
+        // The cohort's session rows: prepared for the whole page by
+        // MyLearningService::prepareCards, else read here.
+        $rows = $course->getAttribute('card_sessions') ?? ($cohort
+            ? DB::table('course_sessions')->where('section_id', $cohort->id)
+                ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
+                ->get(['id', 'session_date', 'time_from', 'time_to'])
+            : collect());
+        $dated = $rows->filter(fn ($r) => $r->session_date !== null)->values();
+
+        $span = $dated->isNotEmpty() ? (object) [
+            'first_day' => substr((string) $dated->first()->session_date, 0, 10),
+            'last_day'  => substr((string) $dated->last()->session_date, 0, 10),
+        ] : null;
 
         $schedule = null;
         if ($span !== null) {
-            $rows = \Illuminate\Support\Facades\DB::table('course_sessions')->where('section_id', $cohort->id)
-                ->orderBy('session_date')->orderBy('time_from')->get(['session_date', 'time_from', 'time_to']);
+            $rows = $dated;
             $ahead = $rows->filter(fn ($r) => \Illuminate\Support\Carbon::parse(substr((string) $r->session_date, 0, 10).' '.($r->time_to ?: '23:59:59'))->isFuture());
             $pick = $ahead->isNotEmpty() ? $ahead : $rows;
             $froms = $pick->pluck('time_from')->filter()->unique();
@@ -95,17 +89,20 @@ class MyLearningActiveCourseResource extends JsonResource
         // Certificate projection ("earned" / "on_track" / "at_risk" /
         // "blocked" — or null when the course offers no certificate). Drives
         // the Figma "Certificate: On track / At Risk" badge on the card.
-        $certificate = $authUser !== null
+        $certificate = $course->getAttribute('card_projection') ?? ($authUser !== null
             ? app(\App\Services\CertificateProjectionService::class)->projectForCourse($authUser, $course)
-            : null;
+            : null);
 
         // The learner's own rating for this course (null ⇒ app shows the
         // "Add rate" CTA, otherwise it renders the existing score).
-        $userRating = $myLearn->userRatingForCourse($authUser, $course->id);
+        $rateValue = $course->getAttribute('card_rating');
+        if ($rateValue === null && ! $course->hasAttribute('card_rating')) {
+            $userRating = $myLearn->userRatingForCourse($authUser, $course->id);
+            $rateValue = $userRating !== null ? (int) $userRating->rating : null;
+        }
 
         // Resolve the numeric rating to a localized sentiment label
         // ("Very satisfied" / "راضي جدًا"). Null when not rated yet.
-        $rateValue = $userRating !== null ? (int) $userRating->rating : null;
         $rateLabel = null;
         if ($rateValue !== null) {
             $settings  = app(MobileSettings::class);
@@ -156,14 +153,15 @@ class MyLearningActiveCourseResource extends JsonResource
                 'end_date'   => $span?->last_day ?? ($cohort->end_date instanceof \Carbon\Carbon
                     ? $cohort->end_date->format('Y-m-d')
                     : $cohort->end_date),
-                // Upcoming until its first session starts, in the academy's time zone.
-                'is_upcoming' => $firstStart !== null ? $firstStart->isFuture() : null,
+                // Upcoming before the first session's day, as on the Website (B-175).
+                'is_upcoming' => $span !== null ? $span->first_day > now()->toDateString() : null,
                 // Days and time range of the sessions still to come (all of
                 // them once none is left), from the schedule sheet (NEW2B-6002).
                 'schedule'    => $schedule,
             ] : null,
             'progress'       => [
-                'percent'            => (int) $progress['progress_percent'],
+                // The Website's figure (LectureProgressService, D-089 / D-094).
+                'percent'            => (int) ($course->getAttribute('card_progress') ?? $progress['progress_percent']),
                 'completed_lectures' => (int) $progress['completed_lectures'],
                 'total_lectures'     => (int) $progress['total_lectures'],
                 'attended_sessions'  => (int) $progress['attended'],
@@ -191,7 +189,7 @@ class MyLearningActiveCourseResource extends JsonResource
             'isLive'         => $liveSession !== null,
             'live_session'   => $liveSession ? [
                 'id'           => (int) $liveSession->id,
-                'title'        => $liveSession->title,
+                'title'        => \App\Support\SessionTitle::localize($liveSession->title, null, $locale) ?? $liveSession->title,
                 'session_date' => $liveSession->session_date,
                 'time_from'    => $liveSession->time_from,
                 'time_to'      => $liveSession->time_to,

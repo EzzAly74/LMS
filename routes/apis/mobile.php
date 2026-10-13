@@ -61,6 +61,9 @@ Route::middleware(['mobile.token', 'mobile.employee'])
                 ->whereNumber('course');
             Route::post('courses/{course}/enrol',            [AcademyController::class, 'enrol'])
                 ->whereNumber('course');
+            // The "Get notified" CTA (CourseCtaState::GetNotified), as on the Website.
+            Route::post('courses/{course}/notify-me',        [AcademyController::class, 'notifyMe'])
+                ->whereNumber('course')->middleware('throttle:30,1');
         });
 
         // ── S-05 + S-07 list · My Learning ───────────────────────────

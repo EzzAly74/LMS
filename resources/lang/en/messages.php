@@ -168,6 +168,7 @@ return [
         'enrolment_cohort_full'       => 'Enrolment failed — this cohort just filled up.',
         'enrolment_closed'            => 'Enrolment for this cohort has closed.',
         'enrolment_no_cohort'         => 'No upcoming cohort is open for enrolment.',
+        'enrolment_not_offered' => 'This course is not offered for your job title.',
         'enrolment_already'           => 'You are already enrolled in this cohort. Open it from My Learning.',
 
         // Mobile — My Learning (S-05)

@@ -293,14 +293,21 @@ class AcademyCatalogueFiltersTest extends MobileTestCase
         $this->assertError($response, 404);
     }
 
-    public function test_notify_me_is_not_routed_on_the_mobile_surface(): void
+    public function test_notify_me_works_on_the_mobile_surface_too(): void
     {
+        // The app is offered an enabled "Get notified" CTA, so the route is
+        // mounted for it as for the Website (D-078, audit 2026-10-13).
+        // Only a running cohort: nothing to join yet, so the interest is kept
+        // until one opens (a joinable cohort notifies at once, D-078).
         $user   = $this->employee();
-        $course = $this->courseWith();
+        $course = Course::factory()->create();
+        CourseSection::factory()->running()->create(['course_id' => $course->id]);
 
         $response = $this->withHeaders($this->headersFor($user))
                          ->postJson(self::BASE . '/mobile/academy/courses/' . $course->id . '/notify-me');
 
-        $this->assertError($response, 404);
+        $this->assertSuccess($response);
+        $this->assertSame(1, \App\Models\CourseNotifyInterest::query()
+            ->where('user_id', $user->id)->where('course_id', $course->id)->count());
     }
 }

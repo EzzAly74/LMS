@@ -117,6 +117,9 @@ return [
     'quiz_not_submitted'               => 'لم ترسل هذا الاختبار بعد.',
     'quiz_question_not_in_quiz'        => 'هذا السؤال لا ينتمي إلى هذا الاختبار.',
     'assignment_not_question_based'    => 'هذا الواجب لا يحتوي على أسئلة للإجابة — يرجى رفع ملف بدلاً من ذلك.',
+    'reports' => [
+        'no_job_title' => 'بدون مسمى وظيفي',
+    ],
     'assignment_closed' => 'انتهى موعد تسليم هذا الواجب، لذا لا يمكن الإجابة عنه الآن.',
     'assignment_due_date_past' => 'لا يمكن أن يكون موعد التسليم في الماضي.',
     'assignment_pass_score_over_total' => 'لا يمكن أن تزيد درجة النجاح على الدرجة الكلية (:total).',

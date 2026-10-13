@@ -118,6 +118,9 @@ return [
     'quiz_not_submitted'               => 'You have not submitted this quiz yet.',
     'quiz_question_not_in_quiz'        => 'This question does not belong to the quiz.',
     'assignment_not_question_based'    => 'This assignment does not have questions to answer — submit a file instead.',
+    'reports' => [
+        'no_job_title' => 'No job title',
+    ],
     'assignment_closed' => 'The due date of this assignment has passed, so it can no longer be answered.',
     'assignment_due_date_past' => 'The due date cannot be in the past.',
     'assignment_pass_score_over_total' => 'The pass score cannot be more than the total score (:total).',

@@ -3,7 +3,10 @@
 namespace App\Services\Admin;
 
 use App\Models\ReportExportLog;
-use App\Models\User;
+use App\Support\CourseCompletion;
+use App\Support\LearnerCompliance;
+use App\Support\LocalizedJson;
+use App\Support\QuizVerdict;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -115,14 +118,14 @@ class AdminReportService
      * ------------------------------------------------------------------ */
 
     /**
-     * Grouped compliance preview shown beneath the cards in Figma.
+     * Grouped compliance preview shown beneath the cards in Figma ("Compliance
+     * by Job Title"; B-169, D-093).
      *
-     * Columns: Role · Department · Learners · Qualified · Compliance %
-     *
-     * "Qualified" is defined as a learner who is enrolled in at least one
-     * course (heuristic that maps well to the existing data model while
-     * staying entirely additive). Department is the most common
-     * `department_name` for users sharing the role.
+     * One row per job title: its learners, how many hold every qualification
+     * the job title requires ("Qualified"), and the mean learner compliance
+     * (the learners list's "Qualification (%)"). Department is the most
+     * common department of the job title's learners, in the reader's
+     * language. Learners without a job title are one "No job title" row.
      *
      * @return array<int,array{
      *   role:string,
@@ -134,85 +137,43 @@ class AdminReportService
      */
     public function compliancePreview(int $limit = 25): array
     {
-        // Pre-compute the role bucket in a derived subquery so the outer
-        // aggregation can group on a single plain column. The 2026
-        // redesign dropped `users.job_title`, so the bucket key now
-        // comes from the Spatie `model_has_roles` pivot — falling back
-        // to "Learner" for users without an admin-guard role.
         $locale = app()->getLocale();
-        $userClass = User::class;
-
-        $usersSub = DB::table('users')
-            ->leftJoin('model_has_roles AS mhr', function ($j) use ($userClass) {
-                $j->on('mhr.model_id', '=', 'users.id')
-                  ->where('mhr.model_type', '=', $userClass);
-            })
-            ->leftJoin('roles', function ($j) {
-                $j->on('roles.id', '=', 'mhr.role_id')
-                  ->where('roles.guard_name', '=', 'admin');
-            })
-            ->select(
-                'users.id AS user_id',
-                'users.department_name AS department_name',
-                DB::raw(sprintf(
-                    'COALESCE(NULLIF(roles.%s, ""), NULLIF(roles.name_en, ""), roles.name, "Learner") AS role_key',
-                    $locale === 'ar' ? 'name_ar' : 'name_en',
-                )),
-            );
-        $this->scope->constrainLearners($usersSub, $this->principal(), 'users.id');
-        $courseIds = $this->courseIds();
-
-        $rows = DB::query()
-            ->fromSub($usersSub, 'u')
-            ->leftJoin('users_courses AS uc', function ($j) use ($courseIds) {
-                $j->on('uc.user_id', '=', 'u.user_id');
-                if ($courseIds !== null) {
-                    $j->whereIn('uc.course_id', $courseIds ?: [0]);
-                }
-            })
-            ->select(
-                'u.role_key AS role',
-                DB::raw('COUNT(DISTINCT u.user_id) AS learners'),
-                DB::raw('COUNT(DISTINCT CASE WHEN uc.user_id IS NOT NULL THEN u.user_id END) AS qualified'),
-            )
-            ->groupBy('u.role_key')
-            ->orderByDesc('learners')
-            ->limit($limit)
+        $learners = DB::table('users')
+            ->leftJoin('job_titles', 'job_titles.id', '=', 'users.job_title_id')
+            ->select('users.id', 'users.job_title_id', 'job_titles.name', 'job_titles.name_en', 'job_titles.name_ar',
+                'users.department_name', 'users.department_name_en')
+            ->tap(fn ($q) => $this->scope->constrainLearners($q, $this->principal(), 'users.id'))
             ->get();
-
-        if ($rows->isEmpty()) {
+        if ($learners->isEmpty()) {
             return [];
         }
 
-        // Most common department per role — same derived-subquery trick
-        // keeps this safe under strict GROUP BY.
-        $deptByRole = DB::query()
-            ->fromSub($usersSub, 'u')
-            ->select(
-                'u.role_key AS role',
-                'u.department_name',
-                DB::raw('COUNT(*) AS occurrences'),
-            )
-            ->whereNotNull('u.department_name')
-            ->groupBy('u.role_key', 'u.department_name')
-            ->orderByDesc('occurrences')
-            ->get()
-            ->groupBy('role')
-            ->map(fn ($items) => optional($items->first())->department_name);
+        $compliance = LearnerCompliance::forUsers($learners->pluck('id')->all());
 
-        return $rows->map(function ($r) use ($deptByRole) {
-            $learners  = (int) $r->learners;
-            $qualified = (int) $r->qualified;
-            $pct       = $learners > 0 ? (int) round(($qualified / $learners) * 100) : 0;
+        return $learners
+            ->groupBy(fn ($u) => (int) ($u->job_title_id ?? 0))
+            ->map(function ($group) use ($compliance, $locale) {
+                $first = $group->first();
+                $title = $first->job_title_id === null
+                    ? __('messages.reports.no_job_title')
+                    : (($locale === 'ar' ? $first->name_ar : $first->name_en) ?: $first->name);
+                $department = $group
+                    ->map(fn ($u) => $locale === 'en' ? ($u->department_name_en ?: $u->department_name) : $u->department_name)
+                    ->filter()->countBy()->sortDesc()->keys()->first();
+                $values = $group->map(fn ($u) => $compliance[(int) $u->id]['compliance'] ?? null)->filter(fn ($v) => $v !== null);
 
-            return [
-                'role'           => (string) $r->role,
-                'department'     => $deptByRole[$r->role] ?? null,
-                'learners'       => $learners,
-                'qualified'      => $qualified,
-                'compliance_pct' => $pct,
-            ];
-        })->all();
+                return [
+                    'role'           => (string) $title,
+                    'department'     => $department,
+                    'learners'       => $group->count(),
+                    'qualified'      => $group->filter(fn ($u) => $compliance[(int) $u->id]['qualified'] ?? false)->count(),
+                    'compliance_pct' => $values->isEmpty() ? 0 : (int) round($values->avg()),
+                ];
+            })
+            ->sortByDesc('learners')
+            ->take($limit)
+            ->values()
+            ->all();
     }
 
     /* ------------------------------------------------------------------ *
@@ -264,10 +225,10 @@ class AdminReportService
      */
     private function buildComplianceByJobTitle(): array
     {
-        $rows = $this->compliancePreview(limit: 500);
+        $rows = $this->compliancePreview(limit: PHP_INT_MAX);
 
         return [
-            ['Role', 'Department', 'Learners', 'Qualified', 'Compliance %'],
+            ['Job Title', 'Department', 'Learners', 'Qualified', 'Compliance %'],
             array_map(static fn ($r) => [
                 $r['role'],
                 $r['department'] ?? '',
@@ -279,56 +240,48 @@ class AdminReportService
     }
 
     /**
+     * One row per learner (B-169): enrolments, completed courses (the one
+     * rule) and compliance (D-093). Status: Complete when every required
+     * qualification is held, In progress once enrolled or partly compliant,
+     * else Not started.
+     *
      * @return array{0: list<string>, 1: list<list<string|int|null>>}
      */
     private function buildIndividualCompliance(): array
     {
-        $locale    = app()->getLocale();
-        $userClass = User::class;
-        $roleNameExpr = $locale === 'ar' ? 'roles.name_ar' : 'roles.name_en';
-
+        $locale = app()->getLocale();
         $courseIds = $this->courseIds();
-        $rows = DB::table('users')
-            ->leftJoin('users_courses AS uc', function ($j) use ($courseIds) {
-                $j->on('uc.user_id', '=', 'users.id');
-                if ($courseIds !== null) {
-                    $j->whereIn('uc.course_id', $courseIds ?: [0]);
-                }
-            })
+        $learners = DB::table('users')
+            ->leftJoin('job_titles', 'job_titles.id', '=', 'users.job_title_id')
             ->tap(fn ($q) => $this->scope->constrainLearners($q, $this->principal(), 'users.id'))
-            ->leftJoin('model_has_roles AS mhr', function ($j) use ($userClass) {
-                $j->on('mhr.model_id', '=', 'users.id')
-                  ->where('mhr.model_type', '=', $userClass);
-            })
-            ->leftJoin('roles', function ($j) {
-                $j->on('roles.id', '=', 'mhr.role_id')
-                  ->where('roles.guard_name', '=', 'admin');
-            })
-            ->select(
-                'users.id',
-                'users.name',
-                'users.email',
-                DB::raw("COALESCE(NULLIF({$roleNameExpr}, ''), NULLIF(roles.name_en, ''), roles.name, 'Learner') AS role_label"),
-                'users.department_name',
-                DB::raw('COUNT(uc.id) AS enrolled_courses'),
-            )
-            ->groupBy('users.id', 'users.name', 'users.email', 'role_label', 'users.department_name')
+            ->select('users.id', 'users.machine_code', 'users.name', 'users.name_en', 'users.email',
+                'users.department_name', 'users.department_name_en', 'job_titles.name AS jt', 'job_titles.name_en AS jt_en', 'job_titles.name_ar AS jt_ar')
             ->orderBy('users.name')
             ->get();
+        $enrolled = DB::table('users_courses')
+            ->whereIn('user_id', $learners->pluck('id')->all() ?: [0])
+            ->when($courseIds !== null, fn ($q) => $q->whereIn('course_id', $courseIds ?: [0]))
+            ->selectRaw('user_id, COUNT(*) AS c')->groupBy('user_id')->pluck('c', 'user_id');
+        $compliance = LearnerCompliance::forUsers($learners->pluck('id')->all());
 
         return [
-            ['User ID', 'Name', 'Email', 'Role', 'Department', 'Enrolled Courses', 'Status'],
-            $rows->map(static function ($r) {
-                $enrolled = (int) $r->enrolled_courses;
-                $status   = $enrolled === 0 ? 'Not started' : ($enrolled >= 1 ? 'In progress' : 'Complete');
+            ['Employee ID', 'Name', 'Email', 'Job Title', 'Department', 'Enrolled Courses', 'Completed Courses', 'Compliance %', 'Status'],
+            $learners->map(function ($u) use ($enrolled, $compliance, $courseIds, $locale) {
+                $c = $compliance[(int) $u->id] ?? ['completed' => [], 'compliance' => null, 'qualified' => false];
+                $completed = $courseIds === null ? count($c['completed']) : count(array_intersect_key($c['completed'], array_flip($courseIds)));
+                $enrolledCount = (int) ($enrolled[$u->id] ?? 0);
+                $status = $c['qualified'] ? 'Complete'
+                    : (($c['compliance'] ?? 0) > 0 || $enrolledCount > 0 ? 'In progress' : 'Not started');
 
                 return [
-                    $r->id,
-                    $r->name,
-                    $r->email,
-                    $r->role_label ?? '',
-                    $r->department_name ?? '',
-                    $enrolled,
+                    $u->machine_code ?? '',
+                    ($locale === 'en' ? ($u->name_en ?: $u->name) : $u->name) ?? '',
+                    $u->email ?? '',
+                    ($locale === 'ar' ? $u->jt_ar : $u->jt_en) ?: ($u->jt ?? ''),
+                    ($locale === 'en' ? ($u->department_name_en ?: $u->department_name) : $u->department_name) ?? '',
+                    $enrolledCount,
+                    $completed,
+                    $c['compliance'] === null ? '' : $c['compliance'].'%',
                     $status,
                 ];
             })->all(),
@@ -370,6 +323,10 @@ class AdminReportService
     }
 
     /**
+     * Enrolments with their completion (B-169): completed by the one rule
+     * (CourseCompletion) with its date, else in progress / not started by
+     * the learner's module progress.
+     *
      * @return array{0: list<string>, 1: list<list<string|int|null>>}
      */
     private function buildCompletion(): array
@@ -377,95 +334,145 @@ class AdminReportService
         $rows = DB::table('users_courses')
             ->leftJoin('users',   'users.id',   '=', 'users_courses.user_id')
             ->leftJoin('courses', 'courses.id', '=', 'users_courses.course_id')
+            ->leftJoin('course_sections', 'course_sections.id', '=', 'users_courses.group_id')
             ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'users_courses.course_id'))
             ->select(
+                'users_courses.user_id',
                 'users.name  AS learner',
                 'users.email AS email',
                 'courses.id  AS course_id',
                 'courses.title AS course_title',
+                'course_sections.name AS cohort_name',
                 'users_courses.created_at AS enrolled_at',
-                'users_courses.group_id   AS cohort_id',
             )
             ->orderByDesc('users_courses.created_at')
             ->get();
 
+        $completed = [];
+        foreach (CourseCompletion::query($rows->pluck('user_id')->unique()->values()->all(), $rows->pluck('course_id')->unique()->values()->all())->get() as $pair) {
+            $completed[(int) $pair->user_id.':'.(int) $pair->course_id] = $pair->completed_at ?? null;
+        }
+        $progress = app(\App\Services\LectureProgressService::class);
+        $locale = app()->getLocale();
+
         return [
-            ['Learner', 'Email', 'Course ID', 'Course', 'Cohort', 'Enrolled At'],
-            $rows->map(static fn ($r) => [
-                $r->learner      ?? '',
-                $r->email        ?? '',
-                $r->course_id,
-                $r->course_title ?? '',
-                $r->cohort_id    ?? '',
-                $r->enrolled_at  ? Carbon::parse($r->enrolled_at)->format('Y-m-d') : '',
-            ])->all(),
+            ['Learner', 'Email', 'Course ID', 'Course', 'Cohort', 'Enrolled At', 'Status', 'Progress %', 'Completed At'],
+            $rows->groupBy('user_id')->flatMap(function ($group, $userId) use ($completed, $progress, $locale) {
+                $percent = $progress->getCourseProgressBatch((int) $userId, $group->pluck('course_id')->map(fn ($id) => (int) $id)->all());
+
+                return $group->map(function ($r) use ($completed, $percent, $locale) {
+                    $key = (int) $r->user_id.':'.(int) $r->course_id;
+                    $done = array_key_exists($key, $completed);
+                    $pct = (int) ($percent[(int) $r->course_id] ?? 0);
+
+                    return [
+                        $r->learner      ?? '',
+                        $r->email        ?? '',
+                        $r->course_id,
+                        LocalizedJson::pick($r->course_title, $locale) ?? '',
+                        LocalizedJson::pick($r->cohort_name, $locale) ?? '',
+                        $r->enrolled_at  ? Carbon::parse($r->enrolled_at)->format('Y-m-d') : '',
+                        $done ? 'Completed' : ($pct > 0 ? 'In progress' : 'Not started'),
+                        $done ? 100 : $pct,
+                        $done && $completed[$key] ? Carbon::parse($completed[$key])->format('Y-m-d') : '',
+                    ];
+                });
+            })->values()->all(),
         ];
     }
 
     /**
+     * Quiz and assignment results (B-169): sent attempts only; the score as
+     * the Dashboard lists read it; Pass / Fail by QuizVerdict (D-087) and the
+     * assignment pass score (D-090); "Needs review" while a person scores.
+     *
      * @return array{0: list<string>, 1: list<list<string|int|null>>}
      */
     private function buildScores(): array
     {
-        $rows = DB::table('user_exams')
+        $locale = app()->getLocale();
+        $quizzes = DB::table('user_exams')
             ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'user_exams.course_id'))
+            ->whereRaw(CourseCompletion::submittedExamSql('user_exams'))
             ->leftJoin('users',        'users.id',        '=', 'user_exams.user_id')
             ->leftJoin('courses',      'courses.id',      '=', 'user_exams.course_id')
-            ->leftJoin('course_exams', 'course_exams.id', '=', 'user_exams.exam_id')
-            ->select(
-                'users.name   AS learner',
-                'users.email  AS email',
-                'courses.title AS course_title',
-                'course_exams.title AS exam_title',
-                'user_exams.user_degree',
-                'user_exams.status',
-                'user_exams.created_at',
-            )
-            ->orderByDesc('user_exams.created_at')
-            ->get();
+            ->join('course_exams', 'course_exams.id', '=', 'user_exams.exam_id')
+            ->selectRaw('"Quiz" AS kind, users.name AS learner, users.email, courses.title AS course_title, course_exams.title AS item_title')
+            ->selectRaw(AdminQuizService::SCORE_SQL.' AS score, '.AdminQuizService::MAX_SQL.' AS max_score, course_exams.pass_score')
+            ->selectRaw('COALESCE(user_exams.submitted_at, user_exams.created_at) AS at');
+        $assignments = DB::table('user_course_assignments')
+            ->join('course_assignments', 'course_assignments.id', '=', 'user_course_assignments.course_assignment_id')
+            ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'course_assignments.course_id'))
+            ->whereRaw(\App\Models\UserCourseAssignment::SENT_SQL)
+            ->leftJoin('users',   'users.id',   '=', 'user_course_assignments.user_id')
+            ->leftJoin('courses', 'courses.id', '=', 'course_assignments.course_id')
+            ->selectRaw('"Assignment" AS kind, users.name AS learner, users.email, courses.title AS course_title, course_assignments.title AS item_title')
+            ->selectRaw(\App\Models\UserCourseAssignment::SCORE_SQL.' AS score, COALESCE(NULLIF(user_course_assignments.max_score, 0), course_assignments.total_score) AS max_score, '
+                .\App\Models\CourseAssignment::PASS_SCORE_SQL.' AS pass_score')
+            ->selectRaw('COALESCE(user_course_assignments.submitted_at, user_course_assignments.created_at) AS at');
+
+        $rows = DB::query()->fromSub($quizzes->unionAll($assignments), 'r')->orderByDesc('r.at')->get();
 
         return [
-            ['Learner', 'Email', 'Course', 'Exam', 'Score', 'Status', 'Date'],
-            $rows->map(static fn ($r) => [
-                $r->learner      ?? '',
-                $r->email        ?? '',
-                $r->course_title ?? '',
-                $r->exam_title   ?? '',
-                $r->user_degree  ?? 0,
-                $r->status       ?? '',
-                $r->created_at   ? Carbon::parse($r->created_at)->format('Y-m-d') : '',
-            ])->all(),
+            ['Learner', 'Email', 'Course', 'Item', 'Type', 'Score', 'Max', 'Result', 'Date'],
+            $rows->map(static function ($r) use ($locale) {
+                $result = $r->score === null ? 'Needs review'
+                    : ($r->kind === 'Quiz'
+                        ? (QuizVerdict::passes((float) $r->score, $r->pass_score !== null ? (float) $r->pass_score : null, (float) $r->max_score) ? 'Pass' : 'Fail')
+                        : ((float) $r->score >= (float) $r->pass_score ? 'Pass' : 'Fail'));
+
+                return [
+                    $r->learner ?? '',
+                    $r->email   ?? '',
+                    LocalizedJson::pick($r->course_title, $locale) ?? '',
+                    LocalizedJson::pick($r->item_title, $locale) ?? '',
+                    $r->kind,
+                    $r->score === null ? '' : (int) $r->score,
+                    (int) $r->max_score,
+                    $result,
+                    $r->at ? Carbon::parse($r->at)->format('Y-m-d') : '',
+                ];
+            })->all(),
         ];
     }
 
     /**
+     * Issued certificates (B-169): the `user_certificates` rows, active and
+     * revoked, never enrolments.
+     *
      * @return array{0: list<string>, 1: list<list<string|int|null>>}
      */
     private function buildCertificateStatus(): array
     {
-        // Earned certificate = enrolled in a course (the existing platform
-        // issues a certificate-of-enrollment once a learner is added). This
-        // mirrors the legacy ReportController query.
-        $rows = DB::table('users_courses')
-            ->leftJoin('users',   'users.id',   '=', 'users_courses.user_id')
-            ->leftJoin('courses', 'courses.id', '=', 'users_courses.course_id')
-            ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'users_courses.course_id'))
+        $locale = app()->getLocale();
+        $rows = DB::table('user_certificates')
+            ->leftJoin('users',   'users.id',   '=', 'user_certificates.user_id')
+            ->leftJoin('courses', 'courses.id', '=', 'user_certificates.course_id')
+            ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'user_certificates.course_id'))
             ->select(
                 'users.name    AS learner',
                 'users.email   AS email',
                 'courses.title AS course_title',
-                'users_courses.created_at AS issued_at',
+                'user_certificates.certificate_number',
+                'user_certificates.status',
+                'user_certificates.source_type',
+                DB::raw('COALESCE(user_certificates.issued_at, user_certificates.created_at) AS issued_at'),
+                'user_certificates.revoked_at',
             )
-            ->orderByDesc('users_courses.created_at')
+            ->orderByDesc('issued_at')
             ->get();
 
         return [
-            ['Learner', 'Email', 'Course', 'Issued At'],
+            ['Learner', 'Email', 'Course', 'Certificate No.', 'Status', 'Earned By', 'Issued At', 'Revoked At'],
             $rows->map(static fn ($r) => [
                 $r->learner      ?? '',
                 $r->email        ?? '',
-                $r->course_title ?? '',
-                $r->issued_at    ? Carbon::parse($r->issued_at)->format('Y-m-d') : '',
+                LocalizedJson::pick($r->course_title, $locale) ?? '',
+                $r->certificate_number ?? '',
+                $r->status === 'revoked' ? 'Revoked' : 'Active',
+                ucfirst((string) $r->source_type),
+                $r->issued_at  ? Carbon::parse($r->issued_at)->format('Y-m-d') : '',
+                $r->revoked_at ? Carbon::parse($r->revoked_at)->format('Y-m-d') : '',
             ])->all(),
         ];
     }

@@ -81,11 +81,8 @@ class UserEnrollmentRepository implements UserEnrollmentRepositoryInterface
     private function progressExpression(Course $course): array
     {
         if (! $course->lectures()->exists()) {
-            // A sessions course (offline / hybrid) without modules: its
-            // progress is attendance of the learner's cohort sessions (D-092).
-            if (in_array($course->course_type, \App\Services\CertificatePolicy::SESSIONLESS_TYPES, true)) {
-                return ['0', []];
-            }
+            // A course without modules: progress is attendance of the
+            // learner's cohort sessions (0 when it has none), D-094.
             $attended = 'SELECT COUNT(DISTINCT pa.session_id) FROM attendances pa WHERE pa.user_id = users_courses.user_id AND pa.course_id = ? AND pa.session_id IS NOT NULL';
             $sessions = 'SELECT COUNT(*) FROM course_sessions ps WHERE ps.section_id = users_courses.group_id';
 

@@ -35,14 +35,19 @@ use App\Models\Setting;
  *     learner+course into an attendance % and a score %), and hands the
  *     numbers back here to be judged.
  *
- * Unmeasurable metrics are SKIPPED, not failed. A course with no session
- * plan cannot produce an attendance percentage, and a course with no final
- * exam cannot produce a score; treating those as failures would mean that
- * flipping the platform to "Attendance only" silently stops every online
- * course from ever certifying. Callers that have no completion trigger of
- * their own (attendance-driven issuance) must additionally require
- * {@see hasEvidence()} so "nothing is measurable" can never mint a
- * certificate on its own.
+ * Precedence (D-094, human 2026-10-13): the course's own rule when it opted
+ * out (`certificate_custom_rule` and a valid `certificate_mode`), a missing
+ * course threshold falling back to the general one; otherwise Platform
+ * Config, with the shipped defaults when a settings row is missing. The
+ * course TYPE never changes the rule. Every course issues a certificate.
+ *
+ * Two judgements, so the rule is never expressed twice:
+ *   - issuing ({@see CertificateRule::isFullyMet()}, D-084): every required
+ *     metric must be MEASURED and meet its threshold - an unmeasurable one
+ *     blocks the certificate (that course then needs its own rule);
+ *   - showing progress ({@see CertificateRule::isSatisfiedBy()}): a metric
+ *     not measured yet is not a failure, so nobody reads "at risk" before
+ *     anything happened.
  */
 class CertificatePolicy
 {
@@ -75,12 +80,6 @@ class CertificatePolicy
 
     public const BASES = [self::BASIS_ATTENDANCE, self::BASIS_SCORE, self::BASIS_BOTH];
 
-    /** Internal only: a sessionless course's rule once attendance is dropped (D-092). */
-    public const BASIS_NONE = 'none';
-
-    /** Course types without sessions: attendance never applies to them (D-092). */
-    public const SESSIONLESS_TYPES = ['online', 'external_link'];
-
     /** A course's `certificate_rule` when it follows Platform Config (D-058). */
     public const RULE_GENERAL = 'general';
 
@@ -98,16 +97,16 @@ class CertificatePolicy
      */
     public function forCourse(Course $course): CertificateRule
     {
-        $rule = (!$course->certificate_custom_rule || !in_array($course->certificate_mode, self::BASES, true))
-            ? $this->general()
-            : new CertificateRule(
-                $course->certificate_mode,
-                $this->clamp($course->certificate_attendance_threshold, $this->minAttendance()),
-                $this->clamp($course->certificate_score_threshold, $this->minScore()),
-            );
+        // The admin-configured rule decides, whatever the course type (D-094).
+        if (!$course->certificate_custom_rule || !in_array($course->certificate_mode, self::BASES, true)) {
+            return $this->general();
+        }
 
-        // An online or external-link course has no sessions to attend (D-092).
-        return in_array($course->course_type, self::SESSIONLESS_TYPES, true) ? $rule->withoutAttendance() : $rule;
+        return new CertificateRule(
+            $course->certificate_mode,
+            $this->clamp($course->certificate_attendance_threshold, $this->minAttendance()),
+            $this->clamp($course->certificate_score_threshold, $this->minScore()),
+        );
     }
 
     public function basis(): string

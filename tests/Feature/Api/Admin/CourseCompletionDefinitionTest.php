@@ -183,15 +183,18 @@ class CourseCompletionDefinitionTest extends ApiTestCase
         $this->assertSame([], CourseCompletion::courseIdsFor($learner->id)->all());
     }
 
-    public function test_a_passing_final_exam_completes_a_course_without_a_certificate(): void
+    public function test_a_passing_final_exam_alone_is_not_a_completion_the_certificate_is(): void
     {
+        // D-094: every course issues a certificate; completion = holding it.
         $learner = User::factory()->create(['job_title_id' => $this->jobTitle->id]);
         $course  = $this->courseGrantingTheSkill();
         $this->enrolAndTouch($learner, $course);
         $this->recordFinalExam($learner, $course, 'success');
 
         ['headers' => $headers] = $this->adminToken();
+        $this->assertSame(0, $this->learnerRow($learner, $headers)['courses']['completed']);
 
+        \App\Models\UserCertificate::factory()->create(['user_id' => $learner->id, 'course_id' => $course->id]);
         $this->assertSame(1, $this->learnerRow($learner, $headers)['courses']['completed']);
     }
 
@@ -217,33 +220,32 @@ class CourseCompletionDefinitionTest extends ApiTestCase
         $this->assertSame([], CourseCompletion::courseIdsFor($learner->id)->all());
     }
 
-    public function test_a_submitted_rich_quiz_pass_is_a_completion(): void
+    public function test_a_submitted_rich_quiz_pass_is_not_a_completion_without_the_certificate(): void
     {
         $learner = User::factory()->create();
         $course  = $this->courseGrantingTheSkill();
         $this->recordFinalExam($learner, $course, 'success', rich: true);
 
-        $this->assertSame([$course->id], CourseCompletion::courseIdsFor($learner->id)->all());
+        $this->assertSame([], CourseCompletion::courseIdsFor($learner->id)->all());
     }
 
-    public function test_all_content_completes_a_course_without_a_certificate(): void
+    public function test_all_content_without_the_certificate_is_not_a_completion(): void
     {
+        // D-094: the certificate switch cannot open a completion path of its own.
         $learner = User::factory()->create();
         $course  = $this->courseGrantingTheSkill();
         $course->forceFill(['certificate' => false])->save();
 
         $lectures = \App\Models\CourseLecture::factory()->count(2)->create(['course_id' => $course->id])->pluck('id');
+        foreach ($lectures as $lectureId) {
+            DB::table('user_lecture_progress')->insert([
+                'user_id' => $learner->id, 'lecture_id' => $lectureId, 'progress' => 100, 'completed' => true,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        $this->assertSame([], CourseCompletion::courseIdsFor($learner->id)->all());
 
-        DB::table('user_lecture_progress')->insert([
-            'user_id' => $learner->id, 'lecture_id' => $lectures[0], 'progress' => 100, 'completed' => true,
-            'created_at' => now(), 'updated_at' => now(),
-        ]);
-        $this->assertSame([], CourseCompletion::courseIdsFor($learner->id)->all(), 'One of two modules is not all content.');
-
-        DB::table('user_lecture_progress')->insert([
-            'user_id' => $learner->id, 'lecture_id' => $lectures[1], 'progress' => 100, 'completed' => true,
-            'created_at' => now(), 'updated_at' => now(),
-        ]);
+        \App\Models\UserCertificate::factory()->create(['user_id' => $learner->id, 'course_id' => $course->id]);
         $this->assertSame([$course->id], CourseCompletion::courseIdsFor($learner->id)->all());
     }
 

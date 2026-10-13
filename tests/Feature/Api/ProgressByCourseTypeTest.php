@@ -74,12 +74,13 @@ class ProgressByCourseTypeTest extends ApiTestCase
         $this->assertSame(25, $this->learnersTab($course)['progress']);
     }
 
-    public function test_an_online_course_never_counts_attendance(): void
+    public function test_an_online_course_with_sessions_and_no_modules_shows_attendance_too(): void
     {
+        // D-094: decided by the data, not the course type.
         [$user, $course] = $this->enrolled('online');
 
-        $this->assertSame(0, app(LectureProgressService::class)->getCourseProgress($user->id, $course->id));
-        $this->assertNull($this->dashboardRow($user)['progress_percent']);
-        $this->assertSame(0, $this->learnersTab($course)['progress']);
+        $this->assertSame(75, app(LectureProgressService::class)->getCourseProgress($user->id, $course->id));
+        $this->assertSame(75, $this->dashboardRow($user)['progress_percent']);
+        $this->assertSame(75, $this->learnersTab($course)['progress']);
     }
 }

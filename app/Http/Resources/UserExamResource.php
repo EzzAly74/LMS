@@ -16,7 +16,7 @@ class UserExamResource extends JsonResource
             'course'      => $this->whenLoaded('course', fn () => [
                 'id'          => $this->course->id,
                 'title'       => $this->course->getTranslation('title', app()->getLocale()),
-                'certificate' => (bool) $this->course->certificate,
+                'certificate' => true, // D-094
             ]),
             'exam'        => $this->whenLoaded('exam', fn () => [
                 'id'       => $this->exam->id,

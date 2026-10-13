@@ -292,8 +292,8 @@ class AdminLearnerDetailTest extends ApiTestCase
 
         $this->assertSame(1, $row['attended']);
         $this->assertSame(2, $row['absent']);
-        // Progress is module progress (B-170): this course has no modules.
-        $this->assertNull($row['progress_percent']);
+        // No modules: progress is the attendance (1 of 3), as on the Website.
+        $this->assertSame(33, $row['progress_percent']);
         // Every session is over and nothing completed the course: it ended, as
         // the Website buckets it (D-086).
         $this->assertSame('ended', $row['status']);

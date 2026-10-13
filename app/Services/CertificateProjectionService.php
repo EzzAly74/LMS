@@ -41,10 +41,6 @@ class CertificateProjectionService
 
     public function projectForCourse(User $user, Course $course): array
     {
-        if (!$course->certificate) {
-            return $this->notOfferedShape();
-        }
-
         $hasCertificate = $this->hasActiveCertificate($user, $course);
         $attendancePercent = $this->attendancePercent($user, $course);
         $scorePercent = $this->scorePercent($user, $course);
@@ -128,11 +124,6 @@ class CertificateProjectionService
         $results = [];
 
         foreach ($courses as $courseId => $course) {
-            if (!$course->certificate) {
-                $results[$courseId] = $this->notOfferedShape();
-                continue;
-            }
-
             $hasCertificate = in_array($courseId, $certifiedCourseIds, true);
             $cohortId = $cohortIdsByCourse->get($courseId);
             $cohort = $cohortId ? $cohorts->get($cohortId) : null;
@@ -184,10 +175,6 @@ class CertificateProjectionService
      */
     public function meetsIssuanceCriteria(User $user, Course $course): bool
     {
-        if (!$course->certificate) {
-            return false;
-        }
-
         return $this->policy->forCourse($course)->isFullyMet(
             $this->attendancePercent($user, $course),
             $this->scorePercent($user, $course),
@@ -270,28 +257,13 @@ class CertificateProjectionService
         $rule = $this->policy->forCourse($course);
 
         return [
-            // 'none' is internal (a sessionless course, D-092): the apps see no mode.
-            'certificate_mode'      => $rule->basis === CertificatePolicy::BASIS_NONE ? null : $rule->basis,
+            'certificate_mode'      => $rule->basis,
             'attendance_threshold'  => $rule->requires(CertificatePolicy::METRIC_ATTENDANCE)
                 ? $rule->minAttendance
                 : null,
             'score_threshold'       => $rule->requires(CertificatePolicy::METRIC_SCORE)
                 ? $rule->minScore
                 : null,
-        ];
-    }
-
-    private function notOfferedShape(): array
-    {
-        return [
-            'status' => null,
-            'blocked_reason' => null,
-            'message' => null,
-            'certificate_mode' => null,
-            'attendance_percent' => null,
-            'score_percent' => null,
-            'attendance_threshold' => null,
-            'score_threshold' => null,
         ];
     }
 

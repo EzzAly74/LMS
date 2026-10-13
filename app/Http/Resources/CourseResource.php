@@ -45,7 +45,7 @@ class CourseResource extends JsonResource
             'level'              => $this->level,
             'price'              => $this->price,
             'currency'           => $this->currency,
-            'certificate'        => (bool) $this->certificate,
+            'certificate'        => true, // mandatory for every course (D-094)
             'active'             => $effectiveActive,
             'stored_active'      => (bool) $this->active,
             'for_public'         => (bool) $this->for_public,

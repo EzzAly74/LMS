@@ -329,8 +329,6 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $this->seed(MobileSettingSeeder::class);
         $open   = $this->course();
         $closed = $this->course(false);
-        // No certificate on offer: answering is what completes it (D-082).
-        DB::table('courses')->whereIn('id', [$open->id, $closed->id])->update(['certificate' => 0]);
         $learner = User::factory()->create();
         $this->enrol($learner, $open);
         $this->enrol($learner, $closed);
@@ -343,8 +341,10 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $template = EvaluationCategory::query()->create(['name' => ['en' => 'Feedback', 'ar' => 'تقييم'], 'course_id' => $open->id]);
         $this->answer($learner, $open, $template->evaluations()->create(['type' => 'five', 'title' => ['en' => 'x', 'ar' => 'x'], 'is_required' => true]), '4');
 
+        // Answering is the event; the certificate (issued when the configured
+        // rule is met) completes it and moves it out of the active list (D-094).
+        \App\Models\UserCertificate::factory()->create(['user_id' => $learner->id, 'course_id' => $open->id]);
         $rows = collect($this->getJson(self::BASE.'/learner/profile/learnings', $headers)->assertOk()->json('result'))->keyBy('id');
-        // Answering completes the course, so it leaves the active list.
         $this->assertFalse($rows->has($open->id));
         $this->assertTrue($rows->has($closed->id));
     }
@@ -382,8 +382,6 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
     {
         $this->seed(MobileSettingSeeder::class);
         $course     = $this->course();
-        // Ratings, not certificates: submitting completes a non-certificate course (D-082).
-        DB::table('courses')->where('id', $course->id)->update(['certificate' => 0]);
         $instructor = Instructor::query()->create(['name' => ['en' => 'Teacher', 'ar' => 'معلم'], 'email' => 'teacher'.uniqid().'@example.test']);
         $course->instructors()->attach($instructor->id);
         ['headers' => $admin] = $this->adminToken();
@@ -421,8 +419,11 @@ class AdminEvaluationTemplateBuilderTest extends ApiTestCase
         $this->assertNull(DB::table('course_ratings')->where('user_id', $second->id)->value('comment'));
         $this->assertSame(2, DB::table('course_ratings')->where('course_id', $course->id)->count(), 'One row per learner.');
 
-        // The Completed tab (the evaluation completed the course) shows each
+        // The Completed tab (completed = certificate, D-094) shows each
         // learner their own rating, never another learner's.
+        foreach ([$first, $second] as $learner) {
+            \App\Models\UserCertificate::factory()->create(['user_id' => $learner->id, 'course_id' => $course->id]);
+        }
         DB::table('course_ratings')->where('user_id', $second->id)->update(['rating' => 2]);
         $row = fn (array $headers) => collect($this->getJson(self::BASE.'/learner/profile/completed', $headers + ['Accept-Language' => 'en'])
             ->assertOk()->json('result'))->firstWhere('course_id', $course->id);

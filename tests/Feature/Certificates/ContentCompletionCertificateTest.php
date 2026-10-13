@@ -111,13 +111,14 @@ class ContentCompletionCertificateTest extends ApiTestCase
         $this->assertFalse($card['completed']);
     }
 
-    public function test_a_course_without_a_certificate_is_completed_by_its_content(): void
+    public function test_content_alone_never_completes_a_course_without_its_certificate(): void
     {
+        // D-094: even with the switch off, content is the completion event,
+        // never a completion; nothing is issued until the rule is met.
         [$user, $h, $course, $lectures] = $this->enrolled(['certificate' => false]);
 
         $this->completeAll($h, $course, $lectures);
 
-        $this->assertSame(0, DB::table('user_certificates')->where('user_id', $user->id)->count());
-        $this->assertContains($course->id, app(QualificationProgressService::class)->completedCourseIdsForUser($user->id)->all());
+        $this->assertNotContains($course->id, app(QualificationProgressService::class)->completedCourseIdsForUser($user->id)->all());
     }
 }

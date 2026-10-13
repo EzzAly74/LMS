@@ -165,13 +165,14 @@ class CertificateProjectionTest extends TestCase
         );
     }
 
-    public function test_no_projection_when_course_does_not_offer_a_certificate(): void
+    public function test_every_course_has_a_certificate_projection(): void
     {
+        // D-094: the switch cannot remove the certificate (status on_track, not null).
         $user = User::factory()->create();
         $course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => false]);
 
         $result = $this->service()->projectForCourse($user, $course);
 
-        $this->assertNull($result['status']);
+        $this->assertNotNull($result['status']);
     }
 }

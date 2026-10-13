@@ -70,7 +70,7 @@ class LectureProgressService
 
         $totalLectures = count($lectureIds);
         if ($totalLectures === 0) {
-            // A sessions-only course: progress is attendance (D-092).
+            // No modules for this learner: progress is attendance (D-094).
             return $this->attendanceProgressBatch($userId, [$courseId])[$courseId] ?? 0;
         }
 
@@ -127,8 +127,8 @@ class LectureProgressService
             }
         }
 
-        // No modules for this learner: a sessions course's progress is its
-        // attendance (offline / hybrid, D-092).
+        // No modules for this learner: progress is attendance of their
+        // cohort's sessions, whatever the course type (D-094).
         foreach ($this->attendanceProgressBatch($userId, $sessionsOnly) as $courseId => $percent) {
             $result[$courseId] = $percent;
         }
@@ -137,10 +137,10 @@ class LectureProgressService
     }
 
     /**
-     * Attendance progress for sessions courses (offline / hybrid): sessions
-     * attended ÷ the learner's cohort session rows, rounded and capped at
-     * 100 (D-092). Online / external-link courses have no sessions and are
-     * left out. A handful of queries for the whole list.
+     * Attendance progress for a course the learner has no modules in:
+     * sessions attended ÷ their cohort's session rows, rounded and capped at
+     * 100. Decided by the data (a cohort with sessions), never by the course
+     * type (D-094). A handful of queries for the whole list.
      *
      * @param  array<int, int>  $courseIds
      * @return array<int, int>  course_id => percent, only for sessions courses with a schedule
@@ -151,12 +151,7 @@ class LectureProgressService
             return [];
         }
 
-        $sessionCourses = Course::query()->whereIn('id', $courseIds)
-            ->whereNotIn('course_type', \App\Services\CertificatePolicy::SESSIONLESS_TYPES)
-            ->pluck('id')->all();
-        if ($sessionCourses === []) {
-            return [];
-        }
+        $sessionCourses = array_values(array_unique(array_map('intval', $courseIds)));
 
         $cohortByCourse = DB::table('users_courses')->where('user_id', $userId)
             ->whereIn('course_id', $sessionCourses)->whereNotNull('group_id')

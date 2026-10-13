@@ -309,7 +309,7 @@ class CohortScheduleContentTest extends ApiTestCase
     public function test_a_learner_sees_counts_and_completes_only_the_modules_of_their_cohort_sheet(): void
     {
         [$course, $m] = $this->courseWithModules();
-        DB::table('courses')->where('id', $course->id)->update(['certificate' => false, 'is_evaluate' => false]);
+        DB::table('courses')->where('id', $course->id)->update(['is_evaluate' => false]);
         $id = $this->create($course, $this->xlsx([
             [1, '2026-10-20', '09:00', '11:00', '', $m[0]->id],
             [2, '2026-10-27', '09:00', '11:00', '', $m[1]->id],
@@ -331,8 +331,10 @@ class CohortScheduleContentTest extends ApiTestCase
             $this->postJson(self::BASE."/courses/{$course->id}/lectures/{$module->id}/progress", ['confirmed' => true], $headers)->assertOk();
         }
 
-        // Both scheduled modules done: 100% and completed, module 3 untouched.
+        // Both scheduled modules done: 100%, module 3 untouched. Completion is
+        // the certificate (D-094), issued once the configured rule is met.
         $this->assertSame(100, app(\App\Services\LectureProgressService::class)->getCourseProgress($userId, $course->id));
+        \App\Models\UserCertificate::factory()->create(['user_id' => $userId, 'course_id' => $course->id]);
         $this->assertSame([$course->id], \App\Support\CourseCompletion::courseIdsFor($userId)->all());
         $this->assertTrue(DB::table('users')->where('id', $userId)
             ->whereRaw(\App\Support\CourseCompletion::existsSql('users.id', (string) $course->id))->exists());

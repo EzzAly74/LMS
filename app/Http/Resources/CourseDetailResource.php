@@ -105,8 +105,8 @@ class CourseDetailResource extends JsonResource
             'level'              => $this->level,
             'price'              => $this->price,
             'currency'           => $this->currency,
-            'certificate'              => (bool) $this->certificate,
-            'certificate_pass_percent' => $this->certificate ? $passPercent : null,
+            'certificate'              => true, // mandatory for every course (D-094)
+            'certificate_pass_percent' => $passPercent,
             // The Add / Edit Course modal's rule: 'general' or the course's own
             // basis, with its own thresholds (null under the general rule).
             'certificate_rule'           => $customRule ? $this->certificate_mode : 'general',

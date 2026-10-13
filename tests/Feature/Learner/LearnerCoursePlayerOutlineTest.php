@@ -71,8 +71,8 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
         $this->assertSame(2, $result['modules_total']);
         $this->assertSame(0, $result['modules_completed']);
         $this->assertArrayHasKey('certificate_status', $result);
-        // certificate=false on this course -> no certificate offered.
-        $this->assertNull($result['certificate_status']['status']);
+        // Every course issues a certificate (D-094), whatever the switch says.
+        $this->assertNotNull($result['certificate_status']['status']);
 
         $weeksByLabel = collect($result['weeks'])->keyBy('label');
 
@@ -149,11 +149,11 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
         $before = $this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")
             ->assertOk()->json('result.completion');
         $this->assertSame(
-            ['completed' => false, 'certificate_offered' => false, 'certificate_id' => null, 'evaluation_pending' => false, 'items_remaining' => 1,
-                // What is left, for the certificate step (D-091).
-                'waiting_for' => [['reason' => 'content', 'remaining' => 1]]],
-            $before,
+            ['completed' => false, 'certificate_offered' => true, 'certificate_id' => null, 'evaluation_pending' => false, 'items_remaining' => 1],
+            array_diff_key($before, ['waiting_for' => 1]),
         );
+        // What is left, for the certificate step (D-091): the content first.
+        $this->assertSame(['reason' => 'content', 'remaining' => 1], $before['waiting_for'][0]);
 
         $this->withHeaders($headers)
             ->postJson(self::BASE."/courses/{$course->id}/lectures/{$lecture->id}/progress", ['confirmed' => true])
@@ -161,8 +161,15 @@ class LearnerCoursePlayerOutlineTest extends ApiTestCase
 
         $after = $this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")
             ->assertOk()->json('result.completion');
-        $this->assertTrue($after['completed']);
+        // Content done is the event, not the completion (D-094): the step
+        // says what the certificate still waits for, never an empty list.
+        $this->assertFalse($after['completed']);
         $this->assertSame(0, $after['items_remaining']);
+        $this->assertNotEmpty($after['waiting_for']);
+        $this->assertNotSame('content', $after['waiting_for'][0]['reason']);
+
+        \App\Models\UserCertificate::factory()->create(['user_id' => $learner->getKey(), 'course_id' => $course->id]);
+        $this->assertTrue($this->withHeaders($headers)->getJson(self::BASE."/my/courses/{$course->id}/outline")->json('result.completion.completed'));
     }
 
     public function test_a_sent_quiz_is_completed_only_when_passed(): void

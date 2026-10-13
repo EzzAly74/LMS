@@ -17,26 +17,18 @@ use Illuminate\Support\Facades\DB;
  * application never writes (it writes 'success' / 'fail'), so every Dashboard
  * completion figure read 0 while the Website showed the real ones.
  *
- * ── The rule (D-082) ─────────────────────────────────────────────────────────
- * A course that offers a certificate is completed when the learner holds an
- * ACTIVE certificate for it. Issuance already enforces the certificate rule
- * (D-084), so a revoked certificate is not a completion.
+ * ── The rule (D-082, D-094) ──────────────────────────────────────────────────
+ * Every course issues a certificate (human, 2026-09-27; confirmed 2026-10-13),
+ * so a course is completed when the learner holds an ACTIVE certificate for
+ * it. Issuance enforces the admin-configured certificate rule (attendance,
+ * score or both; D-084) on top of the course's completion event (D-091), so
+ * nothing completes a course without meeting it; a revoked certificate is
+ * not a completion and is never re-issued automatically.
  *
- * A course without a certificate is completed by any of:
- *   - every content module (lecture) of the course completed;
- *   - a SUBMITTED, passing final exam (when the course is not evaluated);
- *   - the course evaluation submitted (when the course is evaluated).
- *
- * "Submitted" matters: an opened rich quiz attempt is a row too, and it
- * carries the column default status 'success' (B-162); see submittedExamSql().
- *
- * The completion moment (`completed_at`) is the earliest signal for the pair.
+ * The completion moment (`completed_at`) is the certificate's issue date.
  */
 final class CourseCompletion
 {
-    /** `user_exams` rows (alias `ue`) that are a submitted pass. */
-    private const PASSED_EXAM_SQL = "ue.status = 'success' AND ";
-
     /**
      * A `user_exams` row (alias `$alias`) is a submission, not an opened
      * attempt: a rich quiz (one with `question_en` questions) once
@@ -61,115 +53,31 @@ final class CourseCompletion
      */
     public static function existsSql(string $userColumn, string $courseColumn): string
     {
-        $passed = self::PASSED_EXAM_SQL.self::submittedExamSql('ue');
-        // Only the modules the learner's cohort sheet schedules (D-089).
-        $requiredX = CohortModules::requiredSql($userColumn, 'clx');
-        $requiredY = CohortModules::requiredSql($userColumn, 'cly');
-
-        return "(
-            EXISTS (
-                SELECT 1 FROM user_certificates ccert
-                WHERE ccert.user_id = {$userColumn}
-                  AND ccert.course_id = {$courseColumn}
-                  AND ccert.status = 'active'
-            )
-            OR EXISTS (
-                SELECT 1 FROM courses ccrs
-                WHERE ccrs.id = {$courseColumn}
-                  AND ccrs.certificate = 0
-                  AND (
-                    (ccrs.is_evaluate = 0 AND EXISTS (
-                        SELECT 1 FROM user_exams ue
-                        JOIN course_exams cex ON cex.id = ue.exam_id
-                        WHERE ue.user_id = {$userColumn}
-                          AND ue.course_id = {$courseColumn}
-                          AND cex.is_final = 1
-                          AND {$passed}
-                    ))
-                    OR (ccrs.is_evaluate = 1 AND EXISTS (
-                        SELECT 1 FROM user_course_evaluations cev
-                        WHERE cev.user_id = {$userColumn}
-                          AND cev.course_id = {$courseColumn}
-                    ))
-                    OR (
-                        EXISTS (SELECT 1 FROM course_lectures clx WHERE clx.course_id = {$courseColumn} AND {$requiredX})
-                        AND NOT EXISTS (
-                            SELECT 1 FROM course_lectures cly
-                            WHERE cly.course_id = {$courseColumn}
-                              AND {$requiredY}
-                              AND NOT EXISTS (
-                                SELECT 1 FROM user_lecture_progress ulp
-                                WHERE ulp.lecture_id = cly.id
-                                  AND ulp.user_id = {$userColumn}
-                                  AND ulp.completed = 1
-                              )
-                        )
-                    )
-                  )
-            )
+        // Every course issues a certificate (human, 2026-09-27 and 2026-10-13):
+        // completed = holds an ACTIVE certificate for it (D-094).
+        return "EXISTS (
+            SELECT 1 FROM user_certificates ccert
+            WHERE ccert.user_id = {$userColumn}
+              AND ccert.course_id = {$courseColumn}
+              AND ccert.status = 'active'
         )";
     }
 
     /**
-     * Completed (user_id, course_id) pairs with the moment completion happened.
+     * Completed (user_id, course_id) pairs with the moment completion happened:
+     * the learner's active certificate and its issue date (D-094).
      *
      * @param  list<int>|null  $userIds    limit to these learners (null: all)
      * @param  list<int>|null  $courseIds  limit to these courses (null: all)
      */
     public static function query(?array $userIds = null, ?array $courseIds = null): Builder
     {
-        $scope = static function (Builder $q, string $userCol, string $courseCol) use ($userIds, $courseIds): Builder {
-            return $q
-                ->when($userIds !== null, fn (Builder $b) => $b->whereIn($userCol, $userIds ?: [0]))
-                ->when($courseIds !== null, fn (Builder $b) => $b->whereIn($courseCol, $courseIds ?: [0]));
-        };
-
-        // Courses with a certificate: an active certificate.
-        $certificates = $scope(DB::table('user_certificates as ccert')
+        return DB::table('user_certificates as ccert')
             ->where('ccert.status', 'active')
-            ->selectRaw('ccert.user_id, ccert.course_id, COALESCE(ccert.issued_at, ccert.created_at) AS done_at'),
-            'ccert.user_id', 'ccert.course_id');
-
-        // Courses without a certificate, not evaluated: a submitted, passing final exam.
-        $exams = $scope(DB::table('user_exams as ue')
-            ->join('course_exams as cex', 'cex.id', '=', 'ue.exam_id')
-            ->join('courses as ccrs', 'ccrs.id', '=', 'ue.course_id')
-            ->where('cex.is_final', true)
-            ->where('ccrs.certificate', false)
-            ->where('ccrs.is_evaluate', false)
-            ->whereRaw(self::PASSED_EXAM_SQL.self::submittedExamSql('ue'))
-            ->selectRaw('ue.user_id, ue.course_id, COALESCE(ue.submitted_at, ue.updated_at) AS done_at'),
-            'ue.user_id', 'ue.course_id');
-
-        // Evaluated courses without a certificate: the evaluation submitted.
-        $evaluations = $scope(DB::table('user_course_evaluations as cev')
-            ->join('courses as ccrs', 'ccrs.id', '=', 'cev.course_id')
-            ->where('ccrs.is_evaluate', true)
-            ->where('ccrs.certificate', false)
-            ->selectRaw('cev.user_id, cev.course_id, MIN(cev.created_at) AS done_at')
-            ->groupBy('cev.user_id', 'cev.course_id'),
-            'cev.user_id', 'cev.course_id');
-
-        // Courses without a certificate: every module the learner's cohort
-        // sheet schedules completed (D-089).
-        $content = $scope(DB::table('user_lecture_progress as ulp')
-            ->join('course_lectures as cl', 'cl.id', '=', 'ulp.lecture_id')
-            ->join('courses as ccrs', 'ccrs.id', '=', 'cl.course_id')
-            ->where('ulp.completed', true)
-            ->where('ccrs.certificate', false)
-            ->whereRaw(CohortModules::requiredSql('ulp.user_id', 'cl'))
-            ->selectRaw('ulp.user_id, cl.course_id, MAX(ulp.updated_at) AS done_at')
-            ->groupBy('ulp.user_id', 'cl.course_id')
-            ->havingRaw('COUNT(DISTINCT cl.id) = (SELECT COUNT(*) FROM course_lectures clt WHERE clt.course_id = cl.course_id AND '
-                .CohortModules::requiredSql('ulp.user_id', 'clt').')'),
-            'ulp.user_id', 'cl.course_id');
-
-        $signals = $certificates->unionAll($exams)->unionAll($evaluations)->unionAll($content);
-
-        return DB::query()
-            ->fromSub($signals, 'signals')
-            ->selectRaw('user_id, course_id, MIN(done_at) AS completed_at')
-            ->groupBy('user_id', 'course_id');
+            ->when($userIds !== null, fn (Builder $b) => $b->whereIn('ccert.user_id', $userIds ?: [0]))
+            ->when($courseIds !== null, fn (Builder $b) => $b->whereIn('ccert.course_id', $courseIds ?: [0]))
+            ->selectRaw('ccert.user_id, ccert.course_id, MIN(COALESCE(ccert.issued_at, ccert.created_at)) AS completed_at')
+            ->groupBy('ccert.user_id', 'ccert.course_id');
     }
 
     /**

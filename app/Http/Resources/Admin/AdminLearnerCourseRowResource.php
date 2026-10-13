@@ -41,14 +41,13 @@ class AdminLearnerCourseRowResource extends JsonResource
             // Module progress, the same figure the Website shows (B-170):
             // the learner's cohort modules completed, rounded. A completed
             // course is 100; null when the course has no modules to measure.
-            // A sessions course without modules (offline / hybrid) shows its
-            // attendance instead, as the Website does (D-092).
+            // No modules for this learner: their attendance, as the Website
+            // shows it (D-094) - decided by the data, not the course type.
             'progress_percent' => match (true) {
-                $this->status === 'completed'     => 100,
-                (int) $this->modules_total > 0    => (int) round((int) $this->modules_done * 100 / (int) $this->modules_total),
-                ! in_array($this->course_type, \App\Services\CertificatePolicy::SESSIONLESS_TYPES, true) && $scheduled > 0
-                                                  => (int) min(100, round($attended * 100 / $scheduled)),
-                default                           => null,
+                $this->status === 'completed'  => 100,
+                (int) $this->modules_total > 0 => (int) round((int) $this->modules_done * 100 / (int) $this->modules_total),
+                $scheduled > 0                 => (int) min(100, round($attended * 100 / $scheduled)),
+                default                        => null,
             },
             'started_on'  => $this->start_date,
             'ended_on'    => $this->end_date,

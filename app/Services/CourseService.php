@@ -78,7 +78,8 @@ class CourseService
         }
         // Every course saved from the Add / Edit Course modal issues a
         // certificate (human, 2026-09-27); the rule decides how it is earned.
-        $data['certificate'] = (bool) ($data['certificate'] ?? true);
+        // Mandatory for every course (D-094): the switch cannot be turned off.
+        $data['certificate'] = true;
         $data['description'] ??= ['en' => '', 'ar' => ''];
         $this->applyCertificateRule($data);
 
@@ -138,8 +139,9 @@ class CourseService
                 $data[$flag] = (bool) $data[$flag];
             }
         }
+        // Mandatory for every course (D-094), whatever the request sends.
+        $data['certificate'] = true;
         if (array_key_exists('certificate_rule', $data)) {
-            $data['certificate'] = (bool) ($data['certificate'] ?? true);
             $this->applyCertificateRule($data);
         }
 

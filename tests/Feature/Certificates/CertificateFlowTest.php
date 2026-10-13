@@ -172,14 +172,19 @@ class CertificateFlowTest extends TestCase
         $this->assertFalse((bool) DB::table('user_lecture_progress')->where('user_id', $this->user->id)->where('lecture_id', $this->lectures[0])->value('completed'));
     }
 
-    public function test_an_online_course_is_earned_by_its_content_without_attendance(): void
+    public function test_an_online_course_follows_the_configured_rule_too(): void
     {
-        // D-092: an online course has no sessions; the attendance-only rule
-        // leaves the content as the whole requirement.
+        // D-094 (human, 2026-10-13): the admin-configured rule decides,
+        // whatever the course type. Attendance is required here, so the
+        // content alone does not earn it; the attendance does.
         $this->setUpCourse();
         $this->course->update(['course_type' => 'online']);
         $this->finishContent();
+        $this->assertNull($this->certificate());
 
+        foreach ([0, 1, 2] as $s) {
+            $this->attend($s);
+        }
         $this->assertNotNull($this->certificate());
     }
 

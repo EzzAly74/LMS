@@ -83,7 +83,7 @@ class AcademyCourseCardResource extends JsonResource
             'duration_weeks'   => $course->duration_weeks !== null ? (int) $course->duration_weeks : null,
             'image'            => $this->absoluteUrl($course->image),
             'hours'            => (int) ($course->hours ?? 0),
-            'has_certificate'  => (bool) $course->certificate,
+            'has_certificate'  => true, // mandatory for every course (D-094)
             'category'         => $course->relationLoaded('category') && $course->category
                 ? [
                     'id'   => (int) $course->category->id,

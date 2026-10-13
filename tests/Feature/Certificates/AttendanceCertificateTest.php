@@ -83,8 +83,9 @@ class AttendanceCertificateTest extends TestCase
         $this->assertDatabaseCount('user_certificates', 0);
     }
 
-    public function test_does_not_issue_when_course_offers_no_certificate(): void
+    public function test_the_certificate_switch_cannot_opt_a_course_out(): void
     {
+        // D-094: every course issues a certificate once its rule is met.
         $user   = User::factory()->create();
         $course = $this->attendanceCourse();
         $course->update(['certificate' => false]);
@@ -93,7 +94,7 @@ class AttendanceCertificateTest extends TestCase
 
         $this->attend($user, $course, $cohort, 4);
 
-        $this->assertNull($this->service()->issueFromAttendance($user, $course));
+        $this->assertNotNull($this->service()->issueFromAttendance($user, $course));
     }
 
     public function test_is_idempotent(): void

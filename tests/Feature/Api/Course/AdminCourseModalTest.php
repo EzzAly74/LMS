@@ -296,7 +296,6 @@ class AdminCourseModalTest extends ApiTestCase
         $this->configureCertificateRule(CertificatePolicy::BASIS_ATTENDANCE, 70, 30);
         $policy = app(CertificatePolicy::class);
 
-        // Sessions courses: an online course drops attendance (D-092).
         $general = Course::factory()->create(['course_type' => 'hybrid']);
         $own     = Course::factory()->create([
             'certificate_custom_rule'          => true,
@@ -309,8 +308,8 @@ class AdminCourseModalTest extends ApiTestCase
 
         $this->assertSame('attendance', $policy->forCourse($general)->basis);
         $this->assertSame('attendance', $policy->forCourse($legacy)->basis);
-        // An online course has no sessions: the attendance-only rule leaves nothing to measure.
-        $this->assertSame([], $policy->forCourse(Course::factory()->create(['course_type' => 'online']))->requiredMetrics());
+        // The configured rule decides whatever the course type (D-094).
+        $this->assertSame(['attendance'], $policy->forCourse(Course::factory()->create(['course_type' => 'online']))->requiredMetrics());
 
         $rule = $policy->forCourse($own);
         $this->assertSame(['score'], $rule->requiredMetrics());

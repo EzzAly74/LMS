@@ -205,7 +205,7 @@ class LearnerCoursePlayerService
 
         return [
             'completed'           => $completed,
-            'certificate_offered' => (bool) $course->certificate,
+            'certificate_offered' => true, // mandatory for every course (D-094)
             'certificate_id'      => $certificateId !== null ? (int) $certificateId : null,
             'evaluation_pending'  => $evaluationPending,
             'items_remaining'     => $remaining,
@@ -250,7 +250,7 @@ class LearnerCoursePlayerService
             $waiting[] = ['reason' => 'evaluation'];
         }
 
-        if ($course->certificate && ($certificateStatus['status'] ?? null) !== CertificateProjectionService::STATUS_EARNED) {
+        if (($certificateStatus['status'] ?? null) !== CertificateProjectionService::STATUS_EARNED) {
             $attendanceThreshold = $certificateStatus['attendance_threshold'] ?? null;
             if ($attendanceThreshold !== null) {
                 // The sheet's session rows, as the certificate rule counts them (B-182).
@@ -273,6 +273,12 @@ class LearnerCoursePlayerService
             if ($scoreThreshold !== null && ($score === null || $score < $scoreThreshold)) {
                 $waiting[] = ['reason' => 'score', 'threshold' => (int) $scoreThreshold];
             }
+        }
+
+        // Never an empty list while not completed: the configured rule is
+        // still to be confirmed (e.g. attendance with no sessions to measure).
+        if ($waiting === []) {
+            $waiting[] = ['reason' => 'certificate_pending'];
         }
 
         return $waiting;

@@ -214,7 +214,7 @@ final class ProfileDashboardService
                     // UI distinguish a red "Not certified" (offered but not
                     // earned) from a neutral "Completed" (never offered one) —
                     // instead of always shaming an un-certifiable course.
-                    'certificate_offered' => (bool) $c->certificate,
+                    'certificate_offered' => true, // D-094
                     // "My Rating" (human, 2026-09-30): set by the course
                     // evaluation; null when the learner has not rated it.
                     'rate'                => $ratings[$cid] ?? null,

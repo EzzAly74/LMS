@@ -83,7 +83,9 @@ class CertificateService
         if (!$course || !$examDef) {
             return null;
         }
-        if (!$course->certificate || $course->is_evaluate) {
+        // Every course issues a certificate (D-094); an evaluated course's
+        // event is its evaluation, not the exam.
+        if ($course->is_evaluate) {
             return null;
         }
         if (!$examDef->is_final || $exam->status !== 'success') {
@@ -156,7 +158,7 @@ class CertificateService
         if (!$course) {
             return null;
         }
-        if (!$course->certificate || !$course->is_evaluate) {
+        if (!$course->is_evaluate) {
             return null;
         }
         if ($applyPolicy && $evaluation->user && !$this->projection->satisfiesPolicy($evaluation->user, $course)) {
@@ -216,9 +218,6 @@ class CertificateService
      */
     public function evaluate(User $user, Course $course): ?UserCertificate
     {
-        if (! $course->certificate) {
-            return null;
-        }
         $held = UserCertificate::query()->where('user_id', $user->id)->where('course_id', $course->id)->active()->first();
         if ($held !== null) {
             return $held;
@@ -296,8 +295,7 @@ class CertificateService
     /** Is finishing the content this course's completion event? */
     public static function contentCompletes(Course $course): bool
     {
-        return (bool) $course->certificate
-            && ! $course->is_evaluate
+        return ! $course->is_evaluate
             && ! DB::table('course_exams')->where('course_id', $course->id)->where('is_final', true)->exists();
     }
 

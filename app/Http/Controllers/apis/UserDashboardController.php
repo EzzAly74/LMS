@@ -233,7 +233,7 @@ class UserDashboardController extends ApiController
             'type'       => $cert['type'],
             'course_id'  => $cert['data']->course?->id,
             'course'     => $cert['data']->course?->getTranslation('title', $locale),
-            'earned_at'  => $cert['data']->created_at?->toDateString(),
+            'earned_at'  => ($cert['data']->issued_at ?? $cert['data']->created_at)?->toDateString(),
         ]);
 
         return $this->success(__('messages.retrieved'), $certificates);

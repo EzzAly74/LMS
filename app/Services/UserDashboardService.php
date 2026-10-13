@@ -7,6 +7,7 @@ use App\Models\Course;
 use App\Models\CourseLectureQuestion;
 use App\Models\CourseRating;
 use App\Models\User;
+use App\Models\UserCertificate;
 use App\Models\UserCourseAssignment;
 use App\Models\UserCourseEvaluation;
 use App\Models\UserExam;
@@ -103,44 +104,23 @@ class UserDashboardService
     }
 
     /**
-     * Earned certificates for the user.
-     * Mirrors HelperTrait::userCertificates().
+     * The learner's certificates: the ACTIVE `user_certificates` rows, the
+     * same set mobile and the profile use (B-178). A revoked certificate, or
+     * an exam pass that never met the certificate rule, is not one.
+     *
+     * @return \Illuminate\Support\Collection<int, array{type: string, data: UserCertificate}>
      */
     public function getCertificates(User $user): \Illuminate\Support\Collection
     {
-        $userId = $user->id;
-
-        $examCertificates = $user->exams()
-            ->with(['course:id,title,certificate,title_for_certificate,is_evaluate', 'exam:id,title,degree,is_final'])
-            ->whereHas('course', fn ($q) => $q->where('certificate', true))
-            ->whereHas('exam', fn ($q) => $q->where('is_final', true))
-            ->where('status', 'success')
-            ->get();
-
-        $evaluationCerts = UserCourseEvaluation::with('course:id,title,is_evaluate')
-            ->where('user_id', $userId)
-            ->get();
-
-        $certificates = collect();
-
-        foreach ($examCertificates as $exam) {
-            if (!$exam->course) continue;
-            if (!$exam->course->is_evaluate) {
-                $certificates->push(['type' => 'exam', 'data' => $exam]);
-            }
-        }
-
-        foreach ($evaluationCerts as $evaluation) {
-            $course = $evaluation->course;
-            if (!$course || !$course->is_evaluate) continue;
-
-            $alreadyAdded = $certificates->contains(fn ($c) => $c['data']->course?->id === $course->id);
-            if (!$alreadyAdded) {
-                $certificates->push(['type' => 'evaluation', 'data' => $evaluation]);
-            }
-        }
-
-        return $certificates;
+        return UserCertificate::query()
+            ->where('user_id', $user->id)
+            ->active()
+            ->whereHas('course')
+            ->with('course:id,title')
+            ->latest('issued_at')
+            ->get()
+            ->map(fn (UserCertificate $c) => ['type' => (string) $c->source_type, 'data' => $c])
+            ->values();
     }
 
     /** User's own course ratings with course title. */

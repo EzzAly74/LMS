@@ -12,6 +12,7 @@ use App\Services\Admin\AdminEvaluationReportService;
 use App\Services\Admin\AdminQuizService;
 use App\Services\CourseService;
 use App\Services\UserEnrollmentService;
+use App\Support\CourseEditLock;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -174,6 +175,7 @@ class CourseController extends ApiController
         // Header "N Active" (D-059) and the tab counts (Figma 2266:128869).
         $course->setAttribute('in_progress_count', $enrollments->countInProgress($course));
         $course->setAttribute('modules_count', $course->lectures()->count());
+        $course->setAttribute('locked_fields', CourseEditLock::lockedFields($course));
         $course->setAttribute('quiz_submissions_count', $quizzes->countForCourse($course->id));
         $course->setAttribute('assignment_submissions_count', $assignments->countForCourse($course->id));
 

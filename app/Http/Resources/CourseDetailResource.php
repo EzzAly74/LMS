@@ -158,6 +158,8 @@ class CourseDetailResource extends JsonResource
             // the submission counts equal the Quizzes / Assignments tab totals.
             'in_progress_count'            => $this->in_progress_count,
             'modules_count'                => $this->modules_count,
+            // Fields the Edit Course form shows read-only (D-095); set by the admin show endpoint only.
+            'locked_fields'                => $this->when(isset($this->resource->locked_fields), fn () => $this->resource->locked_fields),
             'quiz_submissions_count'       => $this->quiz_submissions_count,
             'assignment_submissions_count' => $this->assignment_submissions_count,
         ];

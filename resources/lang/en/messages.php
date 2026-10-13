@@ -118,6 +118,7 @@ return [
     'quiz_not_submitted'               => 'You have not submitted this quiz yet.',
     'quiz_question_not_in_quiz'        => 'This question does not belong to the quiz.',
     'assignment_not_question_based'    => 'This assignment does not have questions to answer — submit a file instead.',
+    'course_locked_field' => 'This can\'t be changed after learners have enrolled in the course.',
     'reports' => [
         'no_job_title' => 'No job title',
     ],

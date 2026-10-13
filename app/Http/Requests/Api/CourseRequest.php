@@ -3,7 +3,10 @@
 namespace App\Http\Requests\Api;
 
 use App\Http\Traits\AcceptsEnumIds;
+use App\Models\Course;
+use App\Support\CourseEditLock;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class CourseRequest extends FormRequest
 {
@@ -153,5 +156,22 @@ class CourseRequest extends FormRequest
             'cohort_start'            => 'nullable|date_format:Y-m-d',
             'cohort_end'              => 'nullable|date_format:Y-m-d|after_or_equal:cohort_start',
         ];
+    }
+
+    /**
+     * D-095: after the first enrolment the course type, certificate rule and
+     * qualifications keep their values; sending them unchanged is fine.
+     */
+    public function after(): array
+    {
+        return [function (Validator $v) {
+            $course = $this->route('course');
+            if (!$course instanceof Course || $v->errors()->isNotEmpty()) {
+                return;
+            }
+            foreach (CourseEditLock::violations($course, $this->all()) as $key => $message) {
+                $v->errors()->add($key, $message);
+            }
+        }];
     }
 }

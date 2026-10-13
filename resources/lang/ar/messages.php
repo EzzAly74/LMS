@@ -117,6 +117,7 @@ return [
     'quiz_not_submitted'               => 'لم ترسل هذا الاختبار بعد.',
     'quiz_question_not_in_quiz'        => 'هذا السؤال لا ينتمي إلى هذا الاختبار.',
     'assignment_not_question_based'    => 'هذا الواجب لا يحتوي على أسئلة للإجابة — يرجى رفع ملف بدلاً من ذلك.',
+    'course_locked_field' => 'لا يمكن تغيير هذا بعد تسجيل متعلمين في الدورة.',
     'reports' => [
         'no_job_title' => 'بدون مسمى وظيفي',
     ],

@@ -4,9 +4,7 @@ namespace App\Services\Learner;
 
 use App\Models\Course;
 use App\Models\CourseAssignment;
-use App\Models\CourseAssignmentQuestion;
 use App\Models\CourseExam;
-use App\Models\CourseExamQuestion;
 use App\Models\CourseLecture;
 use App\Models\CourseSection;
 use App\Models\User;
@@ -50,16 +48,17 @@ class LearnerCoursePlayerService
 
         $lectures = collect($this->progress->getLectureProgress($user->id, $course->id));
 
-        // Only those made for every cohort or for the learner's (NEW2B-6255).
+        // Published ones made for every cohort or for the learner's
+        // (NEW2B-6255); never a draft.
         $exams = CourseExam::where('course_id', $course->id)
             ->visibleTo((int) $user->id)
-            ->get()
-            ->filter(fn (CourseExam $exam) => $this->isRichExam($exam));
+            ->learnerReady()
+            ->get();
 
         $assignments = CourseAssignment::where('course_id', $course->id)
             ->visibleTo((int) $user->id)
-            ->get()
-            ->filter(fn (CourseAssignment $assignment) => $this->isRichAssignment($assignment));
+            ->learnerReady()
+            ->get();
 
         $userExamsByExamId = UserExam::where('user_id', $user->id)
             ->whereIn('exam_id', $exams->pluck('id'))
@@ -371,16 +370,6 @@ class LearnerCoursePlayerService
         }
 
         return $out;
-    }
-
-    private function isRichExam(CourseExam $exam): bool
-    {
-        return CourseExamQuestion::where('course_exam_id', $exam->id)->whereNotNull('question_en')->exists();
-    }
-
-    private function isRichAssignment(CourseAssignment $assignment): bool
-    {
-        return CourseAssignmentQuestion::where('course_assignment_id', $assignment->id)->exists();
     }
 
     /**

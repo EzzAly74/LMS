@@ -25,7 +25,14 @@ class CourseExamFactory extends Factory
             'degree'     => 100,
             'duration'   => 60,
             'is_final'   => false,
+            // Published, as CourseAssignmentFactory; draft() for the admin's work in progress.
+            'status'     => 'active',
         ];
+    }
+
+    public function draft(): static
+    {
+        return $this->state(fn () => ['status' => 'draft']);
     }
 
     /** The course's final exam — the one that drives certificate issuance. */

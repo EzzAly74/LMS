@@ -17,6 +17,20 @@ class CourseAssignment extends Model
 
     /** The cohorts chosen when cohort_scope is "specific" (NEW2B-6255). */
     public const COHORT_PIVOT = ['course_assignment_cohorts', 'course_assignment_id'];
+
+    /**
+     * What a learner may see: published (not a draft) and with questions.
+     * Legacy rows without a status count as published.
+     */
+    public function scopeLearnerReady(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        $table = $this->getTable();
+
+        return $query
+            ->where(fn ($w) => $w->whereNull("{$table}.status")->orWhere("{$table}.status", '!=', 'draft'))
+            ->whereExists(fn ($q) => $q->selectRaw('1')->from('course_assignment_questions as lr_q')
+                ->whereColumn('lr_q.course_assignment_id', "{$table}.id"));
+    }
     protected $guarded = ['id'];
 
     protected $casts = [

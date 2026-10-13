@@ -7,7 +7,10 @@ namespace App\Services\Mobile;
 use App\Enums\EnumRegistry;
 use App\Enums\Mobile\CourseCtaState;
 use App\Enums\Mobile\CourseDurationBucket;
+use App\Enums\Mobile\UnitContentType;
 use App\Models\Course;
+use App\Models\CourseAssignment;
+use App\Models\CourseExam;
 use App\Models\CourseNotifyInterest;
 use App\Models\CourseSection;
 use App\Models\JobTitle;
@@ -328,6 +331,76 @@ final class AcademyService
      *
      * @return array<int, array<string, mixed>>
      */
+    /**
+     * The S-03 "Course Content" list (Figma 2286:167907): the modules, then
+     * the published quizzes, then the published assignments - the order the
+     * course player shows them. Quizzes and assignments made for specific
+     * cohorts appear only to learners of those cohorts (NEW2B-6255), so a
+     * visitor sees the ones made for every cohort. Drafts never appear.
+     *
+     * Two queries whatever the size of the course; `lectures` is eager-loaded.
+     *
+     * @return list<array{key: string, kind: string, id: int, title: string, content_type: string, label_key: string, duration_minutes: int|null}>
+     */
+    public function courseContent(Course $course, ?User $user): array
+    {
+        $items = [];
+        $locale = app()->getLocale();
+
+        foreach ($course->lectures ?? [] as $lecture) {
+            $type = UnitContentType::fromLecture($lecture);
+            $items[] = [
+                'key'              => 'lecture-'.$lecture->id,
+                'kind'             => 'lecture',
+                'id'               => (int) $lecture->id,
+                'title'            => (string) $lecture->getTranslation('title', $locale),
+                'content_type'     => $type->value,
+                'label_key'        => $type->labelKey(),
+                'duration_minutes' => $lecture->duration_minutes !== null ? (int) $lecture->duration_minutes : null,
+            ];
+        }
+
+        $visible = function ($query) use ($user) {
+            if ($user !== null) {
+                return $query->visibleTo((int) $user->id);
+            }
+            $table = $query->getModel()->getTable();
+
+            return $query->where(fn ($w) => $w->whereNull("{$table}.cohort_scope")->orWhere("{$table}.cohort_scope", '!=', 'specific'));
+        };
+
+        $quizzes = $visible(CourseExam::query()->where('course_id', $course->id)->learnerReady())
+            ->orderBy('id')->get(['id', 'title', 'duration', 'cohort_scope', 'course_id']);
+        foreach ($quizzes as $quiz) {
+            $items[] = [
+                'key'              => 'quiz-'.$quiz->id,
+                'kind'             => 'quiz',
+                'id'               => (int) $quiz->id,
+                'title'            => (string) $quiz->getTranslation('title', $locale),
+                'content_type'     => UnitContentType::Quiz->value,
+                'label_key'        => UnitContentType::Quiz->labelKey(),
+                // The time allowed to answer it.
+                'duration_minutes' => $quiz->duration !== null ? (int) $quiz->duration : null,
+            ];
+        }
+
+        $assignments = $visible(CourseAssignment::query()->where('course_id', $course->id)->learnerReady())
+            ->orderBy('id')->get();
+        foreach ($assignments as $assignment) {
+            $items[] = [
+                'key'              => 'assignment-'.$assignment->id,
+                'kind'             => 'assignment',
+                'id'               => (int) $assignment->id,
+                'title'            => $assignment->localizedTitle($locale),
+                'content_type'     => UnitContentType::Assignment->value,
+                'label_key'        => UnitContentType::Assignment->labelKey(),
+                'duration_minutes' => null,
+            ];
+        }
+
+        return $items;
+    }
+
     public function instructorProfiles(Course $course, ?User $user): array
     {
         return $this->repository->instructorProfiles(

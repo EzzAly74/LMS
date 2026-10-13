@@ -188,6 +188,7 @@ class AcademyController extends MobileBaseController
             'anchor_cohort' => $anchorCohort,
             'cta_state'     => $ctaState,
             'instructor_profiles' => $this->academy->instructorProfiles($courseModel, $request->user()),
+            'content'       => $this->academy->courseContent($courseModel, $request->user()),
         ];
 
         return $this->success(

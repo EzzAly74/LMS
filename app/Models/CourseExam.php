@@ -18,6 +18,22 @@ class CourseExam extends Model
     /** The cohorts chosen when cohort_scope is "specific" (NEW2B-6255). */
     public const COHORT_PIVOT = ['course_exam_cohorts', 'course_exam_id'];
 
+    /**
+     * What a learner may see: published (a draft is the admin's work in
+     * progress) and built with the question editor. Legacy rows without a
+     * status count as published. One query, no per-quiz lookups.
+     */
+    public function scopeLearnerReady(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        $table = $this->getTable();
+
+        return $query
+            ->where(fn ($w) => $w->whereNull("{$table}.status")->orWhere("{$table}.status", '!=', 'draft'))
+            ->whereExists(fn ($q) => $q->selectRaw('1')->from('course_exam_questions as lr_q')
+                ->whereColumn('lr_q.course_exam_id', "{$table}.id")
+                ->whereNotNull('lr_q.question_en'));
+    }
+
     public array $translatable = ['title'];
 
     protected $guarded = ['id'];

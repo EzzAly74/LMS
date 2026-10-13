@@ -7,13 +7,21 @@ namespace App\Http\Resources\Mobile;
 use App\Models\Course;
 use App\Models\CourseSection;
 use App\Services\Mobile\AcademyService;
-use Carbon\Carbon;
+use App\Support\SessionTitle;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Collection;
 
 /**
- * S-03 cohort/dates block. Shown both above the sticky CTA and inside
- * the cohort selector sheet.
+ * S-03 cohort/dates block: the "Next cohort" card (Figma 2286:167907 -
+ * starts, round, ends, sessions, seats) and the Schedule screen
+ * (Figma 2286:168110 - each session's date, time, duration, location and
+ * Completed / Upcoming). Also the cohort selector sheet.
+ *
+ * With the sessions loaded, the dates, count and status come from the
+ * session rows, the schedule learners attend (NEW2B-6202, NEW2B-6206);
+ * the stored cohort dates are only the fallback.
  */
 class AcademyCohortBlockResource extends JsonResource
 {
@@ -31,16 +39,29 @@ class AcademyCohortBlockResource extends JsonResource
         $seatsLeft = max(0, $capacity - $enrolled);
         $deadline  = $academy->effectiveDeadline($cohort);
 
+        /** @var Collection<int, \App\Models\CourseSession>|null $sessions */
+        $sessions = $cohort->relationLoaded('sessions') ? $cohort->sessions : null;
+        $days     = $sessions?->pluck('session_date')->filter()
+            ->map(fn ($d) => $d instanceof Carbon ? $d->copy()->startOfDay() : Carbon::parse((string) $d)->startOfDay());
+        $start = $days?->isNotEmpty() ? $days->min() : ($cohort->start_date instanceof Carbon ? $cohort->start_date : null);
+        $end   = $days?->isNotEmpty() ? $days->max() : ($cohort->end_date instanceof Carbon ? $cohort->end_date : null);
+        $held  = $sessions?->filter(fn ($s) => $this->sessionTiming($s->session_date, $s->time_from, $s->time_to, $now)['status'] === 'completed')->count();
+
         return [
             'id'                  => (int) $cohort->id,
             'name'                => $cohort->getTranslation('name', $locale),
+            // The course's nth cohort by start date (the card's "Round 3, Cohort C").
+            'round'               => $cohort->getAttribute('round') !== null ? (int) $cohort->getAttribute('round') : null,
             'effective_status'    => Course::deriveCohortStatus(
                 $cohort->status,
-                $cohort->start_date instanceof \Carbon\Carbon ? $cohort->start_date : null,
-                $cohort->end_date instanceof \Carbon\Carbon   ? $cohort->end_date   : null,
+                $start,
+                $end,
+                $sessions?->count() ?: null,
+                $held,
             ),
-            'start_date'          => $cohort->start_date?->format('Y-m-d'),
-            'end_date'            => $cohort->end_date?->format('Y-m-d'),
+            'start_date'          => $start?->format('Y-m-d'),
+            'end_date'            => $end?->format('Y-m-d'),
+            'sessions_count'      => $sessions?->count(),
             'capacity'            => $capacity,
             'enrolled_count'      => $enrolled,
             'seats_left'          => $seatsLeft,
@@ -48,11 +69,12 @@ class AcademyCohortBlockResource extends JsonResource
             'enrolment_closes_at' => $deadline?->toDateString(),
             'days_until_deadline' => $academy->daysUntilDeadline($cohort, $now),
             'deadline_severity'   => $academy->deadlineSeverity($cohort, $now),
-            'sessions'            => $cohort->relationLoaded('sessions')
-                ? $cohort->sessions->map(fn ($s) => [
+            'sessions'            => $sessions
+                ? $sessions->values()->map(fn ($s, int $i) => [
                     'id'           => (int) $s->id,
-                    'title'        => $s->title,
-                    'session_date' => $s->session_date instanceof \Carbon\Carbon
+                    // Generated "Session N" titles in the reader's language.
+                    'title'        => SessionTitle::localize($s->title, $i + 1, $locale) ?? $s->title,
+                    'session_date' => $s->session_date instanceof Carbon
                         ? $s->session_date->format('Y-m-d')
                         : $s->session_date,
                     'time_from'    => $s->time_from,
@@ -69,13 +91,6 @@ class AcademyCohortBlockResource extends JsonResource
         ];
     }
 
-    /**
-     * Schedule tab (Figma 2027:97810): Duration and Completed / Upcoming,
-     * decided on the server clock so every viewer sees the same status.
-     * A session is completed once its end (or, without times, its day) has passed.
-     *
-     * @return array{duration_minutes: ?int, status: ?string}
-     */
     private function sessionTiming(mixed $date, ?string $from, ?string $to, Carbon $now): array
     {
         if ($date === null || $date === '') {

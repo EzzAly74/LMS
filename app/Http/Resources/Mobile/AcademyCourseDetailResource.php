@@ -36,6 +36,24 @@ class AcademyCourseDetailResource extends JsonResource
         $ctaState     = $this->additional['cta_state'] ?? CourseCtaState::Unavailable;
         $profiles     = $this->additional['instructor_profiles'] ?? [];
 
+        // Each cohort's place among the course's cohorts by start date
+        // ("Round 3, Cohort C", Figma 2286:167907); undated cohorts last.
+        // The course relation saves effectiveCapacity a query per cohort.
+        $sections = $course->sections ?? collect();
+        $rounds = $sections->sortBy([
+            fn ($a, $b) => ($a->start_date?->timestamp ?? PHP_INT_MAX) <=> ($b->start_date?->timestamp ?? PHP_INT_MAX),
+            fn ($a, $b) => $a->id <=> $b->id,
+        ])->values()->mapWithKeys(fn ($c, int $i) => [(int) $c->id => $i + 1]);
+        foreach ($sections as $section) {
+            $section->setRelation('course', $course);
+            $section->setAttribute('round', $rounds[(int) $section->id] ?? null);
+        }
+        if ($anchorCohort !== null) {
+            $anchorCohort->setRelation('course', $course);
+            $anchorCohort->setAttribute('round', $rounds[(int) $anchorCohort->id] ?? null);
+        }
+        $content = $this->additional['content'] ?? [];
+
         $ratingAvg   = (float) ($course->rating_avg ?? 0);
         $ratingCount = (int)   ($course->rating_count ?? 0);
 
@@ -114,6 +132,13 @@ class AcademyCourseDetailResource extends JsonResource
             'enrolled_users_count' => (int) ($course->users_count ?? 0),
 
             'units' => AcademyCourseUnitResource::collection($course->lectures ?? collect()),
+
+            // "Course Content" (Figma 2286:167907): modules, quizzes and
+            // assignments in player order; `units` stays modules only for
+            // the schedule's content_ids. The screen shows the first few and
+            // "View all {content_count} units".
+            'content'       => $content,
+            'content_count' => count($content),
 
             'cohorts' => AcademyCohortBlockResource::collection($course->sections ?? collect()),
 

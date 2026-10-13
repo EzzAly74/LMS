@@ -118,6 +118,80 @@
                                 "general"
                             ]
                         }
+                    },
+                    {
+                        "name": "level[]",
+                        "in": "query",
+                        "description": "Catalogue filter — course_level values, repeatable or comma-separated",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "beginner",
+                                    "intermediate",
+                                    "professional"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "name": "type[]",
+                        "in": "query",
+                        "description": "Catalogue filter — course_type values, repeatable or comma-separated",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "online",
+                                    "offline",
+                                    "hybrid",
+                                    "external_link"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "name": "duration[]",
+                        "in": "query",
+                        "description": "Catalogue filter — cohort-span bucket, repeatable or comma-separated",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "1_2_weeks",
+                                    "2_4_weeks",
+                                    "4_8_weeks",
+                                    "8_plus_weeks"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "name": "job_role_id[]",
+                        "in": "query",
+                        "description": "Catalogue filter — job_titles.id, repeatable or comma-separated",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    {
+                        "name": "sort",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "most_relevant",
+                                "highest_rated",
+                                "soonest_start",
+                                "newest"
+                            ]
+                        }
                     }
                 ],
                 "responses": {
@@ -133,7 +207,7 @@
                     "Mobile"
                 ],
                 "summary": "📱 [MOBILE · S-03] Course detail",
-                "description": "📱 **MOBILE** · Screen **S-03 — Course detail & enrolment** · Audience: Employee/Learner mobile app · Returns the full detail view-model including anchor cohort + typed CTA state.",
+                "description": "📱 **MOBILE** · Screen **S-03 — Course details** (Figma 2286:167907) and **Schedule** (2286:168110) · Audience: Employee/Learner mobile app · The detail view-model: next-cohort card (`anchor_cohort`: instructor via `instructors`, start / end, `round`, `sessions_count`, seats), About, qualifications earned, **Course Content** (`content`: modules, published quizzes, published assignments; `content_count` for 'View all N units') and the typed CTA. Each cohort's `sessions` drive the Schedule screen (date, time, `duration_minutes`, `location`, Completed / Upcoming).",
                 "operationId": "985a492539c52bdcf9613c62164c6744",
                 "parameters": [
                     {
@@ -156,7 +230,29 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK"
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "example": "success"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "result": {
+                                            "$ref": "#/components/schemas/MobileCourseDetail"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Course not found"
                     }
                 }
             }
@@ -167,7 +263,7 @@
                     "Mobile"
                 ],
                 "summary": "📱 [MOBILE · S-03→S-04] Enrol into a cohort",
-                "description": "📱 **MOBILE** · Screens **S-03 → S-04 — Enrolment confirmation** · Audience: Employee/Learner mobile app · First-come-first-served enrolment race; row-locks the cohort + checks capacity + deadline inside a transaction.",
+                "description": "📱 **MOBILE** · Screens **S-03 → S-04 — Enrolment confirmation** · Audience: Employee/Learner mobile app · First-come-first-served enrolment race; row-locks the cohort + checks capacity + deadline inside a transaction. The catalogue's rules apply on the server: a course tied to another job title's qualifications is refused (403 `not_offered`), and a chosen `cohort_id` must be one the catalogue shows (not started; opened early or inside the visibility window), else 409 `enrolment_closed`.",
                 "operationId": "d10dffee66d85aa154d325395f00bf4a",
                 "parameters": [
                     {
@@ -204,11 +300,57 @@
                     }
                 },
                 "responses": {
+                    "200": {
+                        "description": "Already enrolled (idempotent)"
+                    },
                     "201": {
                         "description": "Enrolled"
                     },
+                    "403": {
+                        "description": "Not offered for the learner's job title (outcome `not_offered`)"
+                    },
                     "409": {
-                        "description": "Cohort full / closed / no cohort"
+                        "description": "Cohort full / enrolment closed / no cohort"
+                    }
+                }
+            }
+        },
+        "/mobile/academy/courses/{course}/notify-me": {
+            "post": {
+                "tags": [
+                    "Mobile"
+                ],
+                "summary": "📱 [MOBILE · S-03] Notify me for the next cohort",
+                "description": "📱 **MOBILE** (and Website) · The 'Get notified' CTA (`cta.state = get_notified`). Idempotently records the learner's interest; when a cohort the learner can join opens, they get a bell + email notification once and the interest is consumed (D-078). Rate-limited to 30 requests a minute.",
+                "operationId": "527d292866879f48c6837e35d8d985eb",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/MobileAuthorization"
+                    },
+                    {
+                        "$ref": "#/components/parameters/EmployeeCode"
+                    },
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    },
+                    {
+                        "name": "course",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Course not found"
+                    },
+                    "429": {
+                        "description": "Too many requests"
                     }
                 }
             }
@@ -262,6 +404,9 @@
                     "201": {
                         "description": "Attendance recorded"
                     },
+                    "200": {
+                        "description": "Wrong passcode (success:false)"
+                    },
                     "403": {
                         "description": "Not enrolled"
                     },
@@ -269,7 +414,7 @@
                         "description": "No open window / already marked"
                     },
                     "422": {
-                        "description": "Invalid or expired code"
+                        "description": "Expired code"
                     }
                 }
             }
@@ -406,7 +551,7 @@
                     "Mobile"
                 ],
                 "summary": "📱 [MOBILE · S-05] My active courses",
-                "description": "📱 **MOBILE** · Screen **S-05 — My Learning · Active Courses tab** · Audience: Employee/Learner mobile app · Paginated active enrolments with live progress / attendance counts and a Live-Now badge.",
+                "description": "📱 **MOBILE** · Screen **S-05 — My Learning · Active Courses tab** · Audience: Employee/Learner mobile app · Paginated active enrolments with live progress / attendance counts and a Live-Now badge. Figures match the Website: progress from the learner's cohort modules (else attendance of the cohort's sessions), attendance by distinct session, certificate projection with the course's own rule. A completed (certified) or ended course leaves this list for `completed`.",
                 "operationId": "62429adad1ec1d22d5f8266e4a2f744e",
                 "parameters": [
                     {
@@ -421,7 +566,26 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK"
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "example": "success"
+                                        },
+                                        "result": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/MobileActiveCourseCard"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -432,7 +596,7 @@
                     "Mobile"
                 ],
                 "summary": "📱 [MOBILE · S-05] My qualifications progress",
-                "description": "📱 **MOBILE** · Screen **S-05 — My Learning · Qualifications tab** · Audience: Employee/Learner mobile app · Derived live from `job_title_qualification_skill` × `course_qualification_skills` × completion sources.",
+                "description": "📱 **MOBILE** · Screen **S-05 — My Learning · Qualifications tab** · Audience: Employee/Learner mobile app · Derived live from `job_title_qualification_skill` × `course_qualification_skills` × completion (an active certificate). A granted qualification is 100% (`granted`).",
                 "operationId": "3f13d55bf26f229eec4707fc8645a48a",
                 "parameters": [
                     {
@@ -447,7 +611,26 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK"
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "example": "success"
+                                        },
+                                        "result": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/MobileQualificationProgress"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -492,7 +675,7 @@
                     "Mobile"
                 ],
                 "summary": "📱 [MOBILE · S-07] Certificates list",
-                "description": "📱 **MOBILE** · Screen **S-07 — Certificates** · Audience: Employee/Learner mobile app · Paginated, derived from final-exam pass + course-evaluation submission (no `user_certificates` table).",
+                "description": "📱 **MOBILE** · Screen **S-07 — Certificates** · Audience: Employee/Learner mobile app · Paginated; the learner's **active** `user_certificates` (a revoked certificate is never listed). Every course issues a certificate once its completion event and the configured rule are met (D-094).",
                 "operationId": "0ded15bb740c4fed10252824ecd96e01",
                 "parameters": [
                     {
@@ -3892,6 +4075,77 @@
                                 "offline"
                             ]
                         }
+                    },
+                    {
+                        "name": "ids[]",
+                        "in": "query",
+                        "description": "Only these courses.",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    {
+                        "name": "category_ids[]",
+                        "in": "query",
+                        "description": "Any of these categories.",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    {
+                        "name": "instructor_ids[]",
+                        "in": "query",
+                        "description": "Taught by any of these instructors.",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    {
+                        "name": "statuses[]",
+                        "in": "query",
+                        "description": "Any of these derived statuses.",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "active",
+                                    "upcoming",
+                                    "inactive"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "name": "evaluation[]",
+                        "in": "query",
+                        "description": "Evaluation score band: high (4+ of 5), mid (3 to under 4), low (under 3), none (not evaluated).",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "high",
+                                    "mid",
+                                    "low",
+                                    "none"
+                                ]
+                            }
+                        }
                     }
                 ],
                 "responses": {
@@ -3955,7 +4209,9 @@
                                         "type": "string",
                                         "enum": [
                                             "online",
-                                            "offline"
+                                            "offline",
+                                            "hybrid",
+                                            "external_link"
                                         ]
                                     },
                                     "title": {
@@ -4000,7 +4256,29 @@
                                         "nullable": true
                                     },
                                     "certificate": {
+                                        "description": "Ignored: every course issues a certificate (D-094).",
                                         "type": "boolean"
+                                    },
+                                    "certificate_rule": {
+                                        "type": "string",
+                                        "enum": [
+                                            "general",
+                                            "attendance",
+                                            "score",
+                                            "both"
+                                        ]
+                                    },
+                                    "certificate_min_attendance": {
+                                        "type": "integer",
+                                        "nullable": true,
+                                        "maximum": 100,
+                                        "minimum": 1
+                                    },
+                                    "certificate_min_score": {
+                                        "type": "integer",
+                                        "nullable": true,
+                                        "maximum": 100,
+                                        "minimum": 1
                                     },
                                     "image": {
                                         "type": "string",
@@ -4202,6 +4480,7 @@
                     "Courses"
                 ],
                 "summary": "Update a course (admin only). Uses multipart/form-data when uploading a new image.",
+                "description": "Once a learner is enrolled, `course_type`, `certificate_rule` (+ its thresholds) and `qualification_skill_ids` keep their values (D-095): sending them unchanged or not at all is fine; a different value is refused with 422 on that field. `GET /courses/{course}` lists them in `locked_fields`.",
                 "operationId": "30666bb01abc1229b8b449a883622ea1",
                 "parameters": [
                     {
@@ -4225,7 +4504,9 @@
                                         "type": "string",
                                         "enum": [
                                             "online",
-                                            "offline"
+                                            "offline",
+                                            "hybrid",
+                                            "external_link"
                                         ]
                                     },
                                     "title": {
@@ -4270,7 +4551,29 @@
                                         "nullable": true
                                     },
                                     "certificate": {
+                                        "description": "Ignored: every course issues a certificate (D-094).",
                                         "type": "boolean"
+                                    },
+                                    "certificate_rule": {
+                                        "type": "string",
+                                        "enum": [
+                                            "general",
+                                            "attendance",
+                                            "score",
+                                            "both"
+                                        ]
+                                    },
+                                    "certificate_min_attendance": {
+                                        "type": "integer",
+                                        "nullable": true,
+                                        "maximum": 100,
+                                        "minimum": 1
+                                    },
+                                    "certificate_min_score": {
+                                        "type": "integer",
+                                        "nullable": true,
+                                        "maximum": 100,
+                                        "minimum": 1
                                     },
                                     "image": {
                                         "type": "string",
@@ -5620,81 +5923,6 @@
             }
         },
         "/courses/{course}/ratings": {
-            "get": {
-                "tags": [
-                    "Course Ratings"
-                ],
-                "summary": "List ratings for a course (admin only, paginated).",
-                "operationId": "12ea0a953656310c946a862601038e66",
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/Page"
-                    },
-                    {
-                        "$ref": "#/components/parameters/PerPage"
-                    },
-                    {
-                        "name": "course",
-                        "in": "path",
-                        "description": "Course id",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    },
-                    {
-                        "name": "user_id",
-                        "in": "query",
-                        "description": "Filter by user id.",
-                        "required": false,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Paginated ratings",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "$ref": "#/components/schemas/CourseRating"
-                                                    }
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
             "post": {
                 "tags": [
                     "Course Ratings"
@@ -5772,63 +6000,6 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/ValidationError"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            }
-        },
-        "/courses/{course}/ratings/{rating}": {
-            "delete": {
-                "tags": [
-                    "Course Ratings"
-                ],
-                "summary": "Delete a course rating (admin only).",
-                "operationId": "b9cdef7631cfe6f1fc1cdc54d8027cb3",
-                "parameters": [
-                    {
-                        "name": "course",
-                        "in": "path",
-                        "description": "Course id",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    },
-                    {
-                        "name": "rating",
-                        "in": "path",
-                        "description": "Rating id",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Deleted",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/EmptyResponse"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
                     }
                 },
                 "security": [
@@ -5950,10 +6121,19 @@
                                         "nullable": true,
                                         "enum": [
                                             "scheduled",
+                                            "open_for_enrollment",
                                             "active",
                                             "completed",
                                             "inactive"
                                         ]
+                                    },
+                                    "avg_session_time": {
+                                        "description": "Average session length in hours.",
+                                        "type": "number",
+                                        "format": "float",
+                                        "nullable": true,
+                                        "maximum": 24,
+                                        "minimum": 0.25
                                     }
                                 },
                                 "type": "object"
@@ -6165,10 +6345,19 @@
                                         "nullable": true,
                                         "enum": [
                                             "scheduled",
+                                            "open_for_enrollment",
                                             "active",
                                             "completed",
                                             "inactive"
                                         ]
+                                    },
+                                    "avg_session_time": {
+                                        "description": "Average session length in hours.",
+                                        "type": "number",
+                                        "format": "float",
+                                        "nullable": true,
+                                        "maximum": 24,
+                                        "minimum": 0.25
                                     }
                                 },
                                 "type": "object"
@@ -6726,8 +6915,8 @@
                 "tags": [
                     "Dashboard"
                 ],
-                "summary": "Generate / rotate the passcode for the current live session.",
-                "description": "Resolves the live-now session (or the earliest session scheduled for today) and issues a numeric passcode that powers the mobile S-06 Mark Present screen.",
+                "summary": "Start a session for the chosen course/cohort and issue its passcode.",
+                "description": "Creates a `course_sessions` row for today (starting now for the configured attendance window) on the selected course + cohort, then issues a numeric passcode that powers the mobile S-06 Mark Present screen.",
                 "operationId": "ddbef9c9ed0073a73eeb5b9fa45294a5",
                 "parameters": [
                     {
@@ -6735,11 +6924,21 @@
                     }
                 ],
                 "requestBody": {
-                    "required": false,
+                    "required": true,
                     "content": {
                         "application/json": {
                             "schema": {
+                                "required": [
+                                    "course_id",
+                                    "cohort_id"
+                                ],
                                 "properties": {
+                                    "course_id": {
+                                        "type": "integer"
+                                    },
+                                    "cohort_id": {
+                                        "type": "integer"
+                                    },
                                     "expires_at": {
                                         "type": "string",
                                         "format": "date-time",
@@ -6757,7 +6956,7 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Passcode generated",
+                        "description": "Session started + passcode generated",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6779,7 +6978,138 @@
                         }
                     },
                     "422": {
-                        "description": "No live session to generate a passcode for."
+                        "description": "Cohort is not a valid target (wrong course or already ended)."
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/dashboard/passcode/courses": {
+            "get": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Courses (+ cohorts) the instructor can start a session for.",
+                "description": "Excludes courses whose cohorts have all ended. Each course carries its still-runnable cohorts so the dashboard can render the course → cohort pickers.",
+                "operationId": "5367894ddb6e80c0123e580204fbb4b4",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Eligible courses"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/dashboard/passcode/regenerate": {
+            "post": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Rotate (re-issue) the passcode on the instructor's live session.",
+                "description": "Issues a fresh code on the session whose attendance window is currently open — powering the dashboard 'Regenerate' button and the rotating-passcode auto-refresh. Returns the read-only current state (ended/idle) when nothing is live to rotate.",
+                "operationId": "92fbea3af11700e04fe67b0efcdd157b",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Passcode rotated (or current state when nothing is live)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/SuccessResponse"
+                                        },
+                                        {
+                                            "properties": {
+                                                "result": {
+                                                    "$ref": "#/components/schemas/SessionPasscodeState"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/dashboard/passcode/end": {
+            "post": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "End the instructor's current live session.",
+                "description": "Revokes the live passcode and closes the attendance window now, so the session stops being live and the rotating-passcode auto-refresh halts. Returns the refreshed (idle) widget state.",
+                "operationId": "be2c45b747d1703bef905f5ce61bd7ac",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Session ended",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/SuccessResponse"
+                                        },
+                                        {
+                                            "properties": {
+                                                "result": {
+                                                    "$ref": "#/components/schemas/SessionPasscodeState"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
                     },
                     "401": {
                         "$ref": "#/components/responses/Unauthorized"
@@ -6832,714 +7162,6 @@
                         }
                     }
                 }
-            }
-        },
-        "/evaluation-categories": {
-            "get": {
-                "tags": [
-                    "Evaluation Categories"
-                ],
-                "summary": "List evaluation categories (paginated).",
-                "operationId": "8c25004a6f35e040ad9cccea3ec8600a",
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/AcceptLanguage"
-                    },
-                    {
-                        "$ref": "#/components/parameters/Page"
-                    },
-                    {
-                        "$ref": "#/components/parameters/PerPage"
-                    },
-                    {
-                        "$ref": "#/components/parameters/Search"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Paginated evaluation categories",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "$ref": "#/components/schemas/EvaluationCategory"
-                                                    }
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
-            "post": {
-                "tags": [
-                    "Evaluation Categories"
-                ],
-                "summary": "Create an evaluation category.",
-                "operationId": "694d22077653d846a46c4929878439d9",
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "name"
-                                ],
-                                "properties": {
-                                    "name": {
-                                        "$ref": "#/components/schemas/TranslatedString"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/EvaluationCategory"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationError"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            }
-        },
-        "/evaluation-categories/all": {
-            "get": {
-                "tags": [
-                    "Evaluation Categories"
-                ],
-                "summary": "List ALL evaluation categories (no pagination). For select dropdowns.",
-                "operationId": "f0cb18706c3ca9a7ac33ec1b834ee27d",
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/AcceptLanguage"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "All evaluation categories",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "$ref": "#/components/schemas/EvaluationCategory"
-                                                    }
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            }
-        },
-        "/evaluation-categories/{evaluationCategory}": {
-            "get": {
-                "tags": [
-                    "Evaluation Categories"
-                ],
-                "summary": "Show an evaluation category.",
-                "operationId": "db2285e719764f8915bf5b7cd214fc44",
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/AcceptLanguage"
-                    },
-                    {
-                        "name": "evaluationCategory",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Evaluation category detail",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/EvaluationCategory"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
-            "put": {
-                "tags": [
-                    "Evaluation Categories"
-                ],
-                "summary": "Update an evaluation category.",
-                "operationId": "57c5719464c0e8f8fb8cccace81f94ce",
-                "parameters": [
-                    {
-                        "name": "evaluationCategory",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "name"
-                                ],
-                                "properties": {
-                                    "name": {
-                                        "$ref": "#/components/schemas/TranslatedString"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Updated",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/EvaluationCategory"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationError"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
-            "delete": {
-                "tags": [
-                    "Evaluation Categories"
-                ],
-                "summary": "Delete an evaluation category.",
-                "operationId": "d2b61a1574ee5f5ee871a4e5c869d11e",
-                "parameters": [
-                    {
-                        "name": "evaluationCategory",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Deleted",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/EmptyResponse"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            }
-        },
-        "/evaluations": {
-            "get": {
-                "tags": [
-                    "Evaluations"
-                ],
-                "summary": "List evaluation questions (paginated, optionally filtered by category).",
-                "operationId": "8b0eb0a2698a28a28f6bd58bfd7b289f",
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/AcceptLanguage"
-                    },
-                    {
-                        "$ref": "#/components/parameters/Page"
-                    },
-                    {
-                        "$ref": "#/components/parameters/PerPage"
-                    },
-                    {
-                        "$ref": "#/components/parameters/Search"
-                    },
-                    {
-                        "name": "category_id",
-                        "in": "query",
-                        "description": "Filter by evaluation category id.",
-                        "required": false,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Paginated evaluations",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "$ref": "#/components/schemas/Evaluation"
-                                                    }
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
-            "post": {
-                "tags": [
-                    "Evaluations"
-                ],
-                "summary": "Create an evaluation question.",
-                "operationId": "da7ca2f699a807ea433aefc105ba525c",
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "evaluation_category_id",
-                                    "type",
-                                    "title"
-                                ],
-                                "properties": {
-                                    "evaluation_category_id": {
-                                        "description": "Existing evaluation category id.",
-                                        "type": "integer"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "enum": [
-                                            "text",
-                                            "five",
-                                            "ten"
-                                        ]
-                                    },
-                                    "title": {
-                                        "$ref": "#/components/schemas/TranslatedString"
-                                    },
-                                    "is_required": {
-                                        "type": "boolean",
-                                        "nullable": true
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/Evaluation"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationError"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            }
-        },
-        "/evaluations/{evaluation}": {
-            "get": {
-                "tags": [
-                    "Evaluations"
-                ],
-                "summary": "Show an evaluation question (with category).",
-                "operationId": "9fd2fa3b55de34c5c6da79e614260702",
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/AcceptLanguage"
-                    },
-                    {
-                        "name": "evaluation",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Evaluation detail",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/Evaluation"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
-            "put": {
-                "tags": [
-                    "Evaluations"
-                ],
-                "summary": "Update an evaluation question.",
-                "operationId": "e9b7d65704183c401fe278e9ed67ed4d",
-                "parameters": [
-                    {
-                        "name": "evaluation",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "evaluation_category_id",
-                                    "type",
-                                    "title"
-                                ],
-                                "properties": {
-                                    "evaluation_category_id": {
-                                        "type": "integer"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "enum": [
-                                            "text",
-                                            "five",
-                                            "ten"
-                                        ]
-                                    },
-                                    "title": {
-                                        "$ref": "#/components/schemas/TranslatedString"
-                                    },
-                                    "is_required": {
-                                        "type": "boolean",
-                                        "nullable": true
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Updated",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/Evaluation"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationError"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
-            "delete": {
-                "tags": [
-                    "Evaluations"
-                ],
-                "summary": "Delete an evaluation question.",
-                "operationId": "b4433b49a0a900c144c96b47908cdf44",
-                "parameters": [
-                    {
-                        "name": "evaluation",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Deleted",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/EmptyResponse"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
             }
         },
         "/forms": {
@@ -8431,16 +8053,18 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "required": [
-                                    "progress"
-                                ],
                                 "properties": {
                                     "progress": {
-                                        "description": "Watch percentage 0-100.",
+                                        "description": "Watch percentage 0-100. Required unless `confirmed` is sent.",
                                         "type": "integer",
                                         "example": 85,
                                         "maximum": 100,
                                         "minimum": 0
+                                    },
+                                    "confirmed": {
+                                        "description": "Explicit completion signal — the video/document/article 'Did you complete this?' Yes/No prompt, or the link module's 'Mark as complete' click. Overrides the numeric-progress rule when present.",
+                                        "type": "boolean",
+                                        "nullable": true
                                     }
                                 },
                                 "type": "object"
@@ -8899,6 +8523,261 @@
                 ]
             }
         },
+        "/notifications/mine": {
+            "get": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "List the authenticated principal's own notifications (paginated).",
+                "operationId": "f59f29b9ff7fe3ea71f45e56f522633a",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Page"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PerPage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Paginated notifications",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/SuccessResponse"
+                                        },
+                                        {
+                                            "properties": {
+                                                "result": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/components/schemas/NotificationInbox"
+                                                    }
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/notifications/mine/unread-count": {
+            "get": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Unread notification count for the authenticated principal.",
+                "operationId": "d54bdf2ee80be06eae5ba072b941e556",
+                "responses": {
+                    "200": {
+                        "description": "Unread count",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/SuccessResponse"
+                                        },
+                                        {
+                                            "properties": {
+                                                "result": {
+                                                    "properties": {
+                                                        "count": {
+                                                            "type": "integer"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/notifications/mine/{id}/read": {
+            "post": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Mark a single notification as read.",
+                "operationId": "3fc74304fd264754523895ef6b87f4bd",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Updated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/SuccessResponse"
+                                        },
+                                        {
+                                            "properties": {
+                                                "result": {
+                                                    "$ref": "#/components/schemas/NotificationInbox"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/notifications/mine/read-all": {
+            "post": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Mark every unread notification as read for the authenticated principal.",
+                "operationId": "3f1dffe6730a9b45faf6bdf122f765a3",
+                "responses": {
+                    "200": {
+                        "description": "Updated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SuccessResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/instructors/{instructor}/notifications": {
+            "get": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "List an instructor's notifications (admin oversight).",
+                "description": "Admin oversight — inspect what an Instructor has received. Instructors\nhave no authentication in this system yet, so they cannot self-serve\nthis endpoint; this lets Admins verify delivery in the meantime.",
+                "operationId": "be4a1303c1502f4b8b5296ca4b1e48c2",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    },
+                    {
+                        "name": "instructor",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "$ref": "#/components/parameters/Page"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PerPage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Paginated notifications",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/SuccessResponse"
+                                        },
+                                        {
+                                            "properties": {
+                                                "result": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/components/schemas/NotificationInbox"
+                                                    }
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
         "/courses/{course}/online-users": {
             "get": {
                 "tags": [
@@ -9238,69 +9117,6 @@
                         "BearerAuth": []
                     }
                 ]
-            },
-            "post": {
-                "tags": [
-                    "Qualification Skills"
-                ],
-                "summary": "Create a qualification skill (admin only).",
-                "operationId": "eb3ef50ea20d9cc152241956bb1d74d3",
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "name"
-                                ],
-                                "properties": {
-                                    "name": {
-                                        "$ref": "#/components/schemas/TranslatedString"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/QualificationSkill"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationError"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
             }
         },
         "/qualification-skills/active": {
@@ -9390,124 +9206,6 @@
                     },
                     "401": {
                         "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
-            "put": {
-                "tags": [
-                    "Qualification Skills"
-                ],
-                "summary": "Update a qualification skill (admin only).",
-                "operationId": "7682ac44d67127bc91b46d0bb4a2cd38",
-                "parameters": [
-                    {
-                        "name": "qualification_skill",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "properties": {
-                                    "name": {
-                                        "$ref": "#/components/schemas/TranslatedString"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Updated",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/QualificationSkill"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
-                    },
-                    "404": {
-                        "$ref": "#/components/responses/NotFound"
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationError"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ]
-            },
-            "delete": {
-                "tags": [
-                    "Qualification Skills"
-                ],
-                "summary": "Delete a qualification skill (admin only).",
-                "operationId": "3029e3d42e360eb068513acf423e56fb",
-                "parameters": [
-                    {
-                        "name": "qualification_skill",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 1
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Deleted",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/EmptyResponse"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "$ref": "#/components/responses/Unauthorized"
-                    },
-                    "403": {
-                        "$ref": "#/components/responses/Forbidden"
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
@@ -10734,11 +10432,37 @@
                 },
                 "responses": {
                     "201": {
-                        "description": "Submitted",
+                        "description": "Submitted. `rating` is the learner's new My Rating (the rounded average of the star and 1-5 answers), null when the form had none.",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/EmptyResponse"
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "example": "success"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "result": {
+                                            "properties": {
+                                                "rating": {
+                                                    "type": "integer",
+                                                    "example": 4,
+                                                    "nullable": true,
+                                                    "maximum": 5,
+                                                    "minimum": 1
+                                                },
+                                                "rate_label": {
+                                                    "type": "string",
+                                                    "example": "Satisfied",
+                                                    "nullable": true
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
                                 }
                             }
                         }
@@ -11364,6 +11088,55 @@
                                                         }
                                                     },
                                                     "type": "object"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/my/learnings": {
+            "get": {
+                "tags": [
+                    "My"
+                ],
+                "summary": "Composite 'My Learnings' dashboard — per-course cohort schedule, delivery type, module progress %, and certificate status.",
+                "operationId": "39674183adef2cdb69ea5c10172039d5",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Per-course dashboard cards",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "$ref": "#/components/schemas/SuccessResponse"
+                                        },
+                                        {
+                                            "properties": {
+                                                "result": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object"
+                                                    }
                                                 }
                                             },
                                             "type": "object"
@@ -12102,45 +11875,6 @@
                 }
             }
         },
-        "/enums/module_learner_scope": {
-            "get": {
-                "tags": [
-                    "Enums"
-                ],
-                "summary": "Course module learner scope options.",
-                "description": "Allowed values: all, cohort.",
-                "operationId": "enums.module_learner_scope",
-                "parameters": [
-                    {
-                        "$ref": "#/components/parameters/AcceptLanguage"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Module learner scope options.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "allOf": [
-                                        {
-                                            "$ref": "#/components/schemas/SuccessResponse"
-                                        },
-                                        {
-                                            "properties": {
-                                                "result": {
-                                                    "$ref": "#/components/schemas/EnumOptionList"
-                                                }
-                                            },
-                                            "type": "object"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/enums/resource_type": {
             "get": {
                 "tags": [
@@ -12644,6 +12378,339 @@
                                 }
                             }
                         }
+                    }
+                }
+            }
+        },
+        "/mobile/my-learning/completed": {
+            "get": {
+                "tags": [
+                    "Mobile"
+                ],
+                "summary": "📱 [MOBILE · S-05] Completed courses",
+                "description": "📱 **MOBILE** · My Learning · Completed. A course is completed when the learner holds its active certificate (D-094); each row carries `certificate_id` so the app can open or download it (NEW2B-5793). Approved external training appears too (`kind = external`).",
+                "operationId": "04729e0b956b3dd7069a5886d8dc9d79",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/MobileAuthorization"
+                    },
+                    {
+                        "$ref": "#/components/parameters/EmployeeCode"
+                    },
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "example": "success"
+                                        },
+                                        "result": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "kind": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "course",
+                                                            "external"
+                                                        ]
+                                                    },
+                                                    "course_id": {
+                                                        "type": "integer",
+                                                        "nullable": true
+                                                    },
+                                                    "title": {
+                                                        "type": "string"
+                                                    },
+                                                    "image": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "course_type": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "completed_at": {
+                                                        "type": "string",
+                                                        "format": "date",
+                                                        "nullable": true
+                                                    },
+                                                    "score_percent": {
+                                                        "type": "integer",
+                                                        "nullable": true
+                                                    },
+                                                    "certificate_id": {
+                                                        "type": "integer",
+                                                        "nullable": true
+                                                    },
+                                                    "certificate_earned": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "certificate_offered": {
+                                                        "type": "boolean",
+                                                        "example": true
+                                                    },
+                                                    "rate": {
+                                                        "type": "integer",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/mobile/my-learning/summary": {
+            "get": {
+                "tags": [
+                    "Mobile"
+                ],
+                "summary": "📱 [MOBILE · S-05] My Learning counters",
+                "description": "📱 **MOBILE** · The profile counters as on the Website (D-083): earned, in progress, required and not started.",
+                "operationId": "f27f9b2755d788a2eb8addccf339cd68",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/MobileAuthorization"
+                    },
+                    {
+                        "$ref": "#/components/parameters/EmployeeCode"
+                    },
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/mobile/my-learning/qualifications/detail": {
+            "get": {
+                "tags": [
+                    "Mobile"
+                ],
+                "summary": "📱 [MOBILE · S-05] Qualifications with their courses",
+                "description": "📱 **MOBILE** · Each qualification of the learner's job title with its percent (`QualificationHolding::percent`: granted = 100) and the courses that count towards it.",
+                "operationId": "5602f8901f6d941d5c5b4ea3588e0e42",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/MobileAuthorization"
+                    },
+                    {
+                        "$ref": "#/components/parameters/EmployeeCode"
+                    },
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/mobile/my-learning/courses/{course}/evaluate": {
+            "get": {
+                "tags": [
+                    "Mobile"
+                ],
+                "summary": "📱 [MOBILE] Course evaluation form",
+                "description": "📱 **MOBILE** · Figma 2286:168232. The templates put to the learner's course and cohort, one per step (`evaluation_categories`), each question with `type` (scale or stars), `is_required`, `scale_max` and the scale end labels (`scale_label_min` / `scale_label_max`, e.g. 'Unclear' / 'Very Clear'). Enrolled learners only; 404 when the course is not evaluated.",
+                "operationId": "1cb5aa4d187e1b8ee773f190b2851dbd",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/MobileAuthorization"
+                    },
+                    {
+                        "$ref": "#/components/parameters/EmployeeCode"
+                    },
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    },
+                    {
+                        "name": "course",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "example": "success"
+                                        },
+                                        "result": {
+                                            "properties": {
+                                                "already_evaluated": {
+                                                    "type": "boolean"
+                                                },
+                                                "instructors": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "integer"
+                                                            },
+                                                            "name": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "evaluation_categories": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "integer"
+                                                            },
+                                                            "name": {
+                                                                "type": "string",
+                                                                "example": "Workplace Safety & Compliance"
+                                                            },
+                                                            "questions": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "properties": {
+                                                                        "id": {
+                                                                            "type": "integer"
+                                                                        },
+                                                                        "type": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "title": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "is_required": {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        "scale_max": {
+                                                                            "type": "integer",
+                                                                            "nullable": true
+                                                                        },
+                                                                        "scale_label_min": {
+                                                                            "type": "string",
+                                                                            "nullable": true
+                                                                        },
+                                                                        "scale_label_max": {
+                                                                            "type": "string",
+                                                                            "nullable": true
+                                                                        }
+                                                                    },
+                                                                    "type": "object"
+                                                                }
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Not enrolled"
+                    },
+                    "404": {
+                        "description": "The course is not evaluated"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Mobile"
+                ],
+                "summary": "📱 [MOBILE] Submit the course evaluation",
+                "description": "📱 **MOBILE** · Once per learner and course. For an evaluated course this is the completion event: the certificate is issued when the configured rule is also met (D-091, D-094).",
+                "operationId": "94e92ae3a970329d565fd0d0eac05a47",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/MobileAuthorization"
+                    },
+                    {
+                        "$ref": "#/components/parameters/EmployeeCode"
+                    },
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    },
+                    {
+                        "name": "course",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "instructor_id",
+                                    "questions"
+                                ],
+                                "properties": {
+                                    "instructor_id": {
+                                        "description": "One of the course's instructors.",
+                                        "type": "integer"
+                                    },
+                                    "questions": {
+                                        "description": "question id => answer",
+                                        "type": "object",
+                                        "example": {
+                                            "41": 4,
+                                            "42": 5
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Recorded"
+                    },
+                    "403": {
+                        "description": "Not enrolled"
+                    },
+                    "422": {
+                        "description": "Missing required answers / already evaluated"
                     }
                 }
             }
@@ -13152,6 +13219,35 @@
                             "title_for_certificate": {
                                 "type": "string",
                                 "nullable": true
+                            },
+                            "certificate_rule": {
+                                "type": "string",
+                                "enum": [
+                                    "general",
+                                    "attendance",
+                                    "score",
+                                    "both"
+                                ]
+                            },
+                            "certificate_min_attendance": {
+                                "type": "integer",
+                                "nullable": true
+                            },
+                            "certificate_min_score": {
+                                "type": "integer",
+                                "nullable": true
+                            },
+                            "locked_fields": {
+                                "description": "Admin show only: fields fixed since the first enrolment (D-095); empty while nobody is enrolled.",
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": [
+                                        "course_type",
+                                        "certificate_rule",
+                                        "qualification_skill_ids"
+                                    ]
+                                }
                             },
                             "sections": {
                                 "type": "array",
@@ -13820,6 +13916,415 @@
                 },
                 "type": "object"
             },
+            "MobileContentItem": {
+                "description": "One row of the Course Content list: a module, a published quiz or a published assignment, in player order. Drafts never appear; quizzes and assignments made for specific cohorts appear only to learners of those cohorts.",
+                "properties": {
+                    "key": {
+                        "description": "Unique across kinds: '<kind>-<id>'.",
+                        "type": "string",
+                        "example": "quiz-12"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "lecture",
+                            "quiz",
+                            "assignment"
+                        ]
+                    },
+                    "id": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "type": "string",
+                        "example": "Lookup Functions Deep Dive"
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "enum": [
+                            "video",
+                            "reading",
+                            "document",
+                            "quiz",
+                            "assignment",
+                            "session",
+                            "live",
+                            "other"
+                        ]
+                    },
+                    "label_key": {
+                        "type": "string",
+                        "example": "enums.unit_content_type.quiz"
+                    },
+                    "duration_minutes": {
+                        "description": "A module's length, a quiz's time allowed; null for assignments.",
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "MobileCohortSession": {
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "description": "Generated 'Session N' titles in the reader's language, numbered by the schedule.",
+                        "type": "string",
+                        "example": "Session 1"
+                    },
+                    "session_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "time_from": {
+                        "type": "string",
+                        "example": "09:00:00",
+                        "nullable": true
+                    },
+                    "time_to": {
+                        "type": "string",
+                        "example": "11:30:00",
+                        "nullable": true
+                    },
+                    "location": {
+                        "type": "string",
+                        "example": "Hybrid · HQ Auditorium",
+                        "nullable": true
+                    },
+                    "content_ids": {
+                        "description": "Ids of `units` this session covers (cohort schedule sheet).",
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "example": 150,
+                        "nullable": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "nullable": true,
+                        "enum": [
+                            "completed",
+                            "upcoming"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
+            "MobileCohortBlock": {
+                "description": "The Next cohort card and the Schedule screen. With sessions, the dates, count and status come from the session rows.",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string",
+                        "example": "Cohort C"
+                    },
+                    "round": {
+                        "description": "The cohort's place among the course's cohorts by start date ('Round 3, Cohort C').",
+                        "type": "integer",
+                        "example": 3,
+                        "nullable": true
+                    },
+                    "effective_status": {
+                        "type": "string",
+                        "example": "scheduled"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "sessions_count": {
+                        "type": "integer",
+                        "example": 5,
+                        "nullable": true
+                    },
+                    "capacity": {
+                        "type": "integer",
+                        "example": 24
+                    },
+                    "enrolled_count": {
+                        "type": "integer",
+                        "example": 10
+                    },
+                    "seats_left": {
+                        "type": "integer",
+                        "example": 14
+                    },
+                    "is_full": {
+                        "type": "boolean"
+                    },
+                    "enrolment_closes_at": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "days_until_deadline": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "deadline_severity": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "sessions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MobileCohortSession"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "MobileCourseDetail": {
+                "description": "S-03 Course Details. Every course issues a certificate (has_certificate is always true).",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "course_type": {
+                        "type": "string",
+                        "enum": [
+                            "online",
+                            "offline",
+                            "hybrid",
+                            "external_link"
+                        ]
+                    },
+                    "level": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "image": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "has_certificate": {
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "rating": {
+                        "properties": {
+                            "avg": {
+                                "type": "number",
+                                "example": 4.8
+                            },
+                            "count": {
+                                "type": "integer",
+                                "example": 96
+                            },
+                            "sentiment": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "qualifications": {
+                        "type": "array",
+                        "items": {
+                            "properties": {
+                                "id": {
+                                    "type": "integer"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "instructors": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "units": {
+                        "description": "Modules only (what sessions' content_ids point at).",
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MobileContentItem"
+                        }
+                    },
+                    "content_count": {
+                        "description": "'View all 12 units'.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "cohorts": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MobileCohortBlock"
+                        }
+                    },
+                    "anchor_cohort": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/MobileCohortBlock"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "cta": {
+                        "properties": {
+                            "state": {
+                                "type": "string",
+                                "enum": [
+                                    "enrol_now",
+                                    "get_notified",
+                                    "enrolled_view_learning",
+                                    "unavailable",
+                                    "not_enrollable"
+                                ]
+                            },
+                            "label_key": {
+                                "type": "string"
+                            },
+                            "enabled": {
+                                "type": "boolean"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "MobileActiveCourseCard": {
+                "description": "S-05 active course card. Progress is the Website's figure (cohort modules, else attendance of the cohort's sessions); attendance counts distinct sessions; the certificate projection uses the course's own rule when it has one, else Platform Config.",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "cohort": {
+                        "properties": {
+                            "id": {
+                                "type": "integer"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "start_date": {
+                                "type": "string",
+                                "format": "date",
+                                "nullable": true
+                            },
+                            "end_date": {
+                                "type": "string",
+                                "format": "date",
+                                "nullable": true
+                            },
+                            "is_upcoming": {
+                                "description": "Before the first session's day, as on the Website.",
+                                "type": "boolean",
+                                "nullable": true
+                            },
+                            "schedule": {
+                                "type": "object",
+                                "nullable": true
+                            }
+                        },
+                        "type": "object",
+                        "nullable": true
+                    },
+                    "progress": {
+                        "properties": {
+                            "percent": {
+                                "type": "integer",
+                                "example": 40
+                            },
+                            "attended_sessions": {
+                                "type": "integer"
+                            },
+                            "past_sessions": {
+                                "type": "integer"
+                            },
+                            "total_sessions": {
+                                "type": "integer"
+                            },
+                            "absences": {
+                                "type": "integer"
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "certificate_status": {
+                        "type": "string",
+                        "nullable": true,
+                        "enum": [
+                            "earned",
+                            "on_track",
+                            "at_risk",
+                            "blocked"
+                        ]
+                    },
+                    "certificate_projection": {
+                        "type": "object",
+                        "nullable": true
+                    },
+                    "isLive": {
+                        "type": "boolean"
+                    },
+                    "live_session": {
+                        "type": "object",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "MobileQualificationProgress": {
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "total_courses": {
+                        "type": "integer"
+                    },
+                    "completed_courses": {
+                        "type": "integer"
+                    },
+                    "percent": {
+                        "description": "100 when granted (D-093).",
+                        "type": "integer"
+                    },
+                    "granted": {
+                        "description": "Held outright (granted, or approved external training).",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "Notification": {
                 "properties": {
                     "id": {
@@ -13832,6 +14337,40 @@
                     "body": {
                         "description": "Localized body.",
                         "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "type": "object"
+            },
+            "NotificationInbox": {
+                "properties": {
+                    "id": {
+                        "description": "UUID of the notification.",
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "Event slug, e.g. pending_grade, rating_dropped.",
+                        "type": "string"
+                    },
+                    "title": {
+                        "description": "Localized title.",
+                        "type": "string"
+                    },
+                    "body": {
+                        "description": "Localized body.",
+                        "type": "string"
+                    },
+                    "meta": {
+                        "description": "Deep-linking ids (course_id, etc.).",
+                        "type": "object"
+                    },
+                    "read_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
                     },
                     "created_at": {
                         "type": "string",
@@ -14346,14 +14885,6 @@
         {
             "name": "Certificates",
             "description": "Issued course completion certificates"
-        },
-        {
-            "name": "Evaluation Categories",
-            "description": "Categories used by the general evaluation system"
-        },
-        {
-            "name": "Evaluations",
-            "description": "General evaluation definitions"
         },
         {
             "name": "Course Evaluations",

@@ -169,12 +169,16 @@ class AcademyController extends MobileBaseController
      *     path="/mobile/academy/courses/{course}",
      *     tags={"Mobile"},
      *     summary="📱 [MOBILE · S-03] Course detail",
-     *     description="📱 **MOBILE** · Screen **S-03 — Course detail & enrolment** · Audience: Employee/Learner mobile app · Returns the full detail view-model including anchor cohort + typed CTA state.",
+     *     description="📱 **MOBILE** · Screen **S-03 — Course details** (Figma 2286:167907) and **Schedule** (2286:168110) · Audience: Employee/Learner mobile app · The detail view-model: next-cohort card (`anchor_cohort`: instructor via `instructors`, start / end, `round`, `sessions_count`, seats), About, qualifications earned, **Course Content** (`content`: modules, published quizzes, published assignments; `content_count` for 'View all N units') and the typed CTA. Each cohort's `sessions` drive the Schedule screen (date, time, `duration_minutes`, `location`, Completed / Upcoming).",
      *     @OA\Parameter(ref="#/components/parameters/MobileAuthorization"),
      *     @OA\Parameter(ref="#/components/parameters/EmployeeCode"),
      *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),
      *     @OA\Parameter(name="course", in="path", required=true, @OA\Schema(type="integer")),
-     *     @OA\Response(response=200, description="OK")
+     *     @OA\Response(response=200, description="OK", @OA\JsonContent(
+     *         @OA\Property(property="status", type="string", example="success"),
+     *         @OA\Property(property="message", type="string"),
+     *         @OA\Property(property="result", ref="#/components/schemas/MobileCourseDetail"))),
+     *     @OA\Response(response=404, description="Course not found")
      * )
      */
     public function show(Request $request, int $course): JsonResponse
@@ -202,14 +206,16 @@ class AcademyController extends MobileBaseController
      *     path="/mobile/academy/courses/{course}/enrol",
      *     tags={"Mobile"},
      *     summary="📱 [MOBILE · S-03→S-04] Enrol into a cohort",
-     *     description="📱 **MOBILE** · Screens **S-03 → S-04 — Enrolment confirmation** · Audience: Employee/Learner mobile app · First-come-first-served enrolment race; row-locks the cohort + checks capacity + deadline inside a transaction.",
+     *     description="📱 **MOBILE** · Screens **S-03 → S-04 — Enrolment confirmation** · Audience: Employee/Learner mobile app · First-come-first-served enrolment race; row-locks the cohort + checks capacity + deadline inside a transaction. The catalogue's rules apply on the server: a course tied to another job title's qualifications is refused (403 `not_offered`), and a chosen `cohort_id` must be one the catalogue shows (not started; opened early or inside the visibility window), else 409 `enrolment_closed`.",
      *     @OA\Parameter(ref="#/components/parameters/MobileAuthorization"),
      *     @OA\Parameter(ref="#/components/parameters/EmployeeCode"),
      *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),
      *     @OA\Parameter(name="course", in="path", required=true, @OA\Schema(type="integer")),
      *     @OA\RequestBody(required=false, @OA\JsonContent(@OA\Property(property="cohort_id", type="integer"))),
+     *     @OA\Response(response=200, description="Already enrolled (idempotent)"),
      *     @OA\Response(response=201, description="Enrolled"),
-     *     @OA\Response(response=409, description="Cohort full / closed / no cohort")
+     *     @OA\Response(response=403, description="Not offered for the learner's job title (outcome `not_offered`)"),
+     *     @OA\Response(response=409, description="Cohort full / enrolment closed / no cohort")
      * )
      */
     public function enrol(EnrolmentRequest $request, int $course): JsonResponse
@@ -241,14 +247,15 @@ class AcademyController extends MobileBaseController
      * @OA\Post(
      *     path="/mobile/academy/courses/{course}/notify-me",
      *     tags={"Mobile"},
-     *     summary="Notify me for next cohort",
-     *     description="Learner-facing intent storage (NAS-LMS-Website-Business-Flows.md GAP 4): idempotently records that this learner wants to be notified when the course's next cohort opens for enrolment. Storage only — the admin-side trigger that actually sends the notification when a new cohort opens is a separate follow-up.",
+     *     summary="📱 [MOBILE · S-03] Notify me for the next cohort",
+     *     description="📱 **MOBILE** (and Website) · The 'Get notified' CTA (`cta.state = get_notified`). Idempotently records the learner's interest; when a cohort the learner can join opens, they get a bell + email notification once and the interest is consumed (D-078). Rate-limited to 30 requests a minute.",
      *     @OA\Parameter(ref="#/components/parameters/MobileAuthorization"),
      *     @OA\Parameter(ref="#/components/parameters/EmployeeCode"),
      *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),
      *     @OA\Parameter(name="course", in="path", required=true, @OA\Schema(type="integer")),
      *     @OA\Response(response=200, description="OK"),
-     *     @OA\Response(response=404, description="Course not found")
+     *     @OA\Response(response=404, description="Course not found"),
+     *     @OA\Response(response=429, description="Too many requests")
      * )
      */
     public function notifyMe(Request $request, int $course): JsonResponse

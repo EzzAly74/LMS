@@ -12,6 +12,15 @@ use OpenApi\Annotations as OA;
  *         @OA\Schema(
  *             type="object",
  *             @OA\Property(property="title_for_certificate", type="string", nullable=true),
+ *             @OA\Property(property="certificate_rule", type="string", enum={"general","attendance","score","both"}),
+ *             @OA\Property(property="certificate_min_attendance", type="integer", nullable=true),
+ *             @OA\Property(property="certificate_min_score", type="integer", nullable=true),
+ *             @OA\Property(
+ *                 property="locked_fields",
+ *                 type="array",
+ *                 description="Admin show only: fields fixed since the first enrolment (D-095); empty while nobody is enrolled.",
+ *                 @OA\Items(type="string", enum={"course_type","certificate_rule","qualification_skill_ids"})
+ *             ),
  *             @OA\Property(property="sections", type="array", @OA\Items(ref="#/components/schemas/CourseSection")),
  *             @OA\Property(
  *                 property="exams",

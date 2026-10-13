@@ -15,20 +15,18 @@ class UserEnrollmentRepository implements UserEnrollmentRepositoryInterface
      * Course Details Learners tab (Figma 2266:129915) and the cohort learners
      * modal (2276:133999).
      *
-     * Progress is a correlated sub-select, so one query returns every row and
-     * the status filter (D-059 bands) runs in SQL before paging.
+     * Progress (cohort modules, rounded as on the Website) and completion
+     * (the one rule, CourseCompletion, B-171) are computed once per row in a
+     * derived table; the status filter and paging run on those columns.
      *
      * @param  array{search?:string, status?:string, group_id?:int}  $filters
      */
     public function paginateForCourse(Course $course, int $perPage, array $filters = []): LengthAwarePaginator
     {
-        [$progressSql, $bindings] = $this->progressExpression($course);
-
         $query = UsersCourse::query()
+            ->fromSub($this->rowsWithProgress($course), 'users_courses')
             ->select('users_courses.*')
-            ->selectRaw("{$progressSql} AS progress_percent", $bindings)
             ->with(['user:id,name,name_en,name_ar,machine_code,status', 'group'])
-            ->where('users_courses.course_id', $course->id)
             ->when($filters['group_id'] ?? null, fn ($q, $groupId) => $q->where('users_courses.group_id', $groupId))
             ->when($filters['search'] ?? null, function ($q, $search) {
                 $like = '%'.addcslashes($search, '%_\\').'%';
@@ -39,25 +37,38 @@ class UserEnrollmentRepository implements UserEnrollmentRepositoryInterface
                     ->orWhere('machine_code', 'like', $like)));
             })
             ->when($filters['status'] ?? null, fn ($q, $status) => match ($status) {
-                'completed'   => $q->whereRaw("{$progressSql} >= 100", $bindings),
-                'in_progress' => $q->whereRaw("{$progressSql} > 0", $bindings)->whereRaw("{$progressSql} < 100", $bindings),
-                default       => $q->whereRaw("{$progressSql} = 0", $bindings),
+                'completed'   => $q->where('users_courses.is_completed', 1),
+                'in_progress' => $q->where('users_courses.is_completed', 0)->where('users_courses.progress_percent', '>', 0),
+                default       => $q->where('users_courses.is_completed', 0)->where('users_courses.progress_percent', 0),
             })
             ->orderByDesc('users_courses.id');
 
         return $query->paginate($perPage);
     }
 
-    /** Enrolled learners with progress above 0 and below 100 (the header's "N Active", D-059). */
+    /** Enrolled learners who started and have not completed (the header's "N Active", D-059). */
     public function countInProgress(Course $course): int
+    {
+        return DB::query()
+            ->fromSub($this->rowsWithProgress($course), 'p')
+            ->where('p.is_completed', 0)
+            ->where('p.progress_percent', '>', 0)
+            ->count();
+    }
+
+    /**
+     * The course's enrolments with `progress_percent` and `is_completed`,
+     * each computed once per row.
+     */
+    private function rowsWithProgress(Course $course): \Illuminate\Database\Query\Builder
     {
         [$progressSql, $bindings] = $this->progressExpression($course);
 
-        return UsersCourse::query()
-            ->where('course_id', $course->id)
-            ->whereRaw("{$progressSql} > 0", $bindings)
-            ->whereRaw("{$progressSql} < 100", $bindings)
-            ->count();
+        return DB::table('users_courses')
+            ->select('users_courses.*')
+            ->selectRaw("{$progressSql} AS progress_percent", $bindings)
+            ->selectRaw('('.\App\Support\CourseCompletion::existsSql('users_courses.user_id', 'users_courses.course_id').') AS is_completed')
+            ->where('users_courses.course_id', $course->id);
     }
 
     /**
@@ -81,7 +92,8 @@ class UserEnrollmentRepository implements UserEnrollmentRepositoryInterface
             .\App\Support\CohortModules::requiredSql('users_courses.user_id', 'pd');
 
         return [
-            "COALESCE(FLOOR(({$done}) * 100 / NULLIF(({$total}), 0)), 0)",
+            // Rounded, as the Website rounds it (B-171).
+            "COALESCE(ROUND(({$done}) * 100 / NULLIF(({$total}), 0)), 0)",
             [(int) $course->id, (int) $course->id],
         ];
     }

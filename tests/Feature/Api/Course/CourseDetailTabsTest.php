@@ -107,13 +107,18 @@ class CourseDetailTabsTest extends ApiTestCase
 
     public function test_rows_carry_progress_status_cohort_and_account_state(): void
     {
-        $this->learner($this->cohortA, 4, ['name_en' => 'Ali Done']);
+        $done = $this->learner($this->cohortA, 4, ['name_en' => 'Ali Done']);
+        // The course offers a certificate: it is completed by holding it (D-082, B-171).
+        \App\Models\UserCertificate::factory()->create(['user_id' => $done->id, 'course_id' => $this->course->id]);
+        $this->learner($this->cohortA, 4, ['name_en' => 'Mona Uncertified']);
         $this->learner($this->cohortA, 2, ['name_en' => 'Omar Half']);
         $this->learner($this->cohortB, 0, ['name_en' => 'Sara New', 'status' => 'inactive']);
 
         $rows = collect($this->learners()->assertOk()->json('result'))->keyBy('user.name');
 
         $this->assertSame(['progress' => 100, 'status' => 'completed'], ['progress' => $rows['Ali Done']['progress'], 'status' => $rows['Ali Done']['status']]);
+        // Every module done but no certificate yet: still in progress, as on the Website.
+        $this->assertSame(['progress' => 100, 'status' => 'in_progress'], ['progress' => $rows['Mona Uncertified']['progress'], 'status' => $rows['Mona Uncertified']['status']]);
         $this->assertSame(50, $rows['Omar Half']['progress']);
         $this->assertSame('in_progress', $rows['Omar Half']['status']);
         $this->assertSame('not_started', $rows['Sara New']['status']);
@@ -126,14 +131,18 @@ class CourseDetailTabsTest extends ApiTestCase
 
     public function test_status_cohort_and_search_filter_in_the_database(): void
     {
-        $this->learner($this->cohortA, 4, ['name_en' => 'Ali Done']);
+        $done = $this->learner($this->cohortA, 4, ['name_en' => 'Ali Done']);
+        // The course offers a certificate: it is completed by holding it (D-082, B-171).
+        \App\Models\UserCertificate::factory()->create(['user_id' => $done->id, 'course_id' => $this->course->id]);
+        $this->learner($this->cohortA, 4, ['name_en' => 'Mona Uncertified']);
         $this->learner($this->cohortA, 2, ['name_en' => 'Omar Half', 'machine_code' => 'EMP-77']);
         $this->learner($this->cohortB, 1, ['name_en' => 'Sara Started']);
         $this->learner($this->cohortB, 0, ['name_en' => 'Khalid New']);
 
         $names = fn ($res) => collect($res->assertOk()->json('result'))->pluck('user.name')->sort()->values()->all();
 
-        $this->assertSame(['Omar Half', 'Sara Started'], $names($this->learners(['status' => 'in_progress'])));
+        // 'Mona Uncertified' finished every module but holds no certificate yet.
+        $this->assertSame(['Mona Uncertified', 'Omar Half', 'Sara Started'], $names($this->learners(['status' => 'in_progress'])));
         $this->assertSame(['Ali Done'], $names($this->learners(['status' => 'completed'])));
         $this->assertSame(['Khalid New'], $names($this->learners(['status' => 'not_started'])));
         $this->assertSame(['Khalid New', 'Sara Started'], $names($this->learners(['group_id' => $this->cohortB->id])));
@@ -142,8 +151,8 @@ class CourseDetailTabsTest extends ApiTestCase
         // LIKE wildcards are literal.
         $this->assertSame([], $names($this->learners(['search' => '%'])));
 
-        $this->assertSame(4, $this->learners(['per_page' => 2])->json('meta.total'));
-        $this->assertSame(2, $this->learners(['per_page' => 2])->json('meta.last_page'));
+        $this->assertSame(5, $this->learners(['per_page' => 2])->json('meta.total'));
+        $this->assertSame(3, $this->learners(['per_page' => 2])->json('meta.last_page'));
     }
 
     public function test_invalid_filters_and_another_courses_cohort_are_rejected(): void
@@ -169,7 +178,8 @@ class CourseDetailTabsTest extends ApiTestCase
 
     public function test_course_detail_reports_in_progress_and_tab_counts(): void
     {
-        $this->learner($this->cohortA, 4);
+        $done = $this->learner($this->cohortA, 4);
+        \App\Models\UserCertificate::factory()->create(['user_id' => $done->id, 'course_id' => $this->course->id]);
         $a = $this->learner($this->cohortA, 2);
         $this->learner($this->cohortB, 1);
         $this->learner($this->cohortB, 0);

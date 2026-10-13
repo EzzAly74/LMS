@@ -22,6 +22,8 @@ class HrSyncTest extends ApiTestCase
     {
         parent::setUp();
         $this->forgetHrSync();
+        // HR is set up (the fake below answers); one test blanks it.
+        config(['hr.base_url' => 'https://hr.example.test', 'hr.admin_email' => 'sync@example.test', 'hr.admin_password' => 'test-only']);
 
         $this->app->instance(HRSystemService::class, new class extends HRSystemService {
             public function __construct() {}
@@ -84,6 +86,19 @@ class HrSyncTest extends ApiTestCase
             $this->assertSame(1, $status['report']['employees']);
         }
         $this->assertTrue(User::where('machine_code', 'EMP-77')->exists());
+    }
+
+    public function test_without_the_hr_address_and_account_it_says_not_configured(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+        config(['hr.admin_password' => '']);
+
+        $this->postJson(self::BASE.'/admin/learners/hr-sync', [], $headers)->assertStatus(202);
+
+        $status = $this->getJson(self::BASE.'/admin/learners/hr-sync', $headers)->assertOk()->json('result');
+        $this->assertSame('failed', $status['state']);
+        $this->assertSame('not_configured', $status['reason']);
+        $this->assertFalse(User::where('machine_code', 'EMP-77')->exists());
     }
 
     public function test_a_second_press_while_running_does_not_start_another_run(): void

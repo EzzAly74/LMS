@@ -118,10 +118,24 @@ final class HrEmployeeSyncService
             'state' => 'running', 'started_at' => now()->toIso8601String(), 'requested_by' => $requestedBy,
         ], now()->addDays(7));
 
+        // Without the HR address and account nothing can be pulled: say so
+        // instead of a bare failure (the Dashboard explains it).
+        if (blank(config('hr.base_url')) || blank(config('hr.admin_email')) || blank(config('hr.admin_password'))) {
+            Cache::put(self::STATUS_KEY, [
+                'state' => 'failed', 'reason' => 'not_configured',
+                'finished_at' => now()->toIso8601String(), 'requested_by' => $requestedBy,
+            ], now()->addDays(7));
+            $lock->release();
+
+            return true;
+        }
+
         try {
             $report = $this->sync();
             Cache::put(self::STATUS_KEY, [
                 'state' => $report['employees'] > 0 ? 'done' : 'failed',
+                // HR answered nothing: unreachable or refused the account.
+                'reason' => $report['employees'] > 0 ? null : 'no_data',
                 'finished_at' => now()->toIso8601String(),
                 'requested_by' => $requestedBy,
                 'report' => $report,
@@ -130,7 +144,7 @@ final class HrEmployeeSyncService
             // HR errors are logged by HRSystemService; never the credentials.
             Log::error('HR sync failed', ['error' => $e->getMessage()]);
             Cache::put(self::STATUS_KEY, [
-                'state' => 'failed', 'finished_at' => now()->toIso8601String(), 'requested_by' => $requestedBy,
+                'state' => 'failed', 'reason' => 'error', 'finished_at' => now()->toIso8601String(), 'requested_by' => $requestedBy,
             ], now()->addDays(7));
         } finally {
             $lock->release();

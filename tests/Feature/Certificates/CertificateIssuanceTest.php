@@ -46,7 +46,7 @@ class CertificateIssuanceTest extends TestCase
     public function test_issue_from_exam_creates_active_numbered_certificate(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => false]);
 
         $certificate = $this->service()->issueFromExam($this->passedFinalExam($user, $course));
 
@@ -64,7 +64,7 @@ class CertificateIssuanceTest extends TestCase
 
     public function test_numbers_are_sequential_within_a_year(): void
     {
-        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => false]);
 
         $first  = $this->service()->issueFromExam($this->passedFinalExam(User::factory()->create(), $course));
         $second = $this->service()->issueFromExam($this->passedFinalExam(User::factory()->create(), $course));
@@ -77,7 +77,7 @@ class CertificateIssuanceTest extends TestCase
     public function test_issuance_is_idempotent_per_learner_and_course(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => false]);
         $exam   = $this->passedFinalExam($user, $course);
 
         $a = $this->service()->issueFromExam($exam);
@@ -90,7 +90,7 @@ class CertificateIssuanceTest extends TestCase
     public function test_no_certificate_when_course_does_not_allow_it(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => false, 'is_evaluate' => false]);
+        $course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => false, 'is_evaluate' => false]);
 
         $this->assertNull($this->service()->issueFromExam($this->passedFinalExam($user, $course)));
         $this->assertDatabaseCount('user_certificates', 0);
@@ -99,7 +99,7 @@ class CertificateIssuanceTest extends TestCase
     public function test_issue_from_evaluation_creates_certificate(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => true]);
+        $course = Course::factory()->scoreRule()->create(['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => true]);
         $this->passedFinalExam($user, $course); // the measured score the rule asks for
 
         $evaluation = UserCourseEvaluation::factory()->create([
@@ -122,7 +122,7 @@ class CertificateIssuanceTest extends TestCase
     {
         $user   = User::factory()->create();
         // Platform default rule: attendance. No sessions, so attendance is unmeasurable.
-        $course = Course::factory()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => false]);
 
         $this->assertNull($this->service()->issueFromExam($this->passedFinalExam($user, $course)));
         $this->assertDatabaseMissing('user_certificates', ['user_id' => $user->id, 'course_id' => $course->id]);
@@ -131,7 +131,7 @@ class CertificateIssuanceTest extends TestCase
     public function test_an_evaluation_with_nothing_measured_does_not_certify(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => true]);
+        $course = Course::factory()->scoreRule()->create(['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => true]);
         $evaluation = UserCourseEvaluation::factory()->create(['user_id' => $user->id, 'course_id' => $course->id]);
 
         $this->assertNull($this->service()->issueFromEvaluation($evaluation));
@@ -150,7 +150,7 @@ class CertificateIssuanceTest extends TestCase
     public function test_revoke_keeps_row_and_sets_status(): void
     {
         $user   = User::factory()->create();
-        $course = Course::factory()->scoreRule()->create(['certificate' => true, 'is_evaluate' => false]);
+        $course = Course::factory()->scoreRule()->create(['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => false]);
         $certificate = $this->service()->issueFromExam($this->passedFinalExam($user, $course));
 
         $admin = User::factory()->create();

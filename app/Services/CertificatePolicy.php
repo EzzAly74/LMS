@@ -75,6 +75,12 @@ class CertificatePolicy
 
     public const BASES = [self::BASIS_ATTENDANCE, self::BASIS_SCORE, self::BASIS_BOTH];
 
+    /** Internal only: a sessionless course's rule once attendance is dropped (D-092). */
+    public const BASIS_NONE = 'none';
+
+    /** Course types without sessions: attendance never applies to them (D-092). */
+    public const SESSIONLESS_TYPES = ['online', 'external_link'];
+
     /** A course's `certificate_rule` when it follows Platform Config (D-058). */
     public const RULE_GENERAL = 'general';
 
@@ -92,15 +98,16 @@ class CertificatePolicy
      */
     public function forCourse(Course $course): CertificateRule
     {
-        if (!$course->certificate_custom_rule || !in_array($course->certificate_mode, self::BASES, true)) {
-            return $this->general();
-        }
+        $rule = (!$course->certificate_custom_rule || !in_array($course->certificate_mode, self::BASES, true))
+            ? $this->general()
+            : new CertificateRule(
+                $course->certificate_mode,
+                $this->clamp($course->certificate_attendance_threshold, $this->minAttendance()),
+                $this->clamp($course->certificate_score_threshold, $this->minScore()),
+            );
 
-        return new CertificateRule(
-            $course->certificate_mode,
-            $this->clamp($course->certificate_attendance_threshold, $this->minAttendance()),
-            $this->clamp($course->certificate_score_threshold, $this->minScore()),
-        );
+        // An online or external-link course has no sessions to attend (D-092).
+        return in_array($course->course_type, self::SESSIONLESS_TYPES, true) ? $rule->withoutAttendance() : $rule;
     }
 
     public function basis(): string

@@ -34,7 +34,7 @@ class AttendanceCertificateTest extends TestCase
     {
         $this->configureCertificateRule(CertificatePolicy::BASIS_ATTENDANCE, minAttendance: $threshold);
 
-        return Course::factory()->create([
+        return Course::factory()->create(['course_type' => 'hybrid', 
             'certificate'        => true,
             'number_of_sessions' => $sessions,
             'is_evaluate'        => false,

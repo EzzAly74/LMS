@@ -270,7 +270,8 @@ class CertificateProjectionService
         $rule = $this->policy->forCourse($course);
 
         return [
-            'certificate_mode'      => $rule->basis,
+            // 'none' is internal (a sessionless course, D-092): the apps see no mode.
+            'certificate_mode'      => $rule->basis === CertificatePolicy::BASIS_NONE ? null : $rule->basis,
             'attendance_threshold'  => $rule->requires(CertificatePolicy::METRIC_ATTENDANCE)
                 ? $rule->minAttendance
                 : null,

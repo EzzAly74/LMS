@@ -118,10 +118,11 @@ final class MyLearningRepository implements MyLearningRepositoryInterface
         //    otherwise (session/offline course with zero lectures) fall back
         //    to attendance so an instructor-led course shows real progress
         //    instead of a misleading hard-coded 0%.
+        // Rounded as the Website rounds it (D-092), so both apps agree.
         if ($totalLectures > 0) {
-            $progress = (int) floor(($completedLectures * 100) / $totalLectures);
+            $progress = (int) round(($completedLectures * 100) / $totalLectures);
         } elseif ($totalSessions > 0) {
-            $progress = (int) min(100, floor(($attended * 100) / $totalSessions));
+            $progress = (int) min(100, round(($attended * 100) / $totalSessions));
         } else {
             $progress = 0;
         }

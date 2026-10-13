@@ -44,7 +44,7 @@ class CertificateFlowTest extends TestCase
     {
         $this->configureCertificateRule(CertificatePolicy::BASIS_ATTENDANCE, minAttendance: 75);
         $this->user = User::factory()->create();
-        $this->course = Course::factory()->create(['certificate' => true, 'is_evaluate' => false]);
+        $this->course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => false]);
         $this->cohort = CourseSection::factory()->create([
             'course_id' => $this->course->id,
             'start_date' => now()->addDays($started ? -10 : 10)->toDateString(),
@@ -170,6 +170,17 @@ class CertificateFlowTest extends TestCase
         // The learner's own "No" still un-marks it.
         $service->track($this->user->id, $this->lectures[0], null, false);
         $this->assertFalse((bool) DB::table('user_lecture_progress')->where('user_id', $this->user->id)->where('lecture_id', $this->lectures[0])->value('completed'));
+    }
+
+    public function test_an_online_course_is_earned_by_its_content_without_attendance(): void
+    {
+        // D-092: an online course has no sessions; the attendance-only rule
+        // leaves the content as the whole requirement.
+        $this->setUpCourse();
+        $this->course->update(['course_type' => 'online']);
+        $this->finishContent();
+
+        $this->assertNotNull($this->certificate());
     }
 
     /** @return array{headers: array<string, string>} */

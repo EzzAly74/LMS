@@ -205,6 +205,7 @@ class AdminLearnerProfileService
             ->select([
                 'users_courses.course_id',
                 'courses.title as course_title',
+                'courses.course_type',
                 'course_sections.id as cohort_id',
                 'course_sections.name as cohort_name',
                 'course_sections.start_date',

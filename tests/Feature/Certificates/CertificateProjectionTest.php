@@ -46,7 +46,7 @@ class CertificateProjectionTest extends TestCase
     {
         $this->configureCertificateRule(CertificatePolicy::BASIS_SCORE, minScore: 60);
         $user = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => true]);
+        $course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => true]);
         UserCertificate::factory()->create(['user_id' => $user->id, 'course_id' => $course->id]);
 
         $result = $this->service()->projectForCourse($user, $course);
@@ -59,7 +59,7 @@ class CertificateProjectionTest extends TestCase
     {
         $this->configureCertificateRule(CertificatePolicy::BASIS_SCORE, minScore: 60);
         $user = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => true]);
+        $course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => true]);
         $cohort = CourseSection::factory()->running()->create(['course_id' => $course->id]);
         $this->enrollInCohort($user, $course, $cohort);
 
@@ -73,7 +73,7 @@ class CertificateProjectionTest extends TestCase
     {
         $this->configureCertificateRule(CertificatePolicy::BASIS_SCORE, minScore: 60);
         $user = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => true]);
+        $course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => true]);
         $cohort = CourseSection::factory()->running()->create(['course_id' => $course->id]);
         $this->enrollInCohort($user, $course, $cohort);
 
@@ -97,7 +97,7 @@ class CertificateProjectionTest extends TestCase
     {
         $this->configureCertificateRule(CertificatePolicy::BASIS_SCORE, minScore: 60);
         $user = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => true]);
+        $course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => true]);
         $cohort = CourseSection::factory()->create([
             'course_id' => $course->id,
             'start_date' => now()->subDays(60)->toDateString(),
@@ -128,7 +128,7 @@ class CertificateProjectionTest extends TestCase
     {
         $this->configureCertificateRule(CertificatePolicy::BASIS_BOTH, minAttendance: 75, minScore: 60);
         $user = User::factory()->create();
-        $course = Course::factory()->create([
+        $course = Course::factory()->create(['course_type' => 'hybrid', 
             'certificate' => true,
             // A planned session count is what makes attendance measurable at
             // all — without it the attendance requirement would be skipped.
@@ -168,7 +168,7 @@ class CertificateProjectionTest extends TestCase
     public function test_no_projection_when_course_does_not_offer_a_certificate(): void
     {
         $user = User::factory()->create();
-        $course = Course::factory()->create(['certificate' => false]);
+        $course = Course::factory()->create(['course_type' => 'hybrid', 'certificate' => false]);
 
         $result = $this->service()->projectForCourse($user, $course);
 

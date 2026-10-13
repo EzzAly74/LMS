@@ -24,7 +24,7 @@ class ContentCompletionCertificateTest extends ApiTestCase
     private function enrolled(array $course = []): array
     {
         ['model' => $user, 'headers' => $h] = $this->userToken();
-        $c = Course::factory()->create($course + ['certificate' => true, 'is_evaluate' => false]);
+        $c = Course::factory()->create($course + ['course_type' => 'hybrid', 'certificate' => true, 'is_evaluate' => false]);
         $cohort = CourseSection::factory()->create(['course_id' => $c->id]);
         UsersCourse::factory()->create(['user_id' => $user->id, 'course_id' => $c->id, 'group_id' => $cohort->id]);
         $lectures = CourseLecture::factory()->count(2)->create(['course_id' => $c->id, 'section_id' => $cohort->id]);

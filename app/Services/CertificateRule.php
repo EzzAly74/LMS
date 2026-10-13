@@ -29,8 +29,25 @@ final class CertificateRule
         return match ($this->basis) {
             CertificatePolicy::BASIS_ATTENDANCE => [CertificatePolicy::METRIC_ATTENDANCE],
             CertificatePolicy::BASIS_SCORE      => [CertificatePolicy::METRIC_SCORE],
+            CertificatePolicy::BASIS_NONE       => [],
             default                             => [CertificatePolicy::METRIC_ATTENDANCE, CertificatePolicy::METRIC_SCORE],
         };
+    }
+
+    /**
+     * The same rule for a course without sessions (online, external link;
+     * D-092): attendance cannot apply, so it is dropped - an attendance-only
+     * rule leaves the course's completion event as the whole requirement.
+     */
+    public function withoutAttendance(): self
+    {
+        $basis = match ($this->basis) {
+            CertificatePolicy::BASIS_ATTENDANCE => CertificatePolicy::BASIS_NONE,
+            CertificatePolicy::BASIS_BOTH       => CertificatePolicy::BASIS_SCORE,
+            default                             => $this->basis,
+        };
+
+        return new self($basis, $this->minAttendance, $this->minScore);
     }
 
     public function requires(string $metric): bool
@@ -78,6 +95,12 @@ final class CertificateRule
      */
     public function isFullyMet(?int $attendancePercent, ?int $scorePercent): bool
     {
+        // Nothing to measure (a sessionless course's attendance-only rule):
+        // the completion event alone earns it (D-092).
+        if ($this->requiredMetrics() === []) {
+            return true;
+        }
+
         $checks = $this->checks($attendancePercent, $scorePercent);
 
         return $checks !== [] && !in_array(null, $checks, true) && !in_array(false, $checks, true);

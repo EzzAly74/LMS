@@ -59,8 +59,16 @@ class DashboardRepository implements DashboardRepositoryInterface
             ? "(SELECT COUNT(*) FROM user_course_assignments WHERE course_assignment_id IN (SELECT id FROM course_assignments WHERE course_id IN ({$in})))"
             : '(SELECT COUNT(*) FROM user_course_assignments)';
 
+        // Average completion (NEW2B-5960): completed enrollments over all
+        // enrollments in the same courses, completion being the shared rule
+        // (D-082/D-094). `uc` is the only alias, so existsSql stays safe.
+        $completionSql = "(SELECT CASE WHEN COUNT(*) = 0 THEN 0
+                ELSE ROUND(100 * SUM(CASE WHEN ".CourseCompletion::existsSql('uc.user_id', 'uc.course_id')." THEN 1 ELSE 0 END) / COUNT(*))
+            END FROM users_courses uc WHERE 1 = 1".($scoped ? " AND uc.course_id IN ({$in})" : '').')';
+
         $row = (array) DB::selectOne("
             SELECT
+                {$completionSql}                                                                   AS average_completion_percent,
                 {$hasActiveCohortSql}                                                              AS active_courses,
                 (SELECT COUNT(*) FROM courses WHERE active = 0{$courseWhere})                     AS awaiting_publish,
                 (SELECT COUNT(*) FROM courses WHERE 1 = 1{$courseWhere})                          AS courses,
@@ -74,6 +82,8 @@ class DashboardRepository implements DashboardRepositoryInterface
                 (SELECT COUNT(*) FROM course_lecture_questions WHERE answer IS NULL{$byCourse})   AS unanswered_questions,
                 {$assignmentsSql}                                                                  AS user_assignments
         ");
+
+        $row['average_completion_percent'] = (int) $row['average_completion_percent'];
 
         if ($scoped) {
             $row['instructors'] = null;

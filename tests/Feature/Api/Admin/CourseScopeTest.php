@@ -207,6 +207,26 @@ class CourseScopeTest extends ApiTestCase
         $this->assertSame([$this->mine->id], array_map('intval', array_column($result['top_courses'], 'id')));
     }
 
+    /** NEW2B-5960: Average Completion covers my courses only (completed = active certificate). */
+    public function test_average_completion_covers_only_my_courses(): void
+    {
+        [$done, $pending, $stranger] = User::factory()->count(3)->create()->all();
+        DB::table('users_courses')->insert([
+            ['user_id' => $done->id, 'course_id' => $this->mine->id, 'created_at' => now(), 'updated_at' => now()],
+            ['user_id' => $pending->id, 'course_id' => $this->mine->id, 'created_at' => now(), 'updated_at' => now()],
+            ['user_id' => $stranger->id, 'course_id' => $this->theirs->id, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        \App\Models\UserCertificate::factory()->create(['user_id' => $done->id, 'course_id' => $this->mine->id]);
+        \App\Models\UserCertificate::factory()->create(['user_id' => $stranger->id, 'course_id' => $this->theirs->id]);
+
+        ['headers' => $mine] = $this->account();
+        $this->assertSame(50, $this->getJson(self::BASE.'/dashboard', $mine)->assertOk()->json('result.statistics.average_completion_percent'));
+
+        // Every course: two of three enrollments are complete.
+        ['headers' => $all] = $this->adminToken();
+        $this->assertSame(67, $this->getJson(self::BASE.'/dashboard', $all)->assertOk()->json('result.statistics.average_completion_percent'));
+    }
+
     public function test_learners_are_those_of_my_courses_only(): void
     {
         $learner = User::factory()->create();

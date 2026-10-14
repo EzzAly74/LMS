@@ -45,6 +45,14 @@ final class SessionTitle
                     continue;
                 }
                 $value = $name === 'n' && $number !== null ? (string) $number : $m[1];
+                // A generated date reads in the reader's language ("14 October 2026" / "14 أكتوبر 2026").
+                if ($name === 'date') {
+                    try {
+                        $value = \Illuminate\Support\Carbon::parse($value)->locale($locale)->translatedFormat('j F Y');
+                    } catch (\Throwable) {
+                        // An unparsable date stays as written.
+                    }
+                }
 
                 return trans($key, [$name => $value], $locale);
             }

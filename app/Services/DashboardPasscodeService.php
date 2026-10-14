@@ -379,7 +379,7 @@ final class DashboardPasscodeService
         return CourseSession::create([
             'course_id'    => $courseId,
             'section_id'   => $cohortId,
-            'title'        => __('messages.passcode.session_title', ['date' => $now->format('d M Y')]),
+            'title'        => __('messages.passcode.session_title', ['date' => $now->toDateString()]),
             'session_date' => $now->toDateString(),
             'time_from'    => $now->format('H:i:s'),
             'time_to'      => $end->isSameDay($now) ? $end->format('H:i:s') : '23:59:59',

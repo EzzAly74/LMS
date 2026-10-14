@@ -201,7 +201,8 @@ class DashboardRepository implements DashboardRepositoryInterface
             $d = \Illuminate\Support\Carbon::parse($r['date']);
             return [
                 'date'        => $d->format('Y-m-d'),
-                'label'       => $d->format('d M'),
+                // In the request language (month names), like every date the Dashboard shows.
+                'label'       => $d->locale(app()->getLocale())->translatedFormat('d M'),
                 'enrollments' => (int) $r['enrollments'],
                 'completions' => (int) $r['completions'],
             ];
@@ -238,7 +239,8 @@ class DashboardRepository implements DashboardRepositoryInterface
             $key = (int) $weekStart->format('oW');
             $buckets[] = [
                 'date'        => $weekStart->format('Y-m-d'),
-                'label'       => 'W' . $weekStart->isoWeek(),
+                // The week's first day, in the request language ("W42" read as code).
+                'label'       => $weekStart->copy()->locale(app()->getLocale())->translatedFormat('d M'),
                 'enrollments' => (int) ($enrollments[$key] ?? 0),
                 'completions' => (int) ($completions[$key] ?? 0),
             ];
@@ -276,7 +278,7 @@ class DashboardRepository implements DashboardRepositoryInterface
             $key = $d->format('Y-m');
             $buckets[] = [
                 'date'        => $d->format('Y-m-d'),
-                'label'       => $d->format('M'),
+                'label'       => $d->locale(app()->getLocale())->translatedFormat('M'),
                 'enrollments' => (int) ($enrollments[$key] ?? 0),
                 'completions' => (int) ($completions[$key] ?? 0),
             ];

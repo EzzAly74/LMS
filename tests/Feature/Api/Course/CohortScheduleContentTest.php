@@ -379,6 +379,8 @@ class CohortScheduleContentTest extends ApiTestCase
 
         // A title an admin typed is kept as it is.
         $this->assertSame('Kick-off', \App\Support\SessionTitle::localize('Kick-off', 3, 'ar'));
-        $this->assertSame('جلسة مباشرة — 2026-10-20', \App\Support\SessionTitle::localize('Live Session — 2026-10-20', null, 'ar'));
+        // The generated date reads in the reader's language too.
+        $this->assertSame('جلسة مباشرة — 20 أكتوبر 2026', \App\Support\SessionTitle::localize('Live Session — 2026-10-20', null, 'ar'));
+        $this->assertSame('Live Session — 20 October 2026', \App\Support\SessionTitle::localize('Live Session — 20 Oct 2026', null, 'en'));
     }
 }

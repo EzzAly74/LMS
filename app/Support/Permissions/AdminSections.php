@@ -43,7 +43,7 @@ final class AdminSections
 
         // Learning Operation
         'courses'           => ['group' => 'Learning Operation', 'en' => 'Courses', 'ar' => 'الدورات', 'actions' => self::CRUD, 'catalog' => true],
-        'assignments'       => ['group' => 'Learning Operation', 'en' => 'Assignments', 'ar' => 'الواجبات', 'actions' => self::CRUD, 'catalog' => true],
+        'assignments'       => ['group' => 'Learning Operation', 'en' => 'Assignments', 'ar' => 'المهام', 'actions' => self::CRUD, 'catalog' => true],
         'quizzes'           => ['group' => 'Learning Operation', 'en' => 'Quizzes', 'ar' => 'الاختبارات', 'actions' => self::CRUD, 'catalog' => true],
         'evaluations'       => ['group' => 'Learning Operation', 'en' => 'Evaluation', 'ar' => 'التقييم', 'actions' => [self::VIEW, self::CREATE, self::EDIT], 'catalog' => true],
         'learners'          => ['group' => 'Learning Operation', 'en' => 'Learners', 'ar' => 'المتعلمون', 'actions' => [self::VIEW], 'catalog' => true],

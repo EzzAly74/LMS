@@ -45,10 +45,12 @@ if (!function_exists('arabicSlug')) {
         }
         $string = trim($string);
         $string = mb_strtolower($string, "UTF-8");;
-        $string = preg_replace("/[^a-z0-9_\sءاأإآؤئبتثجحخدذرزسشصضطظعغفقكلمنهويةى]#u/", "", $string);
+        // Letters, digits, spaces, "_" and "-" only: "/", "?", "#" and the like
+        // broke the URL (the old pattern ended in a stray "#" and stripped nothing).
+        $string = preg_replace("/[^a-z0-9_\s\-ءاأإآؤئبتثجحخدذرزسشصضطظعغفقكلمنهويةى]/u", "", $string);
         $string = preg_replace("/[\s-]+/", " ", $string);
         $string = preg_replace("/[\s_]/", $separator, $string);
-        return $string;
+        return trim($string, $separator);
     }
 }
 

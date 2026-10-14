@@ -271,9 +271,12 @@ class BlogService
         return (string) ($data['title']['en'] ?? $data['title']['ar'] ?? 'blog');
     }
 
+    private const SLUG_MAX = 150;
+
     private function uniqueSlug(string $title, ?int $ignoreId = null): string
     {
-        $base = arabicSlug($title) ?: 'blog';
+        // Bounded so a suffix still fits the 255-character column.
+        $base = rtrim(mb_substr(arabicSlug($title), 0, self::SLUG_MAX), '-') ?: 'blog';
         $slug = $base;
         $suffix = 2;
 

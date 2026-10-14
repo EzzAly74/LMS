@@ -61,6 +61,26 @@ class BlogValidationMessagesTest extends ApiTestCase
         $this->assertDatabaseCount('blogs', 0);
     }
 
+    /** A title with URL characters, or at the 100-character limit, still saves with a safe slug. */
+    public function test_the_slug_is_url_safe_and_fits_its_column(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $h = $this->adminToken()['headers'] + ['Accept' => 'application/json'];
+        $png = fn () => \Illuminate\Http\UploadedFile::fake()->image('c.png', 800, 450)->size(100);
+        $url = self::BASE.'/admin/blogs';
+
+        $this->post($url, $this->payload(['title' => ['en' => 'Safety: 101 / Part #2?']]) + ['image' => $png()], $h)->assertSuccessful();
+        $this->post($url, $this->payload(['title' => ['en' => 'Safety: 101 / Part #2?']]) + ['image' => $png()], $h)->assertSuccessful();
+        $this->post($url, $this->payload(['title' => ['en' => str_repeat('word ', 20)]]) + ['image' => $png()], $h)->assertSuccessful();
+
+        $slugs = \App\Models\Blog::query()->orderBy('id')->pluck('slug')->all();
+        $this->assertSame(['safety-101-part-2', 'safety-101-part-2-2'], array_slice($slugs, 0, 2));
+        $this->assertLessThanOrEqual(150, mb_strlen($slugs[2]));
+        foreach ($slugs as $slug) {
+            $this->assertMatchesRegularExpression('/^[\p{Arabic}a-z0-9-]+$/u', $slug);
+        }
+    }
+
     public function test_messages_follow_the_request_language(): void
     {
         $admin = $this->adminToken();

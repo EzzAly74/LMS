@@ -80,6 +80,7 @@ return [
     'schedule_content_too_many'    => 'يمكن أن تتضمن الجلسة :max محتوى بحد أقصى.',
     'cohort_capacity_below_enrolled' => 'لا يمكن أن تقل السعة عن :count متعلمًا مسجلين بالفعل.',
     'qualification_name_taken' => 'يوجد مؤهل آخر بهذا الاسم.',
+    'qualification_in_use' => 'هذا المؤهل مرتبط بـ :count دورة. أزله من هذه الدورات قبل حذفه.',
     'import_qualification_duplicate_in_file' => 'يوجد صف آخر في هذا الملف بنفس اسم المؤهل.',
     'import_too_many_learners' => 'يمكن منح المؤهل لـ :max متعلم كحد أقصى في الصف الواحد.',
     'import_unknown_job_title' => 'لا يوجد مسمى وظيفي باسم ":name".',

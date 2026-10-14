@@ -18,6 +18,13 @@ class AdminQualificationRowResource extends JsonResource
             'id'                 => $this->id,
             'name'               => $this->getTranslation('name', app()->getLocale()),
             'courses_count'      => (int) ($this->courses_count ?? 0),
+            // NEW2B-5952: which courses, in the reader's language.
+            'courses'            => $this->whenLoaded('courses', fn () => $this->courses->map(fn ($c) => [
+                'id'    => (int) $c->id,
+                'title' => (string) $c->getTranslation('title', app()->getLocale()),
+            ])->values()),
+            // NEW2B-6048: only a qualification no course uses can be deleted.
+            'can_delete'         => (int) ($this->courses_count ?? 0) === 0,
             'enrolled_count'     => (int) ($this->enrolled_count ?? 0),
             'job_titles_count'   => (int) ($this->job_titles_count ?? 0),
             'learners_count'     => (int) ($this->learners_count ?? 0),

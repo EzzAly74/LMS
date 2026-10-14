@@ -80,6 +80,7 @@ return [
     'schedule_content_too_many'    => 'A session can list up to :max modules.',
     'cohort_capacity_below_enrolled' => 'The capacity cannot be less than the :count learners already enrolled.',
     'qualification_name_taken' => 'Another qualification already has this name.',
+    'qualification_in_use' => 'This qualification is linked to :count course(s). Remove it from those courses before deleting it.',
     'import_qualification_duplicate_in_file' => 'Another row in this file has the same qualification name.',
     'import_too_many_learners' => 'A qualification can be granted to at most :max learners in one row.',
     'import_unknown_job_title' => 'No job title is called ":name".',

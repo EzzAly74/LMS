@@ -327,21 +327,43 @@ class AdminQualificationsTest extends ApiTestCase
         $this->getJson(self::URL.'/assignees?type=everyone', $headers)->assertStatus(422);
     }
 
-    public function test_delete_removes_the_qualification_and_its_links_only(): void
+    /** NEW2B-6048: a qualification courses use cannot be deleted; an unused one goes with its grants. */
+    public function test_only_a_qualification_no_course_uses_can_be_deleted(): void
+    {
+        $used = $this->skill('Excel');
+        $course = $this->linkedCourse($used);
+        $free = $this->skill('Word');
+        $u = User::factory()->create();
+        $this->grant($u, $free);
+        ['headers' => $headers] = $this->adminToken();
+
+        $this->assertFalse($this->row($headers, $used->id)['can_delete']);
+        $this->assertTrue($this->row($headers, $free->id)['can_delete']);
+        $this->deleteJson(self::URL.'/'.$used->id, [], $headers)->assertStatus(409)
+            ->assertJsonPath('message', __('messages.qualification_in_use', ['count' => 1]));
+        $this->assertModelExists($used);
+        $this->assertSame(1, DB::table('course_qualification_skills')->count());
+
+        $this->deleteJson(self::URL.'/'.$free->id, [], $headers)->assertOk();
+        $this->assertModelMissing($free);
+        $this->assertSame(0, DB::table('user_qualification_skill')->count());
+        $this->assertModelExists($course);
+        $this->assertModelExists($u);
+    }
+
+    /** NEW2B-5952: each row names its linked courses. NEW2B-5961: names are at most 50 characters. */
+    public function test_rows_list_their_courses_and_names_are_short(): void
     {
         $q = $this->skill('Excel');
         $course = $this->linkedCourse($q);
-        $u = User::factory()->create();
-        $this->grant($u, $q);
         ['headers' => $headers] = $this->adminToken();
 
-        $this->deleteJson(self::URL.'/'.$q->id, [], $headers)->assertOk();
+        $row = $this->row($headers, $q->id);
+        $this->assertSame([['id' => $course->id, 'title' => $course->getTranslation('title', 'en')]], $row['courses']);
 
-        $this->assertModelMissing($q);
-        $this->assertSame(0, DB::table('user_qualification_skill')->count());
-        $this->assertSame(0, DB::table('course_qualification_skills')->count());
-        $this->assertModelExists($course);
-        $this->assertModelExists($u);
+        $this->postJson(self::URL, ['name' => ['en' => str_repeat('a', 51), 'ar' => 'مؤهل']], $headers)
+            ->assertStatus(422)->assertJsonValidationErrors('name.en');
+        $this->postJson(self::URL, ['name' => ['en' => str_repeat('a', 50), 'ar' => 'مؤهل']], $headers)->assertSuccessful();
     }
 
     // ------------------------------------------------------------------ access

@@ -70,6 +70,13 @@ class AdminQualificationController extends ApiController
      */
     public function destroy(QualificationSkill $qualification_skill): JsonResponse
     {
+        // NEW2B-6048: a qualification linked to courses stays; unlink it from
+        // the courses first.
+        $courses = $qualification_skill->courses()->count();
+        if ($courses > 0) {
+            return $this->error(__('messages.qualification_in_use', ['count' => $courses]), 409);
+        }
+
         $qualification_skill->delete();
 
         return $this->deleted();

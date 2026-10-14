@@ -43,6 +43,8 @@ class AdminQualificationService
     {
         $page = $this->filtered($search)
             ->withCount(['courses', 'jobTitles'])
+            // The linked courses themselves, for the row's popover (NEW2B-5952).
+            ->with(['courses' => fn ($q) => $q->select('courses.id', 'courses.title')->orderBy('courses.id')])
             ->orderByDesc('qualification_skills.created_at')
             ->orderByDesc('qualification_skills.id')
             ->paginate($perPage);

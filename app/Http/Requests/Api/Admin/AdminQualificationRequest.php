@@ -21,7 +21,8 @@ use Illuminate\Validation\Validator;
  */
 class AdminQualificationRequest extends FormRequest
 {
-    public const MAX_NAME = 255;
+    /** NEW2B-5961: names fit one line on cards and chips. Existing longer names are kept until edited. */
+    public const MAX_NAME = 50;
 
     public function authorize(): bool
     {

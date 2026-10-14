@@ -10,6 +10,8 @@ use App\Models\CourseSession;
 use App\Services\Mobile\MobileSettings;
 use App\Services\Mobile\SessionPasscodeService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Composes the instructor-dashboard "Passcode" widget view-model
@@ -98,7 +100,7 @@ final class DashboardPasscodeService
 
             return $needsReissue
                 // A self-heal, not a person's action: not audited (NEW2B-6098).
-                ? $this->issueFor($startedLive, null, null, false)
+                ? $this->rotateLocked($startedLive, false, false)
                 : $this->compose($startedLive, 'live', $length);
         }
 
@@ -190,45 +192,221 @@ final class DashboardPasscodeService
             ->first();
     }
 
+    /** What "Generate Passcode" will do for a cohort (D-105). */
+    public const PLAN_LIVE        = 'live';        // already started: show its code
+    public const PLAN_ON_TIME     = 'on_time';     // a planned session is on now
+    public const PLAN_EARLY       = 'early';       // today's next session, started before its time
+    public const PLAN_LATE        = 'late';        // today's missed session, started after its time
+    public const PLAN_MOVED       = 'moved';       // no session today: the next planned one runs now
+    public const PLAN_UNSCHEDULED = 'unscheduled'; // the cohort has no schedule: a session is added
+    public const PLAN_NONE        = 'none';        // every planned session is over
+
     /**
-     * Start a brand-new session for the chosen course + cohort (today,
-     * beginning now for the configured attendance window) and issue its
-     * passcode in the same call. Returns the composed "live" widget state.
+     * The session "Generate Passcode" would open for this cohort, and how
+     * it relates to the schedule, so the instructor confirms before a
+     * session starts at an unplanned time (D-105).
      *
-     * @return array<string, mixed>
+     * @return array{case: string, session: array<string, mixed>|null}
      */
-    public function startSessionAndIssue(int $courseId, int $cohortId, ?int $length, ?Carbon $expiresAt): array
+    public function plan(int $courseId, int $cohortId): array
     {
-        $now = now();
+        [$case, $session] = $this->resolvePlan($courseId, $cohortId, now());
 
-        // Session length is driven by the cohort's "Avg. Session Time"
-        // (stored in hours) when set, otherwise the global attendance
-        // window. This lets each cohort run sessions of a different
-        // length without touching the platform default (Figma 332:9988).
-        $cohort   = CourseSection::find($cohortId);
-        $avgHours = $cohort?->avg_session_time !== null ? (float) $cohort->avg_session_time : null;
-        $windowMinutes = $avgHours !== null && $avgHours > 0
-            ? (int) round($avgHours * 60)
-            : $this->settings->attendanceWindowMinutes();
-        $windowMinutes = max(1, $windowMinutes);
-        $end           = $now->copy()->addMinutes($windowMinutes);
+        return ['case' => $case, 'session' => $session ? $this->planSession($session) : null];
+    }
 
-        // Keep the session within the same calendar day so the time-only
-        // window math (TIMESTAMPDIFF on `time_from`/`time_to`) stays sane.
-        $timeTo = $end->isSameDay($now) ? $end->format('H:i:s') : '23:59:59';
+    /**
+     * Open attendance for the cohort's planned session (D-105). The schedule
+     * is the source of truth: a session started early, late or on another
+     * day is the planned one, moved to now, so the session count, hours and
+     * numbering stay as planned. Only a cohort with no schedule gets a new
+     * session. `$expectedSessionId` is the session the instructor confirmed;
+     * if the plan changed meanwhile nothing starts and the new plan returns.
+     *
+     * @return array{state?: array<string, mixed>, error?: string, plan?: array<string, mixed>}
+     */
+    public function startForCohort(int $courseId, int $cohortId, ?int $expectedSessionId, ?int $length, ?Carbon $expiresAt): array
+    {
+        return DB::transaction(function () use ($courseId, $cohortId, $expectedSessionId, $length, $expiresAt) {
+            // One start at a time per cohort (two tabs, two instructors).
+            CourseSection::query()->whereKey($cohortId)->lockForUpdate()->first();
 
-        $session = CourseSession::create([
+            $now = now();
+            [$case, $session] = $this->resolvePlan($courseId, $cohortId, $now);
+            $plan = ['case' => $case, 'session' => $session ? $this->planSession($session) : null];
+
+            if ($case === self::PLAN_NONE) {
+                return ['error' => 'none', 'plan' => $plan];
+            }
+            if ($expectedSessionId !== null && (int) ($session?->id ?? 0) !== $expectedSessionId) {
+                return ['error' => 'changed', 'plan' => $plan];
+            }
+
+            if ($case === self::PLAN_LIVE) {
+                $session->load(['section', 'course']);
+
+                return ['state' => $this->compose($session, 'live', $this->settings->attendancePasscodeLength())];
+            }
+
+            if ($case === self::PLAN_UNSCHEDULED) {
+                $session = $this->addSessionNow($courseId, $cohortId, $now);
+            } elseif (in_array($case, [self::PLAN_EARLY, self::PLAN_LATE, self::PLAN_MOVED], true)) {
+                $this->moveToNow($session, $cohortId, $now);
+            }
+
+            $session->forceFill(['started_at' => $session->started_at ?? $now])->save();
+            $session->load(['section', 'course']);
+
+            return ['state' => $this->issueFor($session, $length, $expiresAt)];
+        });
+    }
+
+    /**
+     * @return array{0: string, 1: CourseSession|null}
+     */
+    private function resolvePlan(int $courseId, int $cohortId, Carbon $now): array
+    {
+        /** @var Collection<int, CourseSession> $sessions */
+        $sessions = CourseSession::query()
+            ->where('course_id', $courseId)
+            ->where('section_id', $cohortId)
+            ->orderByRaw('session_date IS NULL')
+            ->orderBy('session_date')
+            ->orderBy('time_from')
+            ->orderBy('id')
+            ->get();
+
+        if ($sessions->isEmpty()) {
+            return [self::PLAN_UNSCHEDULED, null];
+        }
+
+        $today    = $now->toDateString();
+        $openBuf  = $this->settings->attendanceSessionOpenBufferMinutes();
+        $graceBuf = $this->settings->attendanceSessionGraceMinutes();
+        $attended = DB::table('attendances')
+            ->whereIn('session_id', $sessions->pluck('id')->all())
+            ->distinct()
+            ->pluck('session_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $notStarted = fn (CourseSession $s): bool => $s->started_at === null && ! in_array((int) $s->id, $attended, true);
+        $isToday    = fn (CourseSession $s): bool => $s->session_date === null || substr((string) $s->session_date, 0, 10) === $today;
+        $at         = fn (string $time): Carbon => Carbon::parse($today.' '.$time);
+
+        $live = $sessions->first(fn (CourseSession $s) => $s->passcode !== null
+            && $s->passcode_issued_at !== null
+            && Carbon::parse((string) $s->passcode_issued_at)->isSameDay($now)
+            && $isToday($s)
+            && $this->windowContains($s, $now, $openBuf, $graceBuf));
+        if ($live) {
+            return [self::PLAN_LIVE, $live];
+        }
+
+        $todays = $sessions->filter($isToday);
+        $onTime = $todays->first(fn (CourseSession $s) => $this->windowContains($s, $now, $openBuf, $graceBuf));
+        if ($onTime) {
+            return [self::PLAN_ON_TIME, $onTime];
+        }
+
+        $next = $todays->first(fn (CourseSession $s) => $s->time_from !== null
+            && $at((string) $s->time_from)->gt($now) && $notStarted($s));
+        $missed = $todays->filter(fn (CourseSession $s) => $s->time_to !== null
+            && $at((string) $s->time_to)->lt($now) && $notStarted($s))->last();
+
+        if ($next && $missed) {
+            // Both a missed and an upcoming session today: the nearer one.
+            $untilNext   = $now->diffInMinutes($at((string) $next->time_from));
+            $sinceMissed = $at((string) $missed->time_to)->diffInMinutes($now);
+
+            return $sinceMissed <= $untilNext ? [self::PLAN_LATE, $missed] : [self::PLAN_EARLY, $next];
+        }
+        if ($next) {
+            return [self::PLAN_EARLY, $next];
+        }
+        if ($missed) {
+            return [self::PLAN_LATE, $missed];
+        }
+
+        $upcoming = $sessions->first(fn (CourseSession $s) => $s->session_date !== null
+            && substr((string) $s->session_date, 0, 10) > $today && $notStarted($s));
+
+        return $upcoming ? [self::PLAN_MOVED, $upcoming] : [self::PLAN_NONE, null];
+    }
+
+    /** The session's attendance window (start - open buffer .. end + grace) holds now; untimed sessions hold all day. */
+    private function windowContains(CourseSession $s, Carbon $now, int $openBuf, int $graceBuf): bool
+    {
+        if ($s->time_from === null && $s->time_to === null) {
+            return true;
+        }
+        if ($s->time_from === null || $s->time_to === null) {
+            return false;
+        }
+        $day = $now->toDateString();
+
+        return Carbon::parse($day.' '.$s->time_from)->subMinutes($openBuf)->lte($now)
+            && Carbon::parse($day.' '.$s->time_to)->addMinutes($graceBuf)->gte($now);
+    }
+
+    /**
+     * Run a planned session now: today, from now, for its planned length.
+     * The planned slot is kept so the schedule sheet still recognises it.
+     */
+    private function moveToNow(CourseSession $session, int $cohortId, Carbon $now): void
+    {
+        $minutes = null;
+        if ($session->time_from !== null && $session->time_to !== null) {
+            $minutes = Carbon::parse('2000-01-01 '.$session->time_from)->diffInMinutes(Carbon::parse('2000-01-01 '.$session->time_to));
+        }
+        $end = $now->copy()->addMinutes(max(1, (int) ($minutes ?: $this->defaultSessionMinutes($cohortId))));
+
+        $session->forceFill([
+            'planned_date'      => $session->planned_date ?? $session->session_date,
+            'planned_time_from' => $session->planned_time_from ?? $session->time_from,
+            'planned_time_to'   => $session->planned_time_to ?? $session->time_to,
+            'session_date'      => $now->toDateString(),
+            'time_from'         => $now->format('H:i:s'),
+            // A session stays within its day (time-only columns).
+            'time_to'           => $end->isSameDay($now) ? $end->format('H:i:s') : '23:59:59',
+        ]);
+    }
+
+    /** A cohort without a schedule: a session for today, from now (the earlier behaviour). */
+    private function addSessionNow(int $courseId, int $cohortId, Carbon $now): CourseSession
+    {
+        $end = $now->copy()->addMinutes($this->defaultSessionMinutes($cohortId));
+
+        return CourseSession::create([
             'course_id'    => $courseId,
             'section_id'   => $cohortId,
             'title'        => __('messages.passcode.session_title', ['date' => $now->format('d M Y')]),
             'session_date' => $now->toDateString(),
             'time_from'    => $now->format('H:i:s'),
-            'time_to'      => $timeTo,
+            'time_to'      => $end->isSameDay($now) ? $end->format('H:i:s') : '23:59:59',
         ]);
+    }
 
-        $session->load(['section', 'course']);
+    /** The cohort's "Avg. Session Time" (hours) when set, otherwise the platform attendance window. */
+    private function defaultSessionMinutes(int $cohortId): int
+    {
+        $avgHours = CourseSection::query()->whereKey($cohortId)->value('avg_session_time');
 
-        return $this->issueFor($session, $length, $expiresAt);
+        return max(1, $avgHours !== null && (float) $avgHours > 0
+            ? (int) round((float) $avgHours * 60)
+            : $this->settings->attendanceWindowMinutes());
+    }
+
+    /** @return array<string, mixed> */
+    private function planSession(CourseSession $s): array
+    {
+        return [
+            'id'        => (int) $s->id,
+            'number'    => $this->sessionOrdinal($s),
+            'title'     => \App\Support\SessionTitle::localize($s->title),
+            'date'      => $s->session_date ? substr((string) $s->session_date, 0, 10) : null,
+            'time_from' => $this->formatTime($s->time_from),
+            'time_to'   => $this->formatTime($s->time_to),
+        ];
     }
 
     /**
@@ -251,11 +429,9 @@ final class DashboardPasscodeService
             return $this->currentState($courseIds);
         }
 
-        $now = now();
-        // Prefer the session the instructor actually started; only fall
-        // back to a bare scheduled live-now session if needed.
-        $session = $this->startedLiveSession($now, $courseIds)
-            ?? $this->liveNowSession($now, $courseIds);
+        // Only a session the instructor started is rotated; a scheduled
+        // session gets its first code through "Generate" (D-105).
+        $session = $this->startedLiveSession(now(), $courseIds);
 
         if ($session === null) {
             // Nothing live to rotate — surface the plain current state so
@@ -264,7 +440,35 @@ final class DashboardPasscodeService
         }
 
         // The widget's automatic rotation is not audited; Regenerate is (NEW2B-6098).
-        return $this->issueFor($session, null, null, ! $auto);
+        return $this->rotateLocked($session, $auto, ! $auto);
+    }
+
+    /**
+     * Re-issue under a row lock (D-017): when another tab or instructor
+     * rotated the code meanwhile, theirs is kept and returned, so learners
+     * are not handed a code that is replaced a moment later. An automatic
+     * rotation also keeps a code that is still valid on the server clock.
+     *
+     * @return array<string, mixed>
+     */
+    private function rotateLocked(CourseSession $seen, bool $auto, bool $audited): array
+    {
+        return DB::transaction(function () use ($seen, $auto, $audited) {
+            $locked = CourseSession::query()->with(['section', 'course'])->lockForUpdate()->find($seen->id);
+            if ($locked === null) {
+                return $this->compose($seen, 'live', $this->settings->attendancePasscodeLength());
+            }
+
+            $rotatedMeanwhile = (string) $locked->passcode_issued_at !== (string) $seen->passcode_issued_at;
+            $stillValid = $locked->passcode !== null && $locked->passcode_expires_at !== null
+                && Carbon::parse((string) $locked->passcode_expires_at)->gt(now()->addSeconds(2));
+
+            if ($locked->passcode !== null && ($rotatedMeanwhile || ($auto && $stillValid))) {
+                return $this->compose($locked, 'live', $this->settings->attendancePasscodeLength());
+            }
+
+            return $this->issueFor($locked, null, null, $audited);
+        });
     }
 
     /**
@@ -283,8 +487,7 @@ final class DashboardPasscodeService
         }
 
         $now     = now();
-        $session = $this->startedLiveSession($now, $courseIds)
-            ?? $this->liveNowSession($now, $courseIds);
+        $session = $this->startedLiveSession($now, $courseIds);
 
         // Fall back to a session that still carries a code today even if
         // its scheduled window has already drifted shut.
@@ -299,41 +502,20 @@ final class DashboardPasscodeService
         }
 
         if ($session !== null) {
-            // Push the window end safely past the grace buffer so the
-            // session is immediately excluded from every "live" lookup,
-            // then drop the passcode entirely.
-            $closedAt = $now->copy()->subMinutes($this->settings->attendanceSessionGraceMinutes() + 1);
-            $timeTo   = $closedAt->isSameDay($now) ? $closedAt->format('H:i:s') : '00:00:01';
-
+            // Closing attendance drops the code; the session keeps its times,
+            // so a planned session is never shortened or moved (D-105).
+            // Learners need the code to mark, so attendance stops at once.
             $session->forceFill([
-                'time_to'                   => $timeTo,
                 'passcode'                  => null,
                 'passcode_issued_at'        => null,
                 'passcode_expires_at'       => null,
+                'passcode_previous'         => null,
+                'passcode_previous_until'   => null,
                 'attendance_window_minutes' => null,
             ])->save();
         }
 
         return $this->currentState($courseIds);
-    }
-
-    /**
-     * Resolve the session a freshly-pressed "Generate Passcode" should
-     * target: the instructor's live-now session, falling back to the
-     * earliest session scheduled for today. Null = nothing to generate.
-     *
-     * @param  array<int, int>  $courseIds
-     */
-    public function resolveTargetSession(array $courseIds): ?CourseSession
-    {
-        if (empty($courseIds)) {
-            return null;
-        }
-
-        $now = now();
-
-        return $this->liveNowSession($now, $courseIds)
-            ?? $this->earliestTodaySession($now, $courseIds);
     }
 
     /**
@@ -429,17 +611,6 @@ final class DashboardPasscodeService
                     );
                 });
             })
-            ->orderBy('time_from')
-            ->orderBy('id')
-            ->first();
-    }
-
-    private function earliestTodaySession(Carbon $now, array $courseIds): ?CourseSession
-    {
-        return CourseSession::query()
-            ->with(['section', 'course'])
-            ->whereIn('course_id', $courseIds)
-            ->whereDate('session_date', $now->toDateString())
             ->orderBy('time_from')
             ->orderBy('id')
             ->first();

@@ -149,6 +149,8 @@ return [
         'no_live_session'   => 'No live session right now. A passcode can only be generated while a session is in progress.',
         'session_started'   => 'Session started and passcode generated.',
         'session_title'     => 'Live Session — :date',
+        'no_session_left'    => 'Every planned session of this cohort is over. Add sessions to its schedule to take attendance.',
+        'plan_changed'       => 'The schedule changed. Check the session below and start again.',
         'cohort_unavailable' => 'This cohort is not available to start a session (wrong course or already ended).',
         'session_ended'     => 'Session ended.',
     ],

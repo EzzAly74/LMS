@@ -13,6 +13,9 @@ class CourseSession extends Model
     use HasFactory;
     protected $guarded = ['id'];
 
+    /** Attendance codes are read explicitly, never serialised with the row. */
+    protected $hidden = ['passcode', 'passcode_previous'];
+
     /**
      * Sessions that have already taken place — their date is in the past,
      * or it's today and the end time has elapsed. Drives the "held

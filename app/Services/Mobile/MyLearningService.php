@@ -126,6 +126,19 @@ final class MyLearningService
         $openBuf  = $this->settings->attendanceSessionOpenBufferMinutes();
         $graceBuf = $this->settings->attendanceSessionGraceMinutes();
 
+        // The session the instructor opened attendance for today, so the
+        // card and Mark Present target the same session (D-105).
+        $started = \DB::table('course_sessions')
+            ->where('course_id', $courseId)
+            ->where('section_id', $cohortId)
+            ->whereNotNull('passcode')
+            ->where('passcode_issued_at', '>=', $now->copy()->startOfDay())
+            ->orderByDesc('passcode_issued_at')
+            ->first();
+        if ($started !== null) {
+            return $started;
+        }
+
         return \DB::table('course_sessions')
             ->where('course_id', $courseId)
             ->where('section_id', $cohortId)

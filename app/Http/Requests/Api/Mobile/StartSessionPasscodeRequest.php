@@ -35,8 +35,11 @@ final class StartSessionPasscodeRequest extends FormRequest
         return [
             'course_id'  => ['required', 'integer', 'exists:courses,id'],
             'cohort_id'  => ['required', 'integer', 'exists:course_sections,id'],
-            'expires_at' => ['nullable', 'date', 'after:now'],
-            'length'     => ['nullable', 'integer', 'min:3', 'max:10'],
+            // The planned session the instructor confirmed (D-105).
+            'session_id' => ['nullable', 'integer'],
+            // A code lives for a session at most, and is not trivially guessable.
+            'expires_at' => ['nullable', 'date', 'after:now', 'before:+12 hours'],
+            'length'     => ['nullable', 'integer', 'min:4', 'max:10'],
         ];
     }
 }

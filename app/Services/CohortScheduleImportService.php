@@ -139,12 +139,20 @@ class CohortScheduleImportService
             $existing = DB::table('course_sessions')
                 ->where('section_id', $section->id)
                 ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
-                ->get(['id', 'title', 'session_date', 'time_from', 'time_to', 'location']);
+                ->get(['id', 'title', 'session_date', 'time_from', 'time_to', 'location', 'planned_date', 'planned_time_from', 'planned_time_to']);
 
             $now    = CarbonImmutable::now();
             $byKey  = [];
+            // Sessions run at another time than planned (D-105): their sheet row
+            // is the planned slot, and they have been held.
+            $movedKeys = [];
             foreach ($existing as $s) {
                 $byKey[$this->key((string) $s->session_date, (string) $s->time_from, (string) $s->time_to)] = $s;
+                if ($s->planned_date !== null) {
+                    $planned = $this->key((string) $s->planned_date, (string) $s->planned_time_from, (string) $s->planned_time_to);
+                    $byKey[$planned] = $s;
+                    $movedKeys[$planned] = true;
+                }
             }
 
             $linked = $this->contentBySession($existing->pluck('id')->map(fn ($id) => (int) $id)->all());
@@ -162,7 +170,7 @@ class CohortScheduleImportService
                     if ((string) ($match->location ?? '') === (string) ($r['location'] ?? '')) {
                         continue; // location unchanged
                     }
-                    if ($this->starts($r['date'], $r['from']) <= $now) {
+                    if (isset($movedKeys[$this->key($r['date'], $r['from'], $r['to'])]) || $this->starts($r['date'], $r['from']) <= $now) {
                         $errors[] = [$r['line'], 'location', __('messages.schedule_held_session_locked')];
                         continue;
                     }
@@ -185,7 +193,7 @@ class CohortScheduleImportService
                 }
                 foreach ($existing as $s) {
                     $key = $this->key((string) $s->session_date, (string) $s->time_from, (string) $s->time_to);
-                    if (isset($listed[$key]) || $this->starts((string) $s->session_date, (string) $s->time_from) <= $now) {
+                    if (isset($listed[$key]) || $s->planned_date !== null || $this->starts((string) $s->session_date, (string) $s->time_from) <= $now) {
                         continue;
                     }
                     if (DB::table('attendances')->where('session_id', $s->id)->exists()) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\apis;
 
+use App\Http\Requests\Api\Dashboard\PasscodePlanRequest;
 use App\Http\Requests\Api\Mobile\StartSessionPasscodeRequest;
 use App\Http\Resources\SessionPasscodeStateResource;
 use App\Models\Instructor;
@@ -140,18 +141,54 @@ class DashboardPasscodeController extends ApiController
         $expiresAt = $request->filled('expires_at')
             ? Carbon::parse((string) $request->validated('expires_at'))
             : null;
+        $expected = $request->filled('session_id') ? (int) $request->validated('session_id') : null;
+
+        $result = $this->service->startForCohort($courseId, $cohortId, $expected, $request->validated('length'), $expiresAt);
+
+        // Every planned session is over: nothing to open (D-105).
+        if (($result['error'] ?? null) === 'none') {
+            return $this->error(__('messages.passcode.no_session_left'), 422, ['plan' => $result['plan']]);
+        }
+        // The plan changed after the instructor confirmed it: show the new one.
+        if (($result['error'] ?? null) === 'changed') {
+            return $this->error(__('messages.passcode.plan_changed'), 409, ['plan' => $result['plan']]);
+        }
 
         return $this->success(
             __('messages.passcode.session_started'),
-            new SessionPasscodeStateResource(
-                $this->service->startSessionAndIssue(
-                    $courseId,
-                    $cohortId,
-                    $request->validated('length'),
-                    $expiresAt,
-                ),
-            ),
+            new SessionPasscodeStateResource($result['state']),
         );
+    }
+
+    /**
+     * @OA\Get(
+     *     path="/dashboard/passcode/plan",
+     *     tags={"Dashboard"},
+     *     summary="Which planned session Generate Passcode would open for a cohort.",
+     *     description="case: live | on_time | early | late | moved | unscheduled | none, with the session (id, number, title, date, time_from, time_to). The instructor confirms early, late and moved starts (D-105).",
+     *     security={{"BearerAuth": {}}},
+     *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),
+     *     @OA\Parameter(name="course_id", in="query", required=true, @OA\Schema(type="integer")),
+     *     @OA\Parameter(name="cohort_id", in="query", required=true, @OA\Schema(type="integer")),
+     *     @OA\Response(response=200, description="The plan"),
+     *     @OA\Response(response=403, ref="#/components/responses/Forbidden"),
+     *     @OA\Response(response=422, description="Cohort is not a valid target (wrong course or already ended).")
+     * )
+     */
+    public function plan(PasscodePlanRequest $request): JsonResponse
+    {
+        $courseIds = $this->instructorCourseIds($request);
+        $courseId  = (int) $request->validated('course_id');
+        $cohortId  = (int) $request->validated('cohort_id');
+
+        if ($courseIds === null || ! in_array($courseId, $courseIds, true)) {
+            return $this->error(__('messages.forbidden'), 403);
+        }
+        if ($this->service->findEligibleCohort($courseId, $cohortId) === null) {
+            return $this->error(__('messages.passcode.cohort_unavailable'), 422);
+        }
+
+        return $this->success(__('messages.retrieved'), $this->service->plan($courseId, $cohortId));
     }
 
     /**

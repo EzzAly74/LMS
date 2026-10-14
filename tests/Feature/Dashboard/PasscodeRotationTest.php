@@ -149,6 +149,8 @@ class PasscodeRotationTest extends TestCase
 
         $course  = Course::factory()->create();
         $session = $this->sessionFor($course, ['time_from' => null, 'time_to' => null]);
+        // A started session whose code has just lapsed (only started sessions rotate, D-105).
+        $session->forceFill(['passcode' => '11111', 'passcode_issued_at' => Carbon::now()->subMinute(), 'passcode_expires_at' => Carbon::now()->subSecond()])->saveQuietly();
         $logged = fn () => \App\Models\AuditLog::query()->where('model_type', CourseSession::class)->where('model_id', $session->id)->count();
         $before = $logged();
 
@@ -261,11 +263,12 @@ class PasscodeRotationTest extends TestCase
         $this->assertSame('idle', $state['state']);
         $this->assertNull($state['passcode']);
 
-        // The row's passcode is revoked and the window is closed (past now).
+        // The code is revoked; the planned session keeps its times (D-105).
         $fresh = $session->fresh();
         $this->assertNull($fresh->passcode);
         $this->assertNull($fresh->passcode_expires_at);
-        $this->assertTrue($fresh->time_to < Carbon::now()->format('H:i:s'));
+        $this->assertSame('09:00:00', substr((string) $fresh->time_from, 0, 8));
+        $this->assertSame('12:00:00', substr((string) $fresh->time_to, 0, 8));
     }
 
     public function test_widget_state_exposes_rotation_metadata(): void

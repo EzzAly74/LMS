@@ -24,6 +24,9 @@ final class SessionPasscodeService
 {
     public function __construct(private readonly MobileSettings $settings) {}
 
+    /** Seconds the replaced code is still accepted after a rotation (D-105). */
+    public const PREVIOUS_CODE_GRACE_SECONDS = 20;
+
     /**
      * `$audited` false: an automatic rotation, which is the system's doing,
      * not a person's, so it stays out of the audit log (NEW2B-6098).
@@ -42,8 +45,17 @@ final class SessionPasscodeService
         $effectiveExpiry = $expiresAt ?? $this->defaultExpiryFor($session, $now);
         $validityMinutes = max(1, (int) ceil($now->diffInSeconds($effectiveExpiry, false) / 60));
 
+        // The code being replaced stays valid for a few seconds, so a
+        // learner typing it during a rotation is not refused (D-105).
+        $previous = $session->passcode !== null && $session->passcode_expires_at !== null
+            && Carbon::parse((string) $session->passcode_expires_at)->gt($now->copy()->subSeconds(self::PREVIOUS_CODE_GRACE_SECONDS))
+            ? (string) $session->passcode
+            : null;
+
         $session->forceFill([
             'passcode'                  => $this->randomNumericCode($length),
+            'passcode_previous'         => $previous,
+            'passcode_previous_until'   => $previous !== null ? $now->copy()->addSeconds(self::PREVIOUS_CODE_GRACE_SECONDS) : null,
             'passcode_issued_at'        => $now,
             'passcode_expires_at'       => $effectiveExpiry,
             'attendance_window_minutes' => $expiresAt === null ? $validityMinutes : null,
@@ -108,6 +120,8 @@ final class SessionPasscodeService
     {
         $session->forceFill([
             'passcode'                  => null,
+            'passcode_previous'         => null,
+            'passcode_previous_until'   => null,
             'passcode_issued_at'        => null,
             'passcode_expires_at'       => null,
             'attendance_window_minutes' => null,

@@ -108,18 +108,28 @@ final class MobileAttendanceService
             return $this->failure(AttendanceMarkFailure::NoOpenWindow);
         }
 
-        // Step 4 — passcode expiry. Checked before the match so a stale
-        // code the learner is still typing is reported as "expired"
-        // rather than the less actionable "invalid".
-        if ($session->passcode_expires_at !== null
-            && \Carbon\Carbon::parse($session->passcode_expires_at)->isPast()
-        ) {
-            return $this->failure(AttendanceMarkFailure::ExpiredCode);
-        }
+        // A code replaced by a rotation in the last few seconds still
+        // counts, so a learner typing it is not refused (D-105).
+        $previous = (string) ($session->passcode_previous ?? '');
+        $previousOk = $previous !== ''
+            && $session->passcode_previous_until !== null
+            && \Carbon\Carbon::parse((string) $session->passcode_previous_until)->isFuture()
+            && hash_equals($previous, $passcode);
 
-        // Step 5 — passcode match (constant-time).
-        if (! hash_equals($expected, $passcode)) {
-            return $this->failure(AttendanceMarkFailure::InvalidCode);
+        if (! $previousOk) {
+            // Step 4 — passcode expiry. Checked before the match so a stale
+            // code the learner is still typing is reported as "expired"
+            // rather than the less actionable "invalid".
+            if ($session->passcode_expires_at !== null
+                && \Carbon\Carbon::parse($session->passcode_expires_at)->isPast()
+            ) {
+                return $this->failure(AttendanceMarkFailure::ExpiredCode);
+            }
+
+            // Step 5 — passcode match (constant-time).
+            if (! hash_equals($expected, $passcode)) {
+                return $this->failure(AttendanceMarkFailure::InvalidCode);
+            }
         }
 
         // Step 6 — already attended.

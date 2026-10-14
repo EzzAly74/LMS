@@ -41,6 +41,21 @@ final class MobileAttendanceRepository implements MobileAttendanceRepositoryInte
             return null;
         }
 
+        // The session the instructor opened attendance for today (it holds
+        // the code) is the one being marked, whatever the timetable says:
+        // it may have started early, late or been moved to today (D-105).
+        $started = $this->session->newQuery()
+            ->where('course_id', $courseId)
+            ->where('section_id', $cohortId)
+            ->whereNotNull('passcode')
+            ->where('passcode_issued_at', '>=', $now->copy()->startOfDay())
+            ->when($sessionId !== null, fn ($q) => $q->where('id', $sessionId))
+            ->orderByDesc('passcode_issued_at')
+            ->first();
+        if ($started !== null) {
+            return $started;
+        }
+
         $today    = $now->toDateString();
         $nowTime  = $now->format('H:i:s');
         $openBuf  = max(0, $openBufferMinutes);

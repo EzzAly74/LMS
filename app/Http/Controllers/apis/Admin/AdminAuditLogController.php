@@ -76,7 +76,8 @@ class AdminAuditLogController extends ApiController
             instructorIds: $this->intArray($request->input('instructor_ids')),
         );
 
-        $filename = 'audit-log-' . now()->format('Ymd-His') . '.csv';
+        // A name that says what and when (NEW2B-6097): NAS-LMS-Audit-Log_2026-10-14_15-30.csv
+        $filename = 'NAS-LMS-Audit-Log_' . now()->format('Y-m-d_H-i') . '.csv';
 
         return response()->streamDownload(function () use ($headings, $rows) {
             $out = fopen('php://output', 'w');

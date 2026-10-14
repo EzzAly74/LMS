@@ -24,6 +24,17 @@ class AuditLogActionsTest extends ApiTestCase
         return AuditLog::query()->where('model_type', $modelType)->latest('id')->first();
     }
 
+    /** NEW2B-6097: the export says what it is and the day (and time) it was taken. */
+    public function test_the_export_file_is_named_with_its_date(): void
+    {
+        \Illuminate\Support\Carbon::setTestNow('2026-10-14 15:30:00');
+        ['headers' => $h] = $this->adminToken();
+
+        $disposition = $this->get(self::BASE.'/admin/audit-log/export', $h)->assertOk()->headers->get('content-disposition');
+        $this->assertStringContainsString('NAS-LMS-Audit-Log_2026-10-14_15-30.csv', (string) $disposition);
+        \Illuminate\Support\Carbon::setTestNow();
+    }
+
     public function test_sending_a_message_is_logged_without_its_body(): void
     {
         ['headers' => $h, 'model' => $me] = $this->adminToken();

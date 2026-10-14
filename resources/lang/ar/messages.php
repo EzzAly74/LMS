@@ -118,6 +118,8 @@ return [
     'quiz_question_not_in_quiz'        => 'هذا السؤال لا ينتمي إلى هذا الاختبار.',
     'assignment_not_question_based'    => 'هذا الواجب لا يحتوي على أسئلة للإجابة — يرجى رفع ملف بدلاً من ذلك.',
     'course_locked_field' => 'لا يمكن تغيير هذا بعد تسجيل متعلمين في الدورة.',
+    'course_own_instructor_only' => 'يمكنك إنشاء الدورات التي تدرّسها فقط.',
+    'course_instructors_fixed' => 'يمكن للمسؤول فقط إضافة مدرّب إلى هذه الدورة.',
     'reports' => [
         'no_job_title' => 'بدون مسمى وظيفي',
     ],
@@ -126,6 +128,9 @@ return [
     'assignment_pass_score_over_total' => 'لا يمكن أن تزيد درجة النجاح على الدرجة الكلية (:total).',
     'assignment_title_too_long' => 'العنوان طويل جدًا. استخدم :max حرفًا أو أقل.',
     'assignment_score_negative' => 'لا يمكن أن تكون الدرجة سالبة.',
+    'options_count_mismatch' => 'أدخل عدد الخيارات نفسه بالإنجليزية والعربية: الخيار 1 بالإنجليزية هو الخيار 1 بالعربية.',
+    'mcq_key_not_an_option' => 'يجب أن تكون الإجابة الصحيحة أحد الخيارات.',
+    'mcq_key_not_same_option' => 'يجب أن تكون الإجابة الصحيحة الخيار نفسه بالإنجليزية والعربية.',
     'assignment_already_submitted'     => 'لقد أرسلت هذا الواجب مسبقًا.',
     'assignment_not_submitted'         => 'لم ترسل هذا الواجب بعد.',
     'assignment_question_not_in_assignment' => 'هذا السؤال لا ينتمي إلى هذا الواجب.',

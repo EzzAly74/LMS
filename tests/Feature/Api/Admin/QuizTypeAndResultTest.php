@@ -80,6 +80,25 @@ class QuizTypeAndResultTest extends ApiTestCase
             ->assertStatus(422)->assertJsonValidationErrors('questions.0.correct_answer_ar');
     }
 
+    /** NEW2B-6288 / 6289: options are pairs and the key is the same option in both languages. */
+    public function test_options_are_paired_and_the_key_is_one_option_in_both_languages(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+        $url = self::BASE.'/admin/quizzes';
+
+        $this->postJson($url, $this->payload([], [$this->mcq(['options_en' => ['a', 'b', 'c']])]), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('questions.0.options_ar');
+        $this->postJson($url, $this->payload([], [$this->mcq(['correct_answer_ar' => 'ب'])]), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('questions.0.correct_answer_ar')
+            ->assertJsonPath('errors', fn ($e) => in_array(__('messages.mcq_key_not_same_option'), $e['questions.0.correct_answer_ar'], true));
+        $reorder = ['type' => 'reorder', 'score' => 5, 'question_en' => 'Order', 'question_ar' => 'رتب',
+            'options_en' => ['1', '2', '3'], 'options_ar' => ['١', '٢'], 'correct_answer_en' => '["1","2","3"]', 'correct_answer_ar' => '["١","٢"]'];
+        $this->postJson($url, $this->payload([], [$reorder]), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('questions.0.options_ar');
+
+        $this->postJson($url, $this->payload([], [$this->mcq(['correct_answer_en' => 'b', 'correct_answer_ar' => 'ب'])]), $h)->assertSuccessful();
+    }
+
     public function test_post_is_the_final_exam_and_the_others_are_not(): void
     {
         $post = $this->createQuiz(['type' => 'post']);

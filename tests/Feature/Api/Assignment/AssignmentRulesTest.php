@@ -100,6 +100,24 @@ class AssignmentRulesTest extends ApiTestCase
             ->assertStatus(422)->assertJsonValidationErrors(['title' => __('messages.assignment_title_too_long', ['max' => 255])]);
     }
 
+    /** NEW2B-6288 / 6289: options are pairs and the key is the same option in both languages. */
+    public function test_mcq_options_are_paired_and_the_key_is_one_option_in_both_languages(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+        $mcq = fn (array $o = []) => ['questions' => [$o + ['type' => 'mcq', 'score' => 5, 'question_en' => 'Pick', 'question_ar' => 'اختر',
+            'options_en' => ['a', 'b'], 'options_ar' => ['أ', 'ب'], 'correct_answer_en' => 'a', 'correct_answer_ar' => 'أ']]];
+        $url = self::BASE.'/admin/assignments';
+
+        $this->postJson($url, $this->payload($mcq(['options_ar' => ['أ', 'ب', 'ج']])), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('questions.0.options_ar');
+        $this->postJson($url, $this->payload($mcq(['correct_answer_en' => 'free text'])), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('questions.0.correct_answer_en');
+        $this->postJson($url, $this->payload($mcq(['correct_answer_ar' => 'ب'])), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('questions.0.correct_answer_ar');
+
+        $this->postJson($url, $this->payload($mcq()), $h)->assertSuccessful();
+    }
+
     public function test_a_new_due_date_cannot_be_in_the_past_but_an_edit_may_keep_its_date(): void
     {
         ['headers' => $h] = $this->adminToken();

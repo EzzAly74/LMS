@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api;
 
 use App\Http\Traits\AcceptsEnumIds;
 use App\Models\Course;
+use App\Services\Admin\CourseScope;
 use App\Support\CourseEditLock;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
@@ -166,12 +167,40 @@ class CourseRequest extends FormRequest
     {
         return [function (Validator $v) {
             $course = $this->route('course');
-            if (!$course instanceof Course || $v->errors()->isNotEmpty()) {
+            if ($v->errors()->isNotEmpty()) {
+                return;
+            }
+            $this->checkOwnInstructor($v, $course instanceof Course ? $course : null);
+            if (!$course instanceof Course) {
                 return;
             }
             foreach (CourseEditLock::violations($course, $this->all()) as $key => $message) {
                 $v->errors()->add($key, $message);
             }
         }];
+    }
+
+    /**
+     * NEW2B-5804: an account limited to its own courses (D-074) creates
+     * courses for its own instructor only, and cannot add an instructor to a
+     * course it can edit. Others pick any instructors.
+     */
+    private function checkOwnInstructor(Validator $v, ?Course $course): void
+    {
+        $principal = $this->user();
+        if (!$this->has('instructors') || !app(CourseScope::class)->isScoped($principal)) {
+            return;
+        }
+
+        $sent = array_values(array_unique(array_map('intval', (array) $this->input('instructors', []))));
+        // New: their own instructor only. Edit: nobody who does not already teach it.
+        $allowed = $course === null
+            ? [(int) $principal->instructor_id]
+            : $course->instructors()->pluck('instructors.id')->map(fn ($id) => (int) $id)->all();
+        $ok = $course === null ? $sent === $allowed : array_diff($sent, $allowed) === [];
+
+        if (!$ok) {
+            $v->errors()->add('instructors', __($course === null ? 'messages.course_own_instructor_only' : 'messages.course_instructors_fixed'));
+        }
     }
 }

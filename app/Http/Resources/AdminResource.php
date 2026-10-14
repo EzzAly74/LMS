@@ -37,6 +37,8 @@ class AdminResource extends JsonResource
             // `assigned`: this account sees only the courses it teaches
             // (D-074); `all` otherwise.
             'course_scope'   => $this->courseScope(),
+            // The instructor a scoped account teaches as: its new courses are theirs (NEW2B-5804).
+            'instructor_id'  => $this->instructor_id === null ? null : (int) $this->instructor_id,
 
             // Display payload for table badges — see roleChip() below.
             'role_chip'      => $this->roleChip($locale),

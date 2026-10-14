@@ -119,6 +119,8 @@ return [
     'quiz_question_not_in_quiz'        => 'This question does not belong to the quiz.',
     'assignment_not_question_based'    => 'This assignment does not have questions to answer — submit a file instead.',
     'course_locked_field' => 'This can\'t be changed after learners have enrolled in the course.',
+    'course_own_instructor_only' => 'You can create courses that you teach only.',
+    'course_instructors_fixed' => 'Only an administrator can add an instructor to this course.',
     'reports' => [
         'no_job_title' => 'No job title',
     ],
@@ -127,6 +129,9 @@ return [
     'assignment_pass_score_over_total' => 'The pass score cannot be more than the total score (:total).',
     'assignment_title_too_long' => 'The title is too long. Use :max characters or fewer.',
     'assignment_score_negative' => 'The score cannot be negative.',
+    'options_count_mismatch' => 'Give the same number of options in English and Arabic: option 1 in English is option 1 in Arabic.',
+    'mcq_key_not_an_option' => 'The correct answer must be one of the options.',
+    'mcq_key_not_same_option' => 'The correct answer must be the same option in English and Arabic.',
     'assignment_already_submitted'     => 'You have already submitted this assignment.',
     'assignment_not_submitted'         => 'You have not submitted this assignment yet.',
     'assignment_question_not_in_assignment' => 'This question does not belong to the assignment.',

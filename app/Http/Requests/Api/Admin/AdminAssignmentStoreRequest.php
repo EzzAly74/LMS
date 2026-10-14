@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api\Admin;
 
 use App\Models\CourseAssignment;
 use App\Models\CourseAssignmentQuestion;
+use App\Support\PairedOptions;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
@@ -107,6 +108,9 @@ class AdminAssignmentStoreRequest extends FormRequest
                         $v->errors()->add("questions.$i.correct_answer_$lang", __('Correct answer is required for this question type.'));
                     }
                 }
+
+                // NEW2B-6288 / 6289: paired options; the key is one of them, the same one in both languages.
+                PairedOptions::check($v, $i, (array) $q);
             }
         });
     }

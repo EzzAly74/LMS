@@ -132,7 +132,8 @@ class CourseScope
      * Route-level IDOR guard for scoped accounts, run by AdminSectionMiddleware
      * on every admin route: each route parameter that names a course, or a
      * record that belongs to one, must resolve to an in-scope course; each
-     * learner parameter to a learner of one. Anything else is a 404.
+     * learner parameter to a learner of one, and a `course_id` / `course_ids`
+     * in the body to an in-scope course. Anything else is a 404.
      */
     public function assertRoute(\Illuminate\Http\Request $request): void
     {
@@ -175,6 +176,18 @@ class CourseScope
                     => $this->assertCourse($principal, $this->courseOf('course_lecture_questions', $id)),
                 default => null,
             };
+        }
+
+        // A course named in the body (a new quiz or assignment, a filter) is
+        // checked the same way: route guards alone let a scoped account write
+        // into another instructor's course (NEW2B-6286).
+        $listed = $request->input('course_ids', []);
+        $named = is_array($listed) ? $listed : explode(',', (string) $listed);
+        $named[] = $request->input('course_id');
+        foreach ($named as $courseId) {
+            if (is_scalar($courseId) && trim((string) $courseId) !== '') {
+                $this->assertCourse($principal, trim((string) $courseId));
+            }
         }
     }
 

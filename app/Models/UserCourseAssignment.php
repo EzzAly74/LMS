@@ -15,9 +15,11 @@ class UserCourseAssignment extends Model
     /**
      * The grade (B-172, NEW2B-6232): a question-based submission keeps it in
      * total_score and has none while a person still has to score an answer;
-     * a file-only (legacy) submission keeps it in `score`.
+     * a file-only (legacy) submission keeps it in `score`. A question-based
+     * one scored by the legacy review lands in `score` too, so the graded /
+     * passed filters read total_score ?? score - the figure the list shows (NEW2B-6329).
      */
-    public const SCORE_SQL = '(CASE WHEN '.self::HAS_ANSWERS_SQL.' THEN (CASE WHEN EXISTS (SELECT 1 FROM user_course_assignment_answers uca_p WHERE uca_p.user_course_assignment_id = user_course_assignments.id AND uca_p.awarded_score IS NULL) THEN NULL ELSE user_course_assignments.total_score END) ELSE COALESCE(user_course_assignments.score, user_course_assignments.total_score) END)';
+    public const SCORE_SQL = '(CASE WHEN '.self::HAS_ANSWERS_SQL.' THEN (CASE WHEN EXISTS (SELECT 1 FROM user_course_assignment_answers uca_p WHERE uca_p.user_course_assignment_id = user_course_assignments.id AND uca_p.awarded_score IS NULL) THEN NULL ELSE COALESCE(user_course_assignments.total_score, user_course_assignments.score) END) ELSE COALESCE(user_course_assignments.score, user_course_assignments.total_score) END)';
 
     /** A result: question-based once sent; a legacy file submission always. */
     public const SENT_SQL = '(user_course_assignments.submitted_at IS NOT NULL OR NOT '.self::HAS_ANSWERS_SQL.')';

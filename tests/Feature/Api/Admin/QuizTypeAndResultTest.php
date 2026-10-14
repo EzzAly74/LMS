@@ -251,6 +251,29 @@ class QuizTypeAndResultTest extends ApiTestCase
 
     // ------------------------------------------------------------ assignments (same list, 1983:42584)
 
+    /** NEW2B-6329: a graded question-based submission whose score sits in `score` (legacy review) is Passed in the filter too. */
+    public function test_the_passed_filter_counts_every_submission_the_list_shows_as_passed(): void
+    {
+        $a = CourseAssignment::factory()->create(['course_id' => $this->course->id, 'type' => 'mid', 'pass_score' => 5, 'total_score' => 10]);
+        $q = \App\Models\CourseAssignmentQuestion::create(['course_assignment_id' => $a->id, 'position' => 0, 'type' => 'open', 'score' => 10, 'question_en' => 'Why?']);
+        $legacy = \App\Models\UserCourseAssignment::create([
+            'user_id' => User::factory()->create()->id, 'course_assignment_id' => $a->id,
+            'total_score' => null, 'score' => 10, 'max_score' => 10, 'submitted_at' => now(),
+        ]);
+        DB::table('user_course_assignment_answers')->insert([
+            'user_course_assignment_id' => $legacy->id, 'course_assignment_question_id' => $q->id,
+            'answer' => json_encode(['value' => 'Because']), 'awarded_score' => 10, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        ['headers' => $h] = $this->adminToken();
+        $list = collect($this->getJson(self::BASE.'/admin/assignments/submissions', $h)->assertOk()->json('result'))->firstWhere('id', $legacy->id);
+        $this->assertSame(100, $list['score_percent']);
+        $this->assertTrue($list['passed']);
+
+        $passed = collect($this->getJson(self::BASE.'/admin/assignments/submissions?result=passed', $h)->json('result'))->pluck('id')->all();
+        $this->assertContains($legacy->id, $passed);
+    }
+
     public function test_assignment_attempts_filter_by_passed_failed_and_type(): void
     {
         $pre  = CourseAssignment::factory()->create(['course_id' => $this->course->id, 'type' => 'pre', 'pass_score' => 10]);

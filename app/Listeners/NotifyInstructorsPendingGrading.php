@@ -27,11 +27,9 @@ class NotifyInstructorsPendingGrading
             return;
         }
 
-        $studentName = $userExam->user?->name ?? __('messages.notifications.pending_grade_title');
-
         foreach ($course->instructors as $instructor) {
             $instructor->notify(new PendingGradeNotification(
-                $studentName,
+                $userExam->user,
                 $exam->getTranslation('title', 'en'),
                 'quiz',
                 ['course_id' => $course->id, 'exam_id' => $exam->id, 'user_exam_id' => $userExam->id],
@@ -54,11 +52,9 @@ class NotifyInstructorsPendingGrading
             return;
         }
 
-        $studentName = $submission->user?->name ?? __('messages.notifications.pending_grade_title');
-
         foreach ($course->instructors as $instructor) {
             $instructor->notify(new PendingGradeNotification(
-                $studentName,
+                $submission->user,
                 $assignment->title,
                 'assignment',
                 ['course_id' => $course->id, 'course_assignment_id' => $assignment->id, 'submission_id' => $submission->id],

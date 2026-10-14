@@ -137,14 +137,15 @@ class User extends Authenticatable
     }
 
     /**
-     * Return the display name resolved for the current application locale.
+     * Return the display name resolved for `$locale`, by default the current
+     * application locale. PersonName::userSql() is the same rule in SQL.
      *
      * Priority (AR): name_ar → name_en → name
      * Priority (EN): name_en → name_ar → name
      */
-    public function getLocalizedName(): string
+    public function getLocalizedName(?string $locale = null): string
     {
-        $locale  = app()->getLocale();
+        $locale  ??= app()->getLocale();
         $nameEn  = (string) ($this->name_en ?? '');
         $nameAr  = (string) ($this->name_ar ?? '');
         $nameFallback = (string) ($this->name ?? '');

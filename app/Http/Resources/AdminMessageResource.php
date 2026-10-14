@@ -30,7 +30,7 @@ class AdminMessageResource extends JsonResource
             // Sender (the back-office admin who composed the message).
             'sender'            => $this->whenLoaded('admin', fn () => $this->admin ? [
                 'id'   => $this->admin->id,
-                'name' => $this->admin->name,
+                'name' => $this->admin->getLocalizedName(),
             ] : null),
 
             // Counts.

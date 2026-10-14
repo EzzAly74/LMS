@@ -431,7 +431,7 @@ class CertificateService
             'type'               => $certificate->source_type,
             'user'               => [
                 'id'              => $user?->id,
-                'name'            => $user?->name,
+                'name'            => $user?->getLocalizedName(),
                 'machine_code'    => $user?->machine_code,
                 'department_name' => $user?->department_name,
             ],

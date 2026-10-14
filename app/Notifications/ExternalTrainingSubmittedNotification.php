@@ -21,14 +21,14 @@ class ExternalTrainingSubmittedNotification extends Notification
     public function toDatabase(object $notifiable): array
     {
         $learner = $this->request->user;
-        $values  = ['learner' => (string) $learner?->name, 'title' => $this->request->title];
+        $values  = fn (string $locale) => ['learner' => (string) $learner?->getLocalizedName($locale), 'title' => $this->request->title];
 
         return [
             'type'     => 'external_training_submitted',
             'title_en' => __('messages.notifications.external_training_submitted_title', [], 'en'),
             'title_ar' => __('messages.notifications.external_training_submitted_title', [], 'ar'),
-            'body_en'  => __('messages.notifications.external_training_submitted_body', $values, 'en'),
-            'body_ar'  => __('messages.notifications.external_training_submitted_body', $values, 'ar'),
+            'body_en'  => __('messages.notifications.external_training_submitted_body', $values('en'), 'en'),
+            'body_ar'  => __('messages.notifications.external_training_submitted_body', $values('ar'), 'ar'),
             'meta'     => ['external_training_id' => $this->request->id],
         ];
     }

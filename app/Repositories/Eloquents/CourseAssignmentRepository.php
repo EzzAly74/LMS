@@ -45,7 +45,7 @@ class CourseAssignmentRepository extends BaseRepository implements CourseAssignm
 
     public function listSubmissions(CourseAssignment $assignment, int $perPage): LengthAwarePaginator
     {
-        return UserCourseAssignment::with(['user:id,name,machine_code,department_name', 'assignment'])
+        return UserCourseAssignment::with(['user:id,name,name_en,name_ar,machine_code,department_name', 'assignment'])
             ->where('course_assignment_id', $assignment->id)
             ->orderByDesc('id')
             ->paginate($perPage);
@@ -69,13 +69,13 @@ class CourseAssignmentRepository extends BaseRepository implements CourseAssignm
 
     public function findSubmissionWithRelations(int $id): UserCourseAssignment
     {
-        return UserCourseAssignment::with(['user:id,name,machine_code,department_name', 'assignment'])
+        return UserCourseAssignment::with(['user:id,name,name_en,name_ar,machine_code,department_name', 'assignment'])
             ->findOrFail($id);
     }
 
     public function paginateAllSubmissions(?int $userId, ?int $courseId, ?string $status, int $perPage): LengthAwarePaginator
     {
-        return UserCourseAssignment::with(['user:id,name,machine_code,department_name', 'assignment.course:id,title'])
+        return UserCourseAssignment::with(['user:id,name,name_en,name_ar,machine_code,department_name', 'assignment.course:id,title'])
             ->when($userId, fn ($q) => $q->where('user_id', $userId))
             ->when($courseId, fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->where('course_id', $courseId)))
             ->when($status === 'graded', fn ($q) => $q->whereNotNull('score'))

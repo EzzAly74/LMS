@@ -7,6 +7,7 @@ use App\Models\AdminMessage;
 use App\Models\AdminMessageRecipient;
 use App\Models\User;
 use App\Support\Audit\AuditTrail;
+use App\Support\PersonName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -91,11 +92,11 @@ class AdminMessageService
 
                 $members = empty($adminIds) ? [] : Admin::query()
                     ->whereIn('id', $adminIds)
-                    ->orderBy('name')
-                    ->get(['id', 'name'])
+                    ->orderByRaw(PersonName::adminSql('admins'))
+                    ->get(['id', 'name', 'name_ar'])
                     ->map(fn (Admin $a) => [
                         'id'   => (int) $a->id,
-                        'name' => $a->name,
+                        'name' => $a->getLocalizedName(),
                     ])
                     ->values()
                     ->all();
@@ -123,7 +124,7 @@ class AdminMessageService
         $morph = (new Admin())->getMorphClass();
 
         return AdminMessage::query()
-            ->with('admin:id,name')
+            ->with('admin:id,name,name_ar')
             ->withCount([
                 'recipients as total_recipients',
                 'recipients as read_count'                  => fn ($q) => $q->whereNotNull('read_at'),
@@ -158,10 +159,10 @@ class AdminMessageService
     public function show(AdminMessage $message): AdminMessage
     {
         return $message->load([
-            'admin:id,name',
+            'admin:id,name,name_ar',
             'recipients.user:id,name,name_en,name_ar',
             'recipients.instructor:id,name',
-            'recipients.admin:id,name',
+            'recipients.admin:id,name,name_ar',
         ])->loadCount([
             'recipients as total_recipients',
             'recipients as read_count'                  => fn ($q) => $q->whereNotNull('read_at'),

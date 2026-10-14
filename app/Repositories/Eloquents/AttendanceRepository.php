@@ -4,6 +4,7 @@ namespace App\Repositories\Eloquents;
 
 use App\Models\Attendance;
 use App\Repositories\Contracts\AttendanceRepositoryInterface;
+use App\Support\PersonName;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -53,7 +54,7 @@ class AttendanceRepository extends BaseRepository implements AttendanceRepositor
                 a.section_id      as section_id,
                 a.session_id      as session_id,
                 DATE(a.created_at) as attended_on,
-                COALESCE(u.name,             a.user_machine_code) as user_name,
+                COALESCE('.PersonName::userSql('u').', a.user_machine_code) as user_name,
                 COALESCE(u.machine_code,     a.user_machine_code) as user_machine_code,
                 COALESCE(u.department_name,  a.user_department)   as user_department
             ')

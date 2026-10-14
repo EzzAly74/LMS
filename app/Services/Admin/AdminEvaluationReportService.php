@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\Evaluation;
 use App\Models\EvaluationCategory;
 use App\Support\LocalizedJson;
+use App\Support\PersonName;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder;
@@ -422,6 +423,8 @@ class AdminEvaluationReportService
                 $like = $this->like($search);
                 $q->where(fn ($w) => $w->where('uce.user_machine_code', 'like', $like)
                     ->orWhere('u.name', 'like', $like)
+                    ->orWhere('u.name_en', 'like', $like)
+                    ->orWhere('u.name_ar', 'like', $like)
                     ->orWhere('c.title', 'like', $like)
                     ->orWhere('t.name', 'like', $like));
             })
@@ -430,7 +433,7 @@ class AdminEvaluationReportService
                 'uce.user_id',
                 'uce.course_id',
                 'uce.evaluation_category_id',
-                DB::raw('MAX(u.name) as learner_name'),
+                DB::raw('MAX('.PersonName::userSql('u').') as learner_name'),
                 DB::raw('MAX(uce.user_machine_code) as user_machine_code'),
                 DB::raw('MAX(uce.user_department) as user_department'),
                 DB::raw('MAX(c.title) as course_title'),
@@ -497,8 +500,12 @@ class AdminEvaluationReportService
             ->value(DB::raw($this->scoreSql('uce')));
         $score = $score !== null ? (float) $score : null;
 
-        $learner  = DB::table('users')->where('id', $userId)->value('name');
+        $learner  = DB::table('users')->where('id', $userId)->value(DB::raw(PersonName::userSql('users')));
         $course   = DB::table('courses')->where('id', $courseId)->value('title');
+        // The snapshot holds the instructor's name in the submitter's language.
+        $instructor = $first->instructor_id !== null
+            ? DB::table('instructors')->where('id', $first->instructor_id)->value('name')
+            : null;
         $template = $first->evaluation_category_id !== null
             ? DB::table('evaluation_categories')->where('id', $first->evaluation_category_id)->first(['name', 'created_at'])
             : null;
@@ -521,7 +528,7 @@ class AdminEvaluationReportService
             ],
             'instructor' => [
                 'id'   => $first->instructor_id !== null ? (int) $first->instructor_id : null,
-                'name' => $first->instructor_name,
+                'name' => LocalizedJson::pick($instructor) ?? $first->instructor_name,
             ],
             'submitted_at'   => $rows->max('created_at'),
             'total'          => $total,
@@ -589,11 +596,14 @@ class AdminEvaluationReportService
             ->whereIn('u.id', fn ($q) => $this->inCourseScope($q->select('user_id')->from('user_course_evaluations'), 'course_id'))
             ->when($search, function ($q, $s) {
                 $like = $this->like($s);
-                $q->where(fn ($w) => $w->where('u.name', 'like', $like)->orWhere('u.machine_code', 'like', $like));
+                $q->where(fn ($w) => $w->where('u.name', 'like', $like)
+                    ->orWhere('u.name_en', 'like', $like)
+                    ->orWhere('u.name_ar', 'like', $like)
+                    ->orWhere('u.machine_code', 'like', $like));
             })
-            ->orderBy('u.name')
+            ->orderByRaw(PersonName::userSql('u'))
             ->orderBy('u.id')
-            ->select(['u.id', 'u.name', 'u.machine_code'])
+            ->select(['u.id', DB::raw(PersonName::userSql('u').' as name'), 'u.machine_code'])
             ->paginate($perPage);
     }
 

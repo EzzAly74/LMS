@@ -8,6 +8,7 @@ use App\Repositories\Contracts\JobTitleRepositoryInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use App\Support\CourseCompletion;
+use App\Support\PersonName;
 use App\Support\QualificationHolding;
 use Illuminate\Support\Facades\DB;
 
@@ -78,7 +79,7 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
                 'CASE WHEN courses_total = 0 THEN 0 ELSE courses_completed / courses_total END '.$direction
             ),
             'employee_id' => $query->orderBy('users.machine_code', $direction),
-            default       => $query->orderBy('users.name', $direction),
+            default       => $query->orderByRaw(PersonName::userSql('users').' '.$direction),
         };
 
         return $query->paginate($perPage);
@@ -107,7 +108,7 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
         return User::query()
             ->whereNotNull('users.job_title_id')
             ->when($search !== null && trim($search) !== '', fn ($q) => $this->whereLearnerMatches($q, trim((string) $search)))
-            ->orderBy('users.name')
+            ->orderByRaw(PersonName::userSql('users'))
             ->limit($limit)
             ->get(['users.id', 'users.name', 'users.name_en', 'users.name_ar', 'users.machine_code']);
     }

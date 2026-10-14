@@ -16,7 +16,7 @@ class CourseLectureQuestionRepository extends BaseRepository implements CourseLe
     public function paginateFiltered(int $perPage, array $filters): LengthAwarePaginator
     {
         return $this->model->newQuery()
-            ->with(['user:id,name,machine_code', 'course:id,title', 'lecture:id,title', 'answeredBy:id,name'])
+            ->with(['user:id,name,name_en,name_ar,machine_code', 'course:id,title', 'lecture:id,title', 'answeredBy:id,name,name_ar'])
             ->when($filters['course_id'] ?? null, fn ($q, $v) => $q->where('course_id', $v))
             ->when($filters['lecture_id'] ?? null, fn ($q, $v) => $q->where('lecture_id', $v))
             ->when($filters['user_id'] ?? null, fn ($q, $v) => $q->where('user_id', $v))

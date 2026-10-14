@@ -11,6 +11,7 @@ use App\Models\ConversationParticipant;
 use App\Models\Instructor;
 use App\Models\Message;
 use App\Models\User;
+use App\Support\PersonName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -546,7 +547,7 @@ final class MessageService
             $superAdmins = Admin::query()
                 ->whereHas('roles', fn ($q) => $q->whereIn(DB::raw('LOWER(name)'), ['superadmin', 'super-admin', 'super_admin']))
                 ->get()
-                ->map(fn (Admin $a) => $this->recipientRow('admin', 'admins', (int) $a->id, (string) ($a->name ?? ''), $a->image, $locale));
+                ->map(fn (Admin $a) => $this->recipientRow('admin', 'admins', (int) $a->id, $a->getLocalizedName(), $a->image, $locale));
 
             return $instructors->concat($superAdmins)->unique(fn ($r) => $r['recipient_type'] . ':' . $r['recipient_id'])->values()->all();
         }
@@ -554,7 +555,7 @@ final class MessageService
         if ($principal instanceof Admin || $principal instanceof Instructor) {
             // Dashboard compose → learners.
             return User::query()
-                ->orderBy('name')
+                ->orderByRaw(PersonName::userSql('users'))
                 ->get(['id', 'name', 'name_en', 'name_ar', 'image'])
                 ->map(fn (User $u) => $this->recipientRow('learner', 'learners', (int) $u->id, $u->getLocalizedName(), $u->image, $locale))
                 ->all();
@@ -765,7 +766,9 @@ final class MessageService
         // first (NEW2B-5906). Instructor (and some other) `name` fields are
         // translatable JSON — localize so the UI never shows a raw
         // {"en":..,"ar":..} blob.
-        $name = $model instanceof User ? ($model->getLocalizedName() ?: null) : ($model->name ?? null);
+        $name = $model instanceof User || $model instanceof Admin
+            ? ($model->getLocalizedName() ?: null)
+            : ($model->name ?? null);
 
         return [
             'name'  => $name !== null ? $this->localize((string) $name, app()->getLocale()) : null,

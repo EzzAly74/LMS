@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use App\Services\Assignments\AssignmentFileService;
+use App\Support\PersonName;
 
 /**
  * Service backing the rich (question-based) admin assignment workflow.
@@ -93,7 +94,7 @@ class AdminAssignmentService
         return CourseAssignment::query()
             ->with([
                 'course:id,title',
-                'creator:id,name',
+                'creator:id,name,name_en,name_ar',
                 'questions',
                 'cohorts.cohort:id,name',
             ])
@@ -186,9 +187,9 @@ class AdminAssignmentService
     ): LengthAwarePaginator {
         $page = $this->submissionsQuery($assignmentId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId, $result, $types)
             ->with([
-                'user:id,name,machine_code,department_name',
+                'user:id,name,name_en,name_ar,machine_code,department_name',
                 'assignment.course:id,title',
-                'assignment.creator:id,name',
+                'assignment.creator:id,name,name_en,name_ar',
                 'assignment.cohorts.cohort:id,name',
             ])
             ->withCount(['answers as pending_answers_count' => fn ($a) => $a->whereNull('awarded_score')])
@@ -231,7 +232,7 @@ class AdminAssignmentService
     /** @return list<array{id:int,name:string}> */
     private function people(Builder $ids): array
     {
-        return User::query()->whereIn('id', $ids)->orderBy('name')->limit(self::OPTIONS_LIMIT)
+        return User::query()->whereIn('id', $ids)->orderByRaw(PersonName::userSql('users'))->limit(self::OPTIONS_LIMIT)
             ->get(['id', 'name', 'name_en', 'name_ar'])
             ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->getLocalizedName()])->values()->all();
     }
@@ -275,7 +276,7 @@ class AdminAssignmentService
             // The grade is total_score, or `score` for a file-only submission (B-172).
             ->when($status === 'graded', fn ($q) => $q->whereRaw(UserCourseAssignment::SCORE_SQL.' IS NOT NULL'))
             ->when($status === 'pending', fn ($q) => $q->whereRaw(UserCourseAssignment::SCORE_SQL.' IS NULL'))
-            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
+            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => PersonName::whereUserMatches($inner, 'users', $search)))
             ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_course_assignments.user_id', $courseId, $sectionId))
             // Passed / Failed (Figma 1983:42584, D-065): only a fully graded
             // submission has a result, against the pass score or half the
@@ -291,11 +292,11 @@ class AdminAssignmentService
     {
         return UserCourseAssignment::query()
             ->with([
-                'user:id,name,machine_code,department_name',
+                'user:id,name,name_en,name_ar,machine_code,department_name',
                 'assignment.course:id,title',
                 'assignment.course:id,title,course_type,category_id',
                 'assignment.course.category:id,name',
-                'assignment.creator:id,name',
+                'assignment.creator:id,name,name_en,name_ar',
                 'answers.question',
             ])
             ->findOrFail($id);

@@ -12,7 +12,7 @@ class LmsResourceService
     public function list(int $perPage = 15, ?string $search = null, ?string $type = null): LengthAwarePaginator
     {
         return LmsResource::query()
-            ->with(['qualificationSkill:id,name', 'createdByAdmin:id,name'])
+            ->with(['qualificationSkill:id,name', 'createdByAdmin:id,name,name_ar'])
             ->when($search, fn ($q) => $q->where(function ($q2) use ($search) {
                 $q2->where('title',    'LIKE', "%{$search}%")
                    ->orWhere('title_ar', 'LIKE', "%{$search}%");
@@ -24,7 +24,7 @@ class LmsResourceService
 
     public function show(LmsResource $resource): LmsResource
     {
-        return $resource->load(['qualificationSkill:id,name', 'createdByAdmin:id,name']);
+        return $resource->load(['qualificationSkill:id,name', 'createdByAdmin:id,name,name_ar']);
     }
 
     public function create(array $data, ?int $adminId, ?UploadedFile $file = null): LmsResource

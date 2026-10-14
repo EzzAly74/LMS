@@ -23,8 +23,10 @@ use App\Models\User;
 use App\Models\UserCourseAssignment;
 use App\Models\UserCourseAssignmentAnswer;
 use App\Services\Admin\AdminAssignmentService;
+use App\Support\PersonName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Admin endpoints for the rich-question assignment workflow defined by the
@@ -88,9 +90,9 @@ class AdminAssignmentController extends ApiController
     public function instructors(): JsonResponse
     {
         $instructors = User::query()
-            ->select(['id', 'name'])
+            ->select(['id', DB::raw(PersonName::userSql('users').' as name')])
             ->whereHas('roles', fn ($q) => $q->whereIn('name', ['Admin', 'Instructor']))
-            ->orderBy('name')
+            ->orderByRaw(PersonName::userSql('users'))
             ->limit(500)
             ->get();
 

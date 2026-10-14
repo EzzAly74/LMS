@@ -35,7 +35,7 @@ class AdminQuizResource extends JsonResource
             'created_by'      => $this->created_by,
             'created_by_user' => $this->whenLoaded('creator', fn () => $this->creator ? [
                 'id'   => $this->creator->id,
-                'name' => $this->creator->name,
+                'name' => $this->creator->getLocalizedName(),
             ] : null),
             'cohorts'         => $this->whenLoaded('cohorts', fn () => $this->cohorts->map(fn ($c) => [
                 'id'    => $c->course_section_id,

@@ -101,6 +101,32 @@ class Admin extends Authenticatable
         return $this->belongsTo(Instructor::class);
     }
 
+    /**
+     * The account's name in `$locale` (default: the current one): `name` is
+     * the English / main name, `name_ar` the Arabic one; each falls back to
+     * the other. PersonName::adminSql() is the same rule in SQL.
+     */
+    public function getLocalizedName(?string $locale = null): string
+    {
+        $name   = (string) ($this->name ?? '');
+        $nameAr = (string) ($this->name_ar ?? '');
+
+        return ($locale ?? app()->getLocale()) === 'ar'
+            ? ($nameAr ?: $name)
+            : ($name ?: $nameAr);
+    }
+
+    /** The account's uploaded photo as an absolute URL, or null. */
+    public function photoUrl(): ?string
+    {
+        if (! filled($this->image)) {
+            return null;
+        }
+        $url = (new class { use \App\Http\Traits\HasFile; })->getFileUrl((string) $this->image);
+
+        return is_string($url) && $url !== '' ? $url : null;
+    }
+
     /** Deactivated and inactive accounts may not sign in or use a token. */
     public function isActive(): bool
     {

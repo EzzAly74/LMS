@@ -78,7 +78,7 @@ class UserCertificateRepository implements UserCertificateRepositoryInterface
         $needle = trim((string) $search);
 
         return UserCertificate::query()
-            ->with(['user:id,name,machine_code,department_name', 'course:id,title,title_for_certificate'])
+            ->with(['user:id,name,name_en,name_ar,machine_code,department_name', 'course:id,title,title_for_certificate'])
             ->active()
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->when($needle !== '', function ($q) use ($needle) {
@@ -87,6 +87,8 @@ class UserCertificateRepository implements UserCertificateRepositoryInterface
                     $inner->where('certificate_number', 'like', $like)
                         ->orWhereHas('user', fn ($u) => $u
                             ->where('name', 'like', $like)
+                            ->orWhere('name_en', 'like', $like)
+                            ->orWhere('name_ar', 'like', $like)
                             ->orWhere('machine_code', 'like', $like))
                         ->orWhereHas('course', fn ($c) => $c->where('title', 'like', $like));
                 });

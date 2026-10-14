@@ -350,7 +350,7 @@ class AdminCertificateService
             'course_id'          => (int) $certificate->course_id,
             'type'               => $certificate->source_type,
             'employee_id'        => $user?->machine_code ?: ($certificate->metadata['learner_machine_code'] ?? null),
-            'learner_name'       => $user?->name ?: ($certificate->metadata['learner_name'] ?? '—'),
+            'learner_name'       => $user?->getLocalizedName() ?: ($certificate->metadata['learner_name'] ?? '—'),
             'department'         => $user?->department_name ?? ($certificate->metadata['learner_department'] ?? null),
             'course_title'       => $certificate->localizedCourseTitle(app()->getLocale()) ?: '—',
             'issued_at'          => optional($certificate->issued_at)->format('Y-m-d H:i:s'),

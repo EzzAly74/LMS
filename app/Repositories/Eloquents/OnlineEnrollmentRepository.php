@@ -4,6 +4,7 @@ namespace App\Repositories\Eloquents;
 
 use App\Models\UsersCourse;
 use App\Repositories\Contracts\OnlineEnrollmentRepositoryInterface;
+use App\Support\PersonName;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class OnlineEnrollmentRepository extends BaseRepository implements OnlineEnrollmentRepositoryInterface
@@ -16,13 +17,10 @@ class OnlineEnrollmentRepository extends BaseRepository implements OnlineEnrollm
     public function paginateForCourse(int $courseId, int $perPage, ?string $search): LengthAwarePaginator
     {
         return $this->model->newQuery()
-            ->with(['user:id,name,email,machine_code,department_name'])
+            ->with(['user:id,name,name_en,name_ar,email,machine_code,department_name'])
             ->where('course_id', $courseId)
             ->whereNull('group_id') // online enrollments have no group
-            ->when($search, fn ($q) => $q->whereHas('user', fn ($u) => $u
-                ->where('name', 'LIKE', "%{$search}%")
-                ->orWhere('machine_code', 'LIKE', "%{$search}%")
-            ))
+            ->when($search, fn ($q) => $q->whereHas('user', fn ($u) => PersonName::whereUserMatches($u, 'users', $search, ['machine_code'])))
             ->latest()
             ->paginate($perPage);
     }

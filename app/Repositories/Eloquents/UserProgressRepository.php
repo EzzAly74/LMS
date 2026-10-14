@@ -16,6 +16,8 @@ class UserProgressRepository implements UserProgressRepositoryInterface
                 'users.id',
                 'users.machine_code',
                 'users.name',
+                'users.name_en',
+                'users.name_ar',
                 'users.department_name',
                 DB::raw("JSON_UNQUOTE(JSON_EXTRACT(courses.title, '$.ar')) AS course_title"),
                 'courses.course_type',

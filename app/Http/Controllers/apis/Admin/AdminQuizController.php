@@ -18,8 +18,10 @@ use App\Models\User;
 use App\Models\UserExam;
 use App\Models\UserExamAnswer;
 use App\Services\Admin\AdminQuizService;
+use App\Support\PersonName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Admin endpoints for the rich-question Quiz workflow defined by the 2026
@@ -82,9 +84,9 @@ class AdminQuizController extends ApiController
     public function instructors(): JsonResponse
     {
         $instructors = User::query()
-            ->select(['id', 'name'])
+            ->select(['id', DB::raw(PersonName::userSql('users').' as name')])
             ->whereHas('roles', fn ($q) => $q->whereIn('name', ['Admin', 'Instructor']))
-            ->orderBy('name')
+            ->orderByRaw(PersonName::userSql('users'))
             ->limit(500)
             ->get();
 

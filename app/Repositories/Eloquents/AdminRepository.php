@@ -27,8 +27,12 @@ class AdminRepository extends BaseRepository implements AdminRepositoryInterface
     {
         return $this->model->newQuery()
             ->with('roles')
-            ->when($search, fn ($q) => $q->where('name', 'like', "%$search%")
-                ->orWhere('email', 'like', "%$search%"))
+            ->when($search, function ($q, $search) {
+                $like = '%'.addcslashes($search, '%_\\').'%';
+                $q->where(fn ($w) => $w->where('name', 'like', $like)
+                    ->orWhere('name_ar', 'like', $like)
+                    ->orWhere('email', 'like', $like));
+            })
             ->orderByDesc('id')
             ->paginate($perPage);
     }

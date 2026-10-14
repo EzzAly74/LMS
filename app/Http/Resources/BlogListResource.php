@@ -37,7 +37,7 @@ class BlogListResource extends JsonResource
                 ->values(),
             'qualification' => $qualifications->first(),
             'author'        => $this->authorPayload(),
-            'added_by'      => $this->creator?->name,
+            'added_by'      => $this->creator?->getLocalizedName(),
             'published_at'  => $this->published_at?->format('Y-m-d'),
             'created_at'    => $this->created_at?->format('Y-m-d'),
             'active'        => (bool) $this->active,

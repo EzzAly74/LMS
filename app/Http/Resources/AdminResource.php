@@ -14,7 +14,11 @@ class AdminResource extends JsonResource
         return [
             'id'             => $this->id,
             'name'           => $this->name,
-            'email'          => $this->email,
+            // `name` stays the stored (English / main) value; this is the
+            // one to show, in the request's language.
+            'display_name'   => $this->getLocalizedName(),
+            'image'          => $this->photoUrl(),
+            'email'        => $this->email,
             'roles'          => $this->whenLoaded('roles', fn () => $this->roles->pluck('name')),
 
             // -----------------------------------------------------------

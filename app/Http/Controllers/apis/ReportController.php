@@ -5,6 +5,7 @@ namespace App\Http\Controllers\apis;
 use App\Models\User;
 use App\Models\UsersCourse;
 use App\Models\UserExam;
+use App\Support\PersonName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +29,7 @@ class ReportController extends ApiController
 
     public function individualCompliance(Request $request): JsonResponse
     {
-        $users = User::select('id', 'name', 'email', 'job_title', 'department_name')
+        $users = User::select('id', DB::raw(PersonName::userSql('users').' as name'), 'email', 'job_title', 'department_name')
             ->withCount('courses as enrolled_courses')
             ->paginate((int) $request->get('per_page', 50));
 
@@ -42,7 +43,7 @@ class ReportController extends ApiController
             ->join('courses', 'courses.id', '=', 'attendances.course_id')
             ->select(
                 'attendances.id',
-                'users.name as user_name',
+                DB::raw(PersonName::userSql('users').' as user_name'),
                 'users.email as user_email',
                 'attendances.course_name',
                 'attendances.course_id',
@@ -59,7 +60,7 @@ class ReportController extends ApiController
 
     public function completion(Request $request): JsonResponse
     {
-        $data = UsersCourse::with(['user:id,name,email', 'course:id,title'])
+        $data = UsersCourse::with(['user' => $this->userWithLocalizedName(...), 'course:id,title'])
             ->orderByDesc('created_at')
             ->paginate((int) $request->get('per_page', 50));
 
@@ -68,7 +69,7 @@ class ReportController extends ApiController
 
     public function scores(Request $request): JsonResponse
     {
-        $data = UserExam::with(['user:id,name,email', 'exam.course:id,title'])
+        $data = UserExam::with(['user' => $this->userWithLocalizedName(...), 'exam.course:id,title'])
             ->select('id', 'user_id', 'exam_id', 'course_id', 'user_degree', 'status', 'created_at')
             ->orderByDesc('created_at')
             ->paginate((int) $request->get('per_page', 50));
@@ -82,7 +83,7 @@ class ReportController extends ApiController
             ->join('users', 'users.id', '=', 'users_courses.user_id')
             ->join('courses', 'courses.id', '=', 'users_courses.course_id')
             ->select(
-                'users.name as user_name',
+                DB::raw(PersonName::userSql('users').' as user_name'),
                 'users.email',
                 'courses.id as course_id',
                 'users_courses.created_at as enrolled_at'
@@ -91,6 +92,12 @@ class ReportController extends ApiController
             ->paginate((int) $request->get('per_page', 50));
 
         return $this->paginated(__('messages.retrieved'), $data);
+    }
+
+    /** Eager-load constraint: id, email and `name` in the request's language. */
+    private function userWithLocalizedName($query): void
+    {
+        $query->select('id', 'email', DB::raw(PersonName::userSql('users').' as name'));
     }
 
     private function respondReport(Request $request, array $rows, array $headers): JsonResponse|StreamedResponse

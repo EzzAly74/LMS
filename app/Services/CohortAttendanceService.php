@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Course;
 use App\Models\CourseSection;
 use App\Repositories\Contracts\AttendanceRepositoryInterface;
+use App\Support\PersonName;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -65,8 +66,8 @@ class CohortAttendanceService
             ->join('users as u', 'u.id', '=', 'uc.user_id')
             ->where('uc.course_id', $course->id)
             ->where('uc.group_id',  $section->id)
-            ->orderBy('u.name')
-            ->get(['u.id', 'u.name', 'u.machine_code', 'u.department_name']);
+            ->orderByRaw(PersonName::userSql('u'))
+            ->get(['u.id', DB::raw(PersonName::userSql('u').' as name'), 'u.machine_code', 'u.department_name']);
 
         // 3. All attendance rows for this cohort, in one shot.
         $rows = $this->attendanceRepo->cohortRows($course->id, $section->id);

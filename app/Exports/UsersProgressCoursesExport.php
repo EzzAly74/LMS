@@ -35,6 +35,8 @@ class UsersProgressCoursesExport implements FromCollection, WithHeadings
                 'users.id',
                 'users.machine_code',
                 'users.name',
+                'users.name_en',
+                'users.name_ar',
                 'users.department_name',
                 'courses.title as course_title',
                 'courses.course_type as course_type',
@@ -71,7 +73,7 @@ class UsersProgressCoursesExport implements FromCollection, WithHeadings
             }
             return [
                 'code'       => $user->machine_code,
-                'user'       => $user->name,
+                'user'       => $user->getLocalizedName(),
                 'department' => $user->department_name,
                 'course'     => $user->course_title,
                 'group'      => $user->group_name,

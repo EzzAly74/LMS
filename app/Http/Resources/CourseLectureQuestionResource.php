@@ -26,7 +26,7 @@ class CourseLectureQuestionResource extends JsonResource
                 'id'    => $this->lecture->id,
                 'title' => $this->lecture->getTranslation('title', app()->getLocale()),
             ]),
-            'answered_by' => $this->whenLoaded('answeredBy', fn () => $this->answeredBy?->name),
+            'answered_by' => $this->whenLoaded('answeredBy', fn () => $this->answeredBy?->getLocalizedName()),
             'created_at'  => $this->created_at?->toDateTimeString(),
         ];
     }

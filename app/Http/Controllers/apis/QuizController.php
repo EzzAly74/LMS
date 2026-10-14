@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\apis;
 
 use App\Models\UserExam;
+use App\Support\PersonName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -22,14 +23,14 @@ class QuizController extends ApiController
 
         $exams = UserExam::query()
             ->with([
-                'user:id,name',
+                'user:id,name,name_en,name_ar',
                 'course:id,title',
                 'exam:id,title,degree',
             ])
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->when($userId,   fn ($q) => $q->where('user_id', $userId))
             ->when($status,   fn ($q) => $q->where('status', $status))
-            ->when($search,   fn ($q) => $q->whereHas('user', fn ($u) => $u->where('name', 'like', "%{$search}%")))
+            ->when($search,   fn ($q) => $q->whereHas('user', fn ($u) => PersonName::whereUserMatches($u, 'users', (string) $search)))
             ->latest()
             ->paginate($perPage);
 
@@ -38,7 +39,7 @@ class QuizController extends ApiController
             'id'           => $exam->id,
             'user'         => [
                 'id'   => $exam->user?->id,
-                'name' => $exam->user?->name,
+                'name' => $exam->user?->getLocalizedName(),
             ],
             'course'       => [
                 'id'    => $exam->course?->id,
@@ -62,7 +63,7 @@ class QuizController extends ApiController
      */
     public function show(UserExam $userExam): JsonResponse
     {
-        $userExam->load(['user:id,name', 'course:id,title', 'exam:id,title,degree', 'answers']);
+        $userExam->load(['user:id,name,name_en,name_ar', 'course:id,title', 'exam:id,title,degree', 'answers']);
 
         $locale = app()->getLocale();
 
@@ -70,7 +71,7 @@ class QuizController extends ApiController
             'id'          => $userExam->id,
             'user'        => [
                 'id'   => $userExam->user?->id,
-                'name' => $userExam->user?->name,
+                'name' => $userExam->user?->getLocalizedName(),
             ],
             'course'      => $userExam->course ? [
                 'id'    => $userExam->course->id,

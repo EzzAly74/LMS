@@ -6,6 +6,7 @@ use App\Models\ReportExportLog;
 use App\Support\CourseCompletion;
 use App\Support\LearnerCompliance;
 use App\Support\LocalizedJson;
+use App\Support\PersonName;
 use App\Support\QuizVerdict;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -254,9 +255,9 @@ class AdminReportService
         $learners = DB::table('users')
             ->leftJoin('job_titles', 'job_titles.id', '=', 'users.job_title_id')
             ->tap(fn ($q) => $this->scope->constrainLearners($q, $this->principal(), 'users.id'))
-            ->select('users.id', 'users.machine_code', 'users.name', 'users.name_en', 'users.email',
+            ->select('users.id', 'users.machine_code', DB::raw(PersonName::userSql('users').' AS learner'), 'users.email',
                 'users.department_name', 'users.department_name_en', 'job_titles.name AS jt', 'job_titles.name_en AS jt_en', 'job_titles.name_ar AS jt_ar')
-            ->orderBy('users.name')
+            ->orderBy('learner')
             ->get();
         $enrolled = DB::table('users_courses')
             ->whereIn('user_id', $learners->pluck('id')->all() ?: [0])
@@ -275,7 +276,7 @@ class AdminReportService
 
                 return [
                     $u->machine_code ?? '',
-                    ($locale === 'en' ? ($u->name_en ?: $u->name) : $u->name) ?? '',
+                    $u->learner ?? '',
                     $u->email ?? '',
                     ($locale === 'ar' ? $u->jt_ar : $u->jt_en) ?: ($u->jt ?? ''),
                     ($locale === 'en' ? ($u->department_name_en ?: $u->department_name) : $u->department_name) ?? '',
@@ -297,7 +298,7 @@ class AdminReportService
             ->leftJoin('users', 'users.id', '=', 'attendances.user_id')
             ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'attendances.course_id'))
             ->select(
-                'users.name AS learner',
+                DB::raw(PersonName::userSql('users').' AS learner'),
                 'users.email AS email',
                 'attendances.course_name',
                 'attendances.user_department',
@@ -338,7 +339,7 @@ class AdminReportService
             ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'users_courses.course_id'))
             ->select(
                 'users_courses.user_id',
-                'users.name  AS learner',
+                DB::raw(PersonName::userSql('users').' AS learner'),
                 'users.email AS email',
                 'courses.id  AS course_id',
                 'courses.title AS course_title',
@@ -397,7 +398,7 @@ class AdminReportService
             ->leftJoin('users',        'users.id',        '=', 'user_exams.user_id')
             ->leftJoin('courses',      'courses.id',      '=', 'user_exams.course_id')
             ->join('course_exams', 'course_exams.id', '=', 'user_exams.exam_id')
-            ->selectRaw('"Quiz" AS kind, users.name AS learner, users.email, courses.title AS course_title, course_exams.title AS item_title')
+            ->selectRaw('"Quiz" AS kind, '.PersonName::userSql('users').' AS learner, users.email, courses.title AS course_title, course_exams.title AS item_title')
             ->selectRaw(AdminQuizService::SCORE_SQL.' AS score, '.AdminQuizService::MAX_SQL.' AS max_score, course_exams.pass_score')
             ->selectRaw('COALESCE(user_exams.submitted_at, user_exams.created_at) AS at');
         $assignments = DB::table('user_course_assignments')
@@ -406,7 +407,7 @@ class AdminReportService
             ->whereRaw(\App\Models\UserCourseAssignment::SENT_SQL)
             ->leftJoin('users',   'users.id',   '=', 'user_course_assignments.user_id')
             ->leftJoin('courses', 'courses.id', '=', 'course_assignments.course_id')
-            ->selectRaw('"Assignment" AS kind, users.name AS learner, users.email, courses.title AS course_title, course_assignments.title AS item_title')
+            ->selectRaw('"Assignment" AS kind, '.PersonName::userSql('users').' AS learner, users.email, courses.title AS course_title, course_assignments.title AS item_title')
             ->selectRaw(\App\Models\UserCourseAssignment::SCORE_SQL.' AS score, COALESCE(NULLIF(user_course_assignments.max_score, 0), course_assignments.total_score) AS max_score, '
                 .\App\Models\CourseAssignment::PASS_SCORE_SQL.' AS pass_score')
             ->selectRaw('COALESCE(user_course_assignments.submitted_at, user_course_assignments.created_at) AS at');
@@ -450,7 +451,7 @@ class AdminReportService
             ->leftJoin('courses', 'courses.id', '=', 'user_certificates.course_id')
             ->tap(fn ($q) => $this->scope->constrain($q, $this->principal(), 'user_certificates.course_id'))
             ->select(
-                'users.name    AS learner',
+                DB::raw(PersonName::userSql('users').' AS learner'),
                 'users.email   AS email',
                 'courses.title AS course_title',
                 'user_certificates.certificate_number',

@@ -26,7 +26,7 @@ class UserEnrollmentRepository implements UserEnrollmentRepositoryInterface
         $query = UsersCourse::query()
             ->fromSub($this->rowsWithProgress($course), 'users_courses')
             ->select('users_courses.*')
-            ->with(['user:id,name,name_en,name_ar,machine_code,status', 'group'])
+            ->with(['user:id,name,name_en,name_ar,machine_code,status,image,hr_image_path', 'group'])
             ->when($filters['group_id'] ?? null, fn ($q, $groupId) => $q->where('users_courses.group_id', $groupId))
             ->when($filters['search'] ?? null, function ($q, $search) {
                 $like = '%'.addcslashes($search, '%_\\').'%';

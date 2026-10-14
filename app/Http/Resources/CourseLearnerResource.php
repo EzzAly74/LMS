@@ -31,6 +31,7 @@ class CourseLearnerResource extends JsonResource
                 'name'        => $user->getLocalizedName(),
                 'employee_id' => $user->machine_code,
                 'active'      => $user->status === 'active',
+                'image'       => $user->photoUrl(),
             ] : null,
             'cohort'      => $cohort ? [
                 'id'   => $cohort->id,

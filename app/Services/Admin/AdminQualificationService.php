@@ -6,6 +6,7 @@ use App\Models\Admin;
 use App\Models\JobTitle;
 use App\Models\QualificationSkill;
 use App\Models\User;
+use App\Support\PersonName;
 use App\Support\QualificationHolding;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -284,7 +285,7 @@ class AdminQualificationService
         return User::query()
             ->join('user_qualification_skill as g', 'g.user_id', '=', 'users.id')
             ->where('g.qualification_skill_id', $skill->id)
-            ->orderBy('users.name')
+            ->orderByRaw(PersonName::userSql('users'))
             ->orderBy('users.id')
             ->limit(self::MAX_LEARNERS)
             ->get(['users.*'])

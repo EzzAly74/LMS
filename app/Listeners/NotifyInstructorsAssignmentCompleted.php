@@ -26,11 +26,10 @@ class NotifyInstructorsAssignmentCompleted
             return;
         }
 
-        $studentName = $submission->user?->name ?? __('messages.notifications.assignment_completed_title');
-        $total       = $assignment->submissions()->count();
+        $total = $assignment->submissions()->count();
 
         foreach ($course->instructors as $instructor) {
-            $instructor->notify(new AssignmentCompletedNotification($assignment, $studentName, $total));
+            $instructor->notify(new AssignmentCompletedNotification($assignment, $submission->user, $total));
         }
     }
 }

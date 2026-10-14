@@ -9,6 +9,7 @@ use App\Models\CourseExamQuestion;
 use App\Models\User;
 use App\Models\UserExam;
 use App\Services\CertificateService;
+use App\Support\PersonName;
 use App\Support\QuizVerdict;
 use App\Models\UserExamAnswer;
 use App\Support\Notifications\CourseContentNotifier;
@@ -117,7 +118,7 @@ class AdminQuizService
         return CourseExam::query()
             ->with([
                 'course:id,title',
-                'creator:id,name',
+                'creator:id,name,name_en,name_ar',
                 // B-136: legacy options / answer key live in course_exam_question_answers.
                 'richQuestions.answers',
                 'cohorts.cohort:id,name',
@@ -236,9 +237,9 @@ class AdminQuizService
         $page = $this->submissionsQuery($quizId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId, $result, $types)
             ->withCount(['answers as pending_answers_count' => fn ($a) => $this->pendingAnswer($a)])
             ->with([
-                'user:id,name',
+                'user:id,name,name_en,name_ar',
                 'exam.course:id,title',
-                'exam.creator:id,name',
+                'exam.creator:id,name,name_en,name_ar',
                 'exam.cohorts.cohort:id,name',
             ])
             ->latest('id')
@@ -274,7 +275,7 @@ class AdminQuizService
     /** @return list<array{id:int,name:string}> */
     private function people(Builder $ids): array
     {
-        return User::query()->whereIn('id', $ids)->orderBy('name')->limit(self::OPTIONS_LIMIT)
+        return User::query()->whereIn('id', $ids)->orderByRaw(PersonName::userSql('users'))->limit(self::OPTIONS_LIMIT)
             ->get(['id', 'name', 'name_en', 'name_ar'])
             ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->getLocalizedName()])->values()->all();
     }
@@ -341,7 +342,7 @@ class AdminQuizService
                     [$result === 'passed' ? 1 : 0],
                 )))
             ->when($types !== [], fn ($q) => $q->whereHas('exam', fn ($e) => $e->whereIn('type', $types)))
-            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => $inner->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')))
+            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => PersonName::whereUserMatches($inner, 'users', $search)))
             ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_exams.user_id', $courseId, $sectionId));
     }
 
@@ -349,9 +350,9 @@ class AdminQuizService
     {
         return UserExam::query()
             ->with([
-                'user:id,name',
+                'user:id,name,name_en,name_ar',
                 'exam.course:id,title',
-                'exam.creator:id,name',
+                'exam.creator:id,name,name_en,name_ar',
                 'answers.examQuestion',
             ])
             ->findOrFail($id);

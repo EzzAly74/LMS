@@ -3,13 +3,14 @@
 namespace App\Notifications;
 
 use App\Models\CourseAssignment;
+use App\Models\User;
 use Illuminate\Notifications\Notification;
 
 class AssignmentCompletedNotification extends Notification
 {
     public function __construct(
         private readonly CourseAssignment $assignment,
-        private readonly string $latestStudentName,
+        private readonly ?User $latestStudent,
         private readonly int $totalCompleted,
     ) {}
 
@@ -25,8 +26,9 @@ class AssignmentCompletedNotification extends Notification
         $titleEn   = $this->assignment->title;
         $titleAr   = $this->assignment->title_ar ?: $this->assignment->title;
 
-        $params = [
-            'student' => $this->latestStudentName,
+        $params = fn (string $locale) => [
+            'student' => $this->latestStudent?->getLocalizedName($locale)
+                ?: __('messages.notifications.assignment_completed_title', [], $locale),
             'count'   => $this->totalCompleted - 1,
         ];
 
@@ -34,8 +36,8 @@ class AssignmentCompletedNotification extends Notification
             'type'     => 'assignment_completed',
             'title_en' => __('messages.notifications.assignment_completed_title', [], 'en'),
             'title_ar' => __('messages.notifications.assignment_completed_title', [], 'ar'),
-            'body_en'  => __("messages.notifications.{$bodyKey}", $params + ['title' => $titleEn], 'en'),
-            'body_ar'  => __("messages.notifications.{$bodyKey}", $params + ['title' => $titleAr], 'ar'),
+            'body_en'  => __("messages.notifications.{$bodyKey}", $params('en') + ['title' => $titleEn], 'en'),
+            'body_ar'  => __("messages.notifications.{$bodyKey}", $params('ar') + ['title' => $titleAr], 'ar'),
             'meta'     => ['course_assignment_id' => $this->assignment->id, 'total_completed' => $this->totalCompleted],
         ];
     }

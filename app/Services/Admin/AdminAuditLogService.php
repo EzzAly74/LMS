@@ -2,6 +2,7 @@
 
 namespace App\Services\Admin;
 
+use App\Support\PersonName;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Pagination\LengthAwarePaginator as PaginatorImpl;
@@ -129,7 +130,7 @@ class AdminAuditLogService
 
         $admins = DB::table('admins')
             ->orderBy('id')
-            ->get(['id', 'name'])
+            ->get(['id', DB::raw(PersonName::adminSql('admins').' as name')])
             ->map(fn ($row) => [
                 'id'   => (int) $row->id,
                 'name' => (string) $row->name,
@@ -234,7 +235,11 @@ class AdminAuditLogService
             'audit_logs.id',
             'audit_logs.user_type',
             'audit_logs.user_id',
-            'audit_logs.user_name',
+            // The actor's current name in the reader's language; the row's
+            // own user_name is the snapshot written at the time, kept as the
+            // fallback for deleted accounts and system rows.
+            DB::raw("COALESCE(NULLIF(CASE audit_logs.user_type WHEN 'admin' THEN ".PersonName::adminSql('la')
+                ." WHEN 'user' THEN ".PersonName::userSql('lu')." END, ''), audit_logs.user_name) AS user_name"),
             'audit_logs.action',
             'audit_logs.model_type',
             'audit_logs.model_id',
@@ -247,7 +252,10 @@ class AdminAuditLogService
             $columns[] = 'audit_logs.actor_role';
         }
 
-        return DB::table('audit_logs')->select($columns);
+        return DB::table('audit_logs')
+            ->leftJoin('admins as la', fn ($j) => $j->on('la.id', '=', 'audit_logs.user_id')->where('audit_logs.user_type', '=', 'admin'))
+            ->leftJoin('users as lu', fn ($j) => $j->on('lu.id', '=', 'audit_logs.user_id')->where('audit_logs.user_type', '=', 'user'))
+            ->select($columns);
     }
 
     /**
@@ -333,6 +341,10 @@ class AdminAuditLogService
 
         $query->where(function ($w) use ($needle) {
             $w->where('audit_logs.user_name',   'LIKE', $needle)
+              ->orWhere('la.name',                'LIKE', $needle)
+              ->orWhere('la.name_ar',             'LIKE', $needle)
+              ->orWhere('lu.name_en',             'LIKE', $needle)
+              ->orWhere('lu.name_ar',             'LIKE', $needle)
               ->orWhere('audit_logs.action',      'LIKE', $needle)
               ->orWhere('audit_logs.model_type',  'LIKE', $needle)
               ->orWhere('audit_logs.description', 'LIKE', $needle)

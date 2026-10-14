@@ -83,6 +83,18 @@ class DashboardAccountTest extends ApiTestCase
         $this->assertSame('سارة علي', Instructor::query()->find($row['instructor_id'])->getTranslation('name', 'ar'));
     }
 
+    /** Names typed into the other language's field are refused (the swapped-name account, 2026-10-14). */
+    public function test_each_name_is_written_in_its_own_language(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+
+        $this->postJson(self::BASE.'/admin/users', $this->payload(['name_en' => 'محمد سعيد', 'name_ar' => 'Mohamed Saied']), $h)
+            ->assertStatus(422)->assertJsonValidationErrors(['name_en', 'name_ar']);
+        $this->postJson(self::BASE.'/admin/users', $this->payload(['name_ar' => 'Sara Ali']), $h)
+            ->assertStatus(422)->assertJsonValidationErrors('name_ar');
+        $this->postJson(self::BASE.'/admin/users', $this->payload(), $h)->assertSuccessful();
+    }
+
     public function test_weak_passwords_and_the_learner_role_are_rejected(): void
     {
         ['headers' => $h] = $this->adminToken();

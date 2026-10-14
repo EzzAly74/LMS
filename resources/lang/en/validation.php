@@ -178,6 +178,10 @@ return [
         'parts' => 'Enter the :attribute as at least :min names (for example, first and last name).',
         'part_length' => 'Each name in the :attribute must be at least :min letters long.',
     ],
+    'name_script' => [
+        'en' => 'Write the :attribute in English letters; the Arabic name has its own field.',
+        'ar' => 'Write the :attribute in Arabic letters; the English name has its own field.',
+    ],
     'account_image' => [
         'mimes' => 'The photo must be a PNG, JPG, JPEG, WEBP or GIF image.',
         'max' => 'The photo is too large. Choose an image of 3 MB or less.',

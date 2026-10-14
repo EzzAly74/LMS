@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api\Admin;
 
 use App\Models\Admin;
 use App\Rules\FullName;
+use App\Rules\NameScript;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -20,8 +21,8 @@ class DashboardAccountUpdateRequest extends FormRequest
         $id = (int) $this->route('id');
 
         return [
-            'name_en'               => ['sometimes', 'nullable', 'string', new FullName()],
-            'name_ar'               => ['sometimes', 'nullable', 'string', new FullName()],
+            'name_en'               => ['sometimes', 'nullable', 'string', new FullName(), new NameScript(NameScript::ENGLISH)],
+            'name_ar'               => ['sometimes', 'nullable', 'string', new FullName(), new NameScript(NameScript::ARABIC)],
             'email'                 => ['sometimes', 'nullable', 'email', 'max:255', Rule::unique('admins', 'email')->ignore($id)],
             'role'                  => ['sometimes', 'nullable', 'string', Rule::exists('roles', 'name')
                 ->where(fn ($q) => $q->where('guard_name', 'admin')->where('name', '!=', 'learner'))],

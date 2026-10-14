@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\Admin;
 
+use App\Rules\NameScript;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -31,8 +32,8 @@ class AdminUserUpdateRequest extends FormRequest
         };
 
         return [
-            'name_en'         => ['sometimes', 'nullable', 'string', 'max:255'],
-            'name_ar'         => ['sometimes', 'nullable', 'string', 'max:255'],
+            'name_en'         => ['sometimes', 'nullable', 'string', 'max:255', new NameScript(NameScript::ENGLISH)],
+            'name_ar'         => ['sometimes', 'nullable', 'string', 'max:255', new NameScript(NameScript::ARABIC)],
             'email'           => [
                 'sometimes', 'nullable', 'email', 'max:255',
                 Rule::unique($table, 'email')->ignore($id),

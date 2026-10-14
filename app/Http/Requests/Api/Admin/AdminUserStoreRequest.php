@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\Admin;
 
+use App\Rules\NameScript;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -31,8 +32,8 @@ class AdminUserStoreRequest extends FormRequest
         };
 
         return [
-            'name_en'         => ['required', 'string', 'max:255'],
-            'name_ar'         => ['required', 'string', 'max:255'],
+            'name_en'         => ['required', 'string', 'max:255', new NameScript(NameScript::ENGLISH)],
+            'name_ar'         => ['required', 'string', 'max:255', new NameScript(NameScript::ARABIC)],
             'email'           => ['required', 'email', 'max:255', Rule::unique($table, 'email')],
             'role'            => [
                 'required',

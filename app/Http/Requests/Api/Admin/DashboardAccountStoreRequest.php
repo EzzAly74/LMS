@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api\Admin;
 
 use App\Models\Admin;
 use App\Rules\FullName;
+use App\Rules\NameScript;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -33,8 +34,8 @@ class DashboardAccountStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name_en'               => ['required', 'string', new FullName()],
-            'name_ar'               => ['required', 'string', new FullName()],
+            'name_en'               => ['required', 'string', new FullName(), new NameScript(NameScript::ENGLISH)],
+            'name_ar'               => ['required', 'string', new FullName(), new NameScript(NameScript::ARABIC)],
             'email'                 => ['required', 'email', 'max:255', Rule::unique('admins', 'email')],
             // Dashboard roles only: `learner` is a website identity.
             'role'                  => ['required', 'string', Rule::exists('roles', 'name')

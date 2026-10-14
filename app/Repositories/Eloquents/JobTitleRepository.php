@@ -48,17 +48,11 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
         // "M" in "N of M courses" (D-056). This used to count only the ones
         // the learner was enrolled in, so an unenrolled course simply vanished
         // from what they still had to do.
-        $totalCourses = DB::table('course_qualification_skills as tc')
-            ->selectRaw('COUNT(DISTINCT tc.course_id)')
-            ->join('job_title_qualification_skill as tj', 'tc.qualification_skill_id', '=', 'tj.qualification_skill_id')
-            ->where('tj.job_title_id', $jobTitle->id);
-
-        $completedCourses = DB::table('course_qualification_skills as tc')
-            ->selectRaw('COUNT(DISTINCT tc.course_id)')
-            ->join('job_title_qualification_skill as tj', 'tc.qualification_skill_id', '=', 'tj.qualification_skill_id')
-            ->where('tj.job_title_id', $jobTitle->id)
-            // D-086: completed by the one project rule (CourseCompletion).
-            ->whereRaw(CourseCompletion::existsSql('users.id', 'tc.course_id'));
+        // Each learner's own links: a frozen cohort keeps its list (D-106).
+        // Completed by the one project rule (D-086, CourseCompletion).
+        $jobTitleId = (int) $jobTitle->id;
+        $totalCourses = \App\Support\CourseQualifications::jobTitleCoursesSql('users.id', (string) $jobTitleId);
+        $completedCourses = \App\Support\CourseQualifications::jobTitleCoursesSql('users.id', (string) $jobTitleId, true);
 
         $query = User::query()
             ->where('users.job_title_id', $jobTitle->id)
@@ -69,8 +63,8 @@ class JobTitleRepository extends BaseRepository implements JobTitleRepositoryInt
             ->when($search !== null && $search !== '' && ! $searchMatchesQualification,
                 fn ($q) => $this->whereLearnerMatches($q, (string) $search))
             ->select('users.*')
-            ->selectSub($totalCourses, 'courses_total')
-            ->selectSub($completedCourses, 'courses_completed');
+            ->selectRaw("{$totalCourses} AS courses_total")
+            ->selectRaw("{$completedCourses} AS courses_completed");
 
         $direction = $dir === 'desc' ? 'desc' : 'asc';
 

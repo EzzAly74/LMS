@@ -173,9 +173,9 @@ class CourseService
                 }
 
                 if ($hasSkillsPayload) {
-                    $course->qualificationSkills()->sync(
-                        array_values(array_unique((array) ($qualificationSkillIds ?? []))),
-                    );
+                    $next = array_values(array_unique(array_map('intval', (array) ($qualificationSkillIds ?? []))));
+                    \App\Support\CourseQualifications::freezeCohortsBeforeChange($course, $next);
+                    $course->qualificationSkills()->sync($next);
                 }
 
                 if ($hasCohortStart || $hasCohortEnd) {

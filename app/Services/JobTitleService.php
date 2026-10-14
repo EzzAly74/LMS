@@ -150,15 +150,14 @@ class JobTitleService
         $granted = $this->directGrants($learners, $skills);
         $locale  = app()->getLocale();
 
-        $links = $skills->isEmpty() ? collect() : DB::table('course_qualification_skills as cqs')
-            ->join('courses', 'courses.id', '=', 'cqs.course_id')
-            ->whereIn('cqs.qualification_skill_id', $skills->pluck('id'))
-            ->orderBy('cqs.course_id')
-            ->get(['cqs.qualification_skill_id as skill_id', 'courses.id as course_id', 'courses.title']);
-
-        $courseIds = $links->pluck('course_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
-        $titles    = $links->mapWithKeys(fn ($l) => [(int) $l->course_id => (string) LocalizedJson::pick($l->title, $locale)]);
-        $bySkill   = $links->groupBy('skill_id');
+        // Each learner's own links: a frozen cohort keeps its list (D-106).
+        $perUser = \App\Support\CourseQualifications::coursesByQualification(
+            $userIds,
+            $skills->pluck('id')->map(fn ($id) => (int) $id)->all(),
+        );
+        $courseIds = collect($perUser)->flatten()->map(fn ($id) => (int) $id)->unique()->sort()->values()->all();
+        $titles    = $courseIds === [] ? collect() : DB::table('courses')->whereIn('id', $courseIds)->pluck('title', 'id')
+            ->mapWithKeys(fn ($t, $id) => [(int) $id => (string) LocalizedJson::pick($t, $locale)]);
 
         $passed = $enrolled = $progress = [];
         if ($courseIds !== []) {
@@ -173,13 +172,14 @@ class JobTitleService
             $progress = $this->lectureProgress($userIds, $courseIds);
         }
 
-        $learners->each(function ($user) use ($skills, $bySkill, $titles, $passed, $enrolled, $progress, $granted, $locale, $search, $matchedSkillIds) {
+        $learners->each(function ($user) use ($skills, $perUser, $titles, $passed, $enrolled, $progress, $granted, $locale, $search, $matchedSkillIds) {
             $uid  = (int) $user->id;
             $mine = $granted[$uid] ?? [];
 
-            $breakdown = $skills->map(function ($skill) use ($uid, $bySkill, $titles, $passed, $enrolled, $progress, $mine, $locale) {
-                $courses = ($bySkill->get($skill->id) ?? collect())->map(function ($link) use ($uid, $titles, $passed, $enrolled, $progress) {
-                    $cid = (int) $link->course_id;
+            $breakdown = $skills->map(function ($skill) use ($uid, $perUser, $titles, $passed, $enrolled, $progress, $mine, $locale) {
+                $linked = collect($perUser[$uid][(int) $skill->id] ?? [])->sort()->values();
+                $courses = $linked->map(function ($cid) use ($uid, $titles, $passed, $enrolled, $progress) {
+                    $cid = (int) $cid;
                     $key = $uid.':'.$cid;
 
                     [$status, $percent] = match (true) {

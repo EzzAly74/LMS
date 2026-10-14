@@ -126,43 +126,32 @@ final class MyLearningService
         $openBuf  = $this->settings->attendanceSessionOpenBufferMinutes();
         $graceBuf = $this->settings->attendanceSessionGraceMinutes();
 
-        // The session the instructor opened attendance for today, so the
-        // card and Mark Present target the same session (D-105).
-        $started = \DB::table('course_sessions')
-            ->where('course_id', $courseId)
-            ->where('section_id', $cohortId)
-            ->whereNotNull('passcode')
-            ->where('passcode_issued_at', '>=', $now->copy()->startOfDay())
-            ->orderByDesc('passcode_issued_at')
-            ->first();
-        if ($started !== null) {
-            return $started;
-        }
+        $startOfDay = $now->copy()->startOfDay();
+        $nowTime    = $now->format('H:i:s');
+
+        // One query per card: the session the instructor opened attendance
+        // for today (it holds the code; it may run early, late or moved,
+        // D-105) comes first, else the one the timetable says is on now.
+        $started = fn ($s) => $s->whereNotNull('passcode')->where('passcode_issued_at', '>=', $startOfDay);
+        $onNow = function ($w) use ($now, $nowTime, $openBuf, $graceBuf) {
+            $w->where(fn ($q) => $q->whereNull('session_date')->orWhereDate('session_date', $now->toDateString()))
+                ->where(function ($q) use ($nowTime, $openBuf, $graceBuf) {
+                    $q->where(fn ($q2) => $q2->whereNull('time_from')->whereNull('time_to'))
+                        // `time_from`/`time_to` are TIME columns; TIMESTAMPDIFF on
+                        // time-only values yields NULL, so compare on the clock
+                        // directly. Open buffer = how early the window opens before
+                        // start; grace = how late it stays open after the end.
+                        ->orWhere(fn ($q2) => $q2
+                            ->whereRaw('time_from <= ADDTIME(?, SEC_TO_TIME(? * 60))', [$nowTime, $openBuf])
+                            ->whereRaw('time_to >= SUBTIME(?, SEC_TO_TIME(? * 60))', [$nowTime, $graceBuf]));
+                });
+        };
 
         return \DB::table('course_sessions')
             ->where('course_id', $courseId)
             ->where('section_id', $cohortId)
-            ->where(function ($q) use ($now) {
-                $q->whereNull('session_date')
-                  ->orWhereDate('session_date', $now->toDateString());
-            })
-            ->where(function ($q) use ($now, $openBuf, $graceBuf) {
-                $q->where(function ($q2) {
-                    $q2->whereNull('time_from')->whereNull('time_to');
-                })->orWhere(function ($q2) use ($now, $openBuf, $graceBuf) {
-                    // `time_from`/`time_to` are TIME columns; TIMESTAMPDIFF on
-                    // time-only values yields NULL, so compare on the clock
-                    // directly. Open buffer = how early the window opens before
-                    // start; grace = how late it stays open after the end.
-                    $q2->whereRaw(
-                        'time_from <= ADDTIME(?, SEC_TO_TIME(? * 60))',
-                        [$now->format('H:i:s'), $openBuf],
-                    )->whereRaw(
-                        'time_to >= SUBTIME(?, SEC_TO_TIME(? * 60))',
-                        [$now->format('H:i:s'), $graceBuf],
-                    );
-                });
-            })
+            ->where(fn ($q) => $q->where($started)->orWhere($onNow))
+            ->orderByRaw('(passcode IS NOT NULL AND passcode_issued_at >= ?) DESC', [$startOfDay])
             ->orderBy('time_from')
             ->orderBy('id')
             ->first();

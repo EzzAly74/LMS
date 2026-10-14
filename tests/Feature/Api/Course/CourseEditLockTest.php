@@ -11,9 +11,10 @@ use Illuminate\Support\Facades\DB;
 use Tests\Feature\Api\ApiTestCase;
 
 /**
- * D-095: from the first enrolment a course keeps its type, certificate rule
- * and qualifications. Sending them unchanged still saves; every other field
- * stays editable; the Edit form reads `locked_fields`.
+ * D-095: from the first enrolment a course keeps its type and certificate
+ * rule. Sending them unchanged still saves; every other field stays editable;
+ * the Edit form reads `locked_fields`. Qualifications are editable: the
+ * change applies from the next cohort (D-106, NEW2B-6049).
  */
 class CourseEditLockTest extends ApiTestCase
 {
@@ -97,7 +98,6 @@ class CourseEditLockTest extends ApiTestCase
         yield 'rule'                => [['certificate_rule' => 'general'], 'certificate_rule'];
         yield 'attendance minimum'  => [['certificate_min_attendance' => 50], 'certificate_min_attendance'];
         yield 'score minimum'       => [['certificate_min_score' => 90], 'certificate_min_score'];
-        yield 'qualification removed' => [['qualification_skill_ids' => ''], 'qualification_skill_ids'];
     }
 
     /** @dataProvider changes */
@@ -117,12 +117,19 @@ class CourseEditLockTest extends ApiTestCase
         $this->assertNotSame('Renamed course', $fresh->getTranslation('title', 'en'), 'nothing is saved');
     }
 
-    public function test_an_added_qualification_is_refused_too(): void
+    /** NEW2B-6049: qualifications change after enrolment; the cohort under way keeps its list. */
+    public function test_qualifications_change_after_enrolment_and_the_running_cohort_keeps_its_list(): void
     {
+        $course = $this->course(true);
+        $cohort = \App\Models\CourseSection::factory()->running()->create(['course_id' => $course->id]);
         $other = QualificationSkill::query()->create(['name' => ['en' => 'Fire Safety', 'ar' => 'السلامة من الحرائق']]);
 
-        $this->edit($this->course(true), $this->unchanged(['qualification_skill_ids' => [$this->qualification->id, $other->id]]))
-            ->assertStatus(422)->assertJsonValidationErrors(['qualification_skill_ids']);
+        $this->edit($course, $this->unchanged(['qualification_skill_ids' => [$other->id]]))->assertOk();
+
+        $this->assertSame([$other->id], $course->fresh()->qualificationSkills()->pluck('qualification_skills.id')->map(fn ($id) => (int) $id)->all());
+        $this->assertNotNull($cohort->fresh()->qualifications_frozen_at);
+        $this->assertSame([$this->qualification->id], DB::table('cohort_qualification_skills')->where('section_id', $cohort->id)
+            ->pluck('qualification_skill_id')->map(fn ($id) => (int) $id)->all());
     }
 
     /** @dataProvider changes */

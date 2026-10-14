@@ -38,11 +38,8 @@ final class LearnerCompliance
             ->get(['job_title_id', 'qualification_skill_id'])
             ->groupBy('job_title_id')
             ->map(fn ($rows) => $rows->pluck('qualification_skill_id')->map(fn ($id) => (int) $id)->unique()->values()->all());
-        $coursesByQual = DB::table('course_qualification_skills')
-            ->whereIn('qualification_skill_id', $qualsByJobTitle->flatten()->unique()->values()->all() ?: [0])
-            ->get(['qualification_skill_id', 'course_id'])
-            ->groupBy('qualification_skill_id')
-            ->map(fn ($rows) => $rows->pluck('course_id')->map(fn ($id) => (int) $id)->unique()->values()->all());
+        // Each learner's own links: a frozen cohort keeps its list (D-106).
+        $coursesByUser = CourseQualifications::coursesByQualification($userIds, $qualsByJobTitle->flatten()->unique()->values()->all());
         $grantedByUser = DB::table('user_qualification_skill')
             ->whereIn('user_id', $userIds)
             ->get(['user_id', 'qualification_skill_id'])
@@ -59,7 +56,7 @@ final class LearnerCompliance
             $percents = [];
             $held = 0;
             foreach ($quals as $q) {
-                $courses = $coursesByQual[$q] ?? [];
+                $courses = $coursesByUser[$userId][$q] ?? [];
                 $passed = count(array_filter($courses, fn (int $id) => array_key_exists($id, $done)));
                 $percents[] = QualificationHolding::percent(isset($granted[$q]), count($courses), $passed);
                 $held += QualificationHolding::holds(isset($granted[$q]), count($courses), $passed) ? 1 : 0;

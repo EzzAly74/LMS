@@ -88,11 +88,15 @@ final class ProfileDashboardService
         $qualificationIds = $qualifications->pluck('id')->map(fn ($v) => (int) $v)->all();
 
         // course_id => [qualification_id, ...] restricted to the user's required set.
-        $courseToQualifications = DB::table('course_qualification_skills')
-            ->whereIn('qualification_skill_id', $qualificationIds)
-            ->get(['course_id', 'qualification_skill_id'])
-            ->groupBy('course_id')
-            ->map(fn ($rows) => $rows->pluck('qualification_skill_id')->map(fn ($v) => (int) $v)->all());
+        // This learner's links: a frozen cohort keeps its list (D-106).
+        $byCourse = [];
+        foreach (\App\Support\CourseQualifications::coursesByQualification([(int) $user->id], $qualificationIds)[(int) $user->id] ?? [] as $q => $courses) {
+            foreach ($courses as $c) {
+                $byCourse[$c][] = (int) $q;
+            }
+        }
+        ksort($byCourse);
+        $courseToQualifications = collect($byCourse);
 
         $allCourseIds = collect($courseToQualifications->keys())->map(fn ($v) => (int) $v)->values();
 
@@ -358,12 +362,12 @@ final class ProfileDashboardService
             return collect();
         }
 
-        return DB::table('course_qualification_skills')
-            ->whereIn('qualification_skill_id', $quals->pluck('id')->all())
-            ->distinct()
-            ->pluck('course_id')
-            ->map(fn ($v) => (int) $v)
-            ->values();
+        $map = \App\Support\CourseQualifications::coursesByQualification(
+            [(int) $user->id],
+            $quals->pluck('id')->map(fn ($v) => (int) $v)->all(),
+        )[(int) $user->id] ?? [];
+
+        return collect($map)->flatten()->map(fn ($v) => (int) $v)->unique()->sort()->values();
     }
 
     /** @return array<int, string> */

@@ -59,19 +59,19 @@ final class QualificationHolding
             ->values();
     }
 
-    /** Correlated count of the courses linked to qualification {$qualification}. */
-    public static function linkedCoursesSql(string $qualification): string
+    /**
+     * Correlated count of the courses linked to {$qualification} for {$user}:
+     * a frozen cohort's list for the courses they took in one (D-106).
+     */
+    public static function linkedCoursesSql(string $user, string $qualification): string
     {
-        return "(SELECT COUNT(*) FROM course_qualification_skills qh_l
-            WHERE qh_l.qualification_skill_id = {$qualification})";
+        return CourseQualifications::countSql($user, $qualification);
     }
 
     /** Correlated count of those courses that {$user} has completed. */
     public static function passedCoursesSql(string $user, string $qualification): string
     {
-        return "(SELECT COUNT(*) FROM course_qualification_skills qh_p
-            WHERE qh_p.qualification_skill_id = {$qualification}
-              AND ".CourseCompletion::existsSql($user, 'qh_p.course_id').')';
+        return CourseQualifications::countSql($user, $qualification, CourseCompletion::existsSql($user, '{course}'));
     }
 
     /** EXISTS fragment: {$user} was granted {$qualification} directly. */
@@ -85,7 +85,7 @@ final class QualificationHolding
     /** Boolean fragment: {$user} holds {$qualification}. */
     public static function holdsSql(string $user, string $qualification): string
     {
-        $linked = self::linkedCoursesSql($qualification);
+        $linked = self::linkedCoursesSql($user, $qualification);
         $passed = self::passedCoursesSql($user, $qualification);
 
         return '('.self::grantedSql($user, $qualification)." OR ({$linked} > 0 AND {$passed} >= {$linked}))";
@@ -94,7 +94,7 @@ final class QualificationHolding
     /** Numeric fragment in [0, 1]: {$user}'s progress towards {$qualification}. */
     public static function progressSql(string $user, string $qualification): string
     {
-        $linked = self::linkedCoursesSql($qualification);
+        $linked = self::linkedCoursesSql($user, $qualification);
         $passed = self::passedCoursesSql($user, $qualification);
 
         return 'CASE WHEN '.self::grantedSql($user, $qualification).' THEN 1'

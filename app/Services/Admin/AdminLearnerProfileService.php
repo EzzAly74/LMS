@@ -251,8 +251,21 @@ class AdminLearnerProfileService
             ->get(['cqs.course_id', 'qs.id', 'qs.name'])
             ->groupBy('course_id');
 
+        // A cohort frozen by a later edit keeps the list it started with (D-106).
+        $cohortIds = $rows->pluck('cohort_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $frozen = $cohortIds === [] ? collect() : DB::table('course_sections')->whereIn('id', $cohortIds)
+            ->whereNotNull('qualifications_frozen_at')->pluck('id')->map(fn ($id) => (int) $id)->flip();
+        $byCohort = $frozen->isEmpty() ? collect() : DB::table('cohort_qualification_skills as cq')
+            ->join('qualification_skills as qs', 'qs.id', '=', 'cq.qualification_skill_id')
+            ->whereIn('cq.section_id', $frozen->keys()->all())
+            ->orderBy('qs.id')
+            ->get(['cq.section_id', 'qs.id', 'qs.name'])
+            ->groupBy('section_id');
+
         foreach ($rows as $row) {
-            $row->qualifications = ($byCourse->get($row->course_id) ?? collect())
+            $cohort = $row->cohort_id !== null ? (int) $row->cohort_id : null;
+            $source = $cohort !== null && $frozen->has($cohort) ? $byCohort->get($cohort) : $byCourse->get($row->course_id);
+            $row->qualifications = ($source ?? collect())
                 ->map(fn ($q) => ['id' => (int) $q->id, 'name' => LocalizedJson::pick($q->name)])
                 ->values()
                 ->all();

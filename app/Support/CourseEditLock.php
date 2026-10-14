@@ -28,7 +28,9 @@ final class CourseEditLock
     public const QUALIFICATIONS = 'qualification_skill_ids';
 
     /** In the order the form shows them. */
-    public const FIELDS = [self::COURSE_TYPE, self::CERTIFICATE, self::QUALIFICATIONS];
+    // Qualifications are not locked: an edit applies from the next cohort,
+    // the cohorts under way keep theirs (D-106, NEW2B-6049).
+    public const FIELDS = [self::COURSE_TYPE, self::CERTIFICATE];
 
     public static function applies(Course $course): bool
     {
@@ -64,14 +66,6 @@ final class CourseEditLock
         if (array_key_exists('certificate_rule', $input)) {
             foreach (self::certificateChanges($course, $input) as $key) {
                 $out[$key] = $message;
-            }
-        }
-
-        if (array_key_exists('qualification_skill_ids', $input)) {
-            $sent = self::ids($input['qualification_skill_ids']);
-            $held = self::ids($course->qualificationSkills()->pluck('qualification_skills.id')->all());
-            if ($sent !== $held) {
-                $out['qualification_skill_ids'] = $message;
             }
         }
 

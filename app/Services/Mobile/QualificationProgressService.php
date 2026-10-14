@@ -64,11 +64,9 @@ final class QualificationProgressService
         // and how many of those the user has completed.
         $qualificationIds = $qualifications->pluck('id')->all();
 
-        $courseCounts = DB::table('course_qualification_skills')
-            ->whereIn('qualification_skill_id', $qualificationIds)
-            ->selectRaw('qualification_skill_id, COUNT(DISTINCT course_id) AS total_courses')
-            ->groupBy('qualification_skill_id')
-            ->pluck('total_courses', 'qualification_skill_id');
+        // This learner's links: a frozen cohort keeps its list (D-106).
+        $linked = \App\Support\CourseQualifications::coursesByQualification([(int) $user->id], $qualificationIds)[(int) $user->id] ?? [];
+        $courseCounts = collect($linked)->map(fn (array $courses) => count($courses));
 
         $completedByQualification = $this->countCompletedCoursesByQualification(
             $user,
@@ -130,12 +128,10 @@ final class QualificationProgressService
             return collect();
         }
 
-        return DB::table('course_qualification_skills')
-            ->whereIn('qualification_skill_id', $qualificationIds)
-            ->whereIn('course_id', $completedCourseIds->all())
-            ->selectRaw('qualification_skill_id, COUNT(DISTINCT course_id) AS completed_count')
-            ->groupBy('qualification_skill_id')
-            ->pluck('completed_count', 'qualification_skill_id');
+        $done = array_flip($completedCourseIds->map(fn ($id) => (int) $id)->all());
+        $linked = \App\Support\CourseQualifications::coursesByQualification([$userId], $qualificationIds)[$userId] ?? [];
+
+        return collect($linked)->map(fn (array $courses) => count(array_filter($courses, fn (int $c) => isset($done[$c]))));
     }
 
     /**

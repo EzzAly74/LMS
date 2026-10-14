@@ -41,6 +41,26 @@ class BlogValidationMessagesTest extends ApiTestCase
         $this->assertDatabaseCount('blogs', 0);
     }
 
+    /** NEW2B-5965: a blog name is at most 100 characters. NEW2B-5950: images are PNG / JPG / WebP up to 2 MB. */
+    public function test_name_and_image_limits(): void
+    {
+        $h = $this->adminToken()['headers'] + ['Accept-Language' => 'en'];
+        $url = self::BASE.'/admin/blogs';
+        $png = fn (int $kb) => \Illuminate\Http\UploadedFile::fake()->image('c.png', 800, 450)->size($kb);
+
+        $this->post($url, $this->payload(['title' => ['en' => str_repeat('a', 101)]]) + ['image' => $png(100)], $h + ['Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors('title.en');
+        $this->post($url, $this->payload() + ['image' => $png(2049)], $h + ['Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors('image');
+        $this->post($url, $this->payload() + ['image' => \Illuminate\Http\UploadedFile::fake()->image('c.gif')], $h + ['Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors('image');
+        $withSection = $this->payload();
+        $withSection['sections'][0]['image'] = $png(3000);
+        $this->post($url, $withSection + ['image' => $png(100)], $h + ['Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors('sections.0.image');
+        $this->assertDatabaseCount('blogs', 0);
+    }
+
     public function test_messages_follow_the_request_language(): void
     {
         $admin = $this->adminToken();

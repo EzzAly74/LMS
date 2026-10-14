@@ -22,18 +22,22 @@ class BlogRequest extends FormRequest
         ]);
     }
 
+    public const TITLE_MAX = 100;
+
+    public const IMAGE_RULE = 'image|mimes:png,jpg,jpeg,webp|max:2048';
+
     public function rules(): array
     {
         $isUpdate = $this->isMethod('PUT') || $this->isMethod('PATCH');
 
-        $imageRule = $isUpdate
-            ? 'nullable|image|mimes:png,jpg,jpeg,webp,gif|max:4000'
-            : 'required|image|mimes:png,jpg,jpeg,webp,gif|max:4000';
+        // NEW2B-5950: PNG, JPG or WebP, at most 2 MB (content-checked by `image` + `mimes`).
+        $imageRule = ($isUpdate ? 'nullable' : 'required').'|'.self::IMAGE_RULE;
 
         return [
             'title'                   => 'required|array',
-            'title.en'                => 'required|string|max:255',
-            'title.ar'                => 'required|string|max:255',
+            // NEW2B-5965: a blog's name is at most 100 characters.
+            'title.en'                => 'required|string|max:'.self::TITLE_MAX,
+            'title.ar'                => 'required|string|max:'.self::TITLE_MAX,
 
             'subtitle'                => 'nullable|array',
             'subtitle.en'             => 'nullable|string|max:1000',
@@ -63,7 +67,8 @@ class BlogRequest extends FormRequest
             'sections.*.quote'        => 'nullable|array',
             'sections.*.quote.en'     => 'nullable|string|max:1000',
             'sections.*.quote.ar'     => 'nullable|string|max:1000',
-            // Either a freshly uploaded file, or the existing stored path (edit).
+            // Either a freshly uploaded file, or the existing stored path (edit);
+            // an upload follows the cover's rule (NEW2B-5950), checked in after().
             'sections.*.image'        => 'nullable',
             'sections.*.sort_order'   => 'nullable|integer|min:0',
         ];
@@ -94,5 +99,22 @@ class BlogRequest extends FormRequest
             'sections.*.quote.en' => $f('section_quote_en'),
             'sections.*.quote.ar' => $f('section_quote_ar'),
         ];
+    }
+
+    /** A section image upload: the cover's types and size (NEW2B-5950). */
+    public function after(): array
+    {
+        return [function (\Illuminate\Validation\Validator $v) {
+            foreach ((array) $this->file('sections', []) as $i => $files) {
+                $file = is_array($files) ? ($files['image'] ?? null) : null;
+                if (! $file instanceof \Illuminate\Http\UploadedFile) {
+                    continue;
+                }
+                $check = \Illuminate\Support\Facades\Validator::make(['image' => $file], ['image' => self::IMAGE_RULE]);
+                foreach ($check->errors()->get('image') as $message) {
+                    $v->errors()->add("sections.$i.image", $message);
+                }
+            }
+        }];
     }
 }

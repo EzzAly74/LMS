@@ -87,6 +87,9 @@ class LearnerDashboardService
 
             $card['delivery_type'] = $course->course_type;
             $card['cohort'] = [
+                // The learner's own cohort (NEW2B-6003).
+                'id' => $cohort?->id,
+                'name' => $cohort?->name,
                 // A legacy cohort without session rows keeps its stored number.
                 'session_count' => $cohort ? ((int) $cohort->sessions_count ?: $cohort->number_of_sessions) : null,
                 'start_date' => $cohort ? self::day($cohort->sessions_min_session_date) ?? $cohort->start_date?->format('Y-m-d') : null,

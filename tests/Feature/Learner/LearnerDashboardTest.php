@@ -48,6 +48,9 @@ class LearnerDashboardTest extends ApiTestCase
         $this->assertNotNull($card);
         $this->assertSame('blended', $card['delivery_type']);
         $this->assertSame(6, $card['cohort']['session_count']);
+        // The learner's own cohort (NEW2B-6003).
+        $this->assertSame($cohort->id, $card['cohort']['id']);
+        $this->assertSame($cohort->getTranslation('name', 'en'), $card['cohort']['name']);
         $this->assertNotNull($card['cohort']['start_date']);
         $this->assertSame(50, $card['module_progress_percent']); // 2 of 4 lectures completed
         $this->assertSame('on_track', $card['certificate_status']['status']);

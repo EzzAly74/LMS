@@ -110,6 +110,18 @@ class LearnerAssignmentService
         $locale = app()->getLocale();
 
         DB::transaction(function () use ($submission, $question, $payload, $graded) {
+            // An auto-checked answer is final once given (NEW2B-6323): the
+            // learner has seen the correct answer. Locked so a double tap
+            // cannot slip a second answer in.
+            $given = UserCourseAssignmentAnswer::query()
+                ->where('user_course_assignment_id', $submission->id)
+                ->where('course_assignment_question_id', $question->id)
+                ->lockForUpdate()
+                ->exists();
+            if ($given && $this->grader->isAutoGraded($question)) {
+                throw new HttpException(409, __('messages.answer_locked'));
+            }
+
             UserCourseAssignmentAnswer::updateOrCreate(
                 ['user_course_assignment_id' => $submission->id, 'course_assignment_question_id' => $question->id],
                 [

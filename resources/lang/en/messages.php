@@ -133,6 +133,7 @@ return [
     'mcq_key_not_an_option' => 'The correct answer must be one of the options.',
     'mcq_key_not_same_option' => 'The correct answer must be the same option in English and Arabic.',
     'assignment_already_submitted'     => 'You have already submitted this assignment.',
+    'answer_locked'                    => 'You have answered this question. Answers checked on submit cannot be changed.',
     'assignment_not_submitted'         => 'You have not submitted this assignment yet.',
     'assignment_question_not_in_assignment' => 'This question does not belong to the assignment.',
     'quiz_question_not_in_quiz' => 'This question does not belong to the quiz.',

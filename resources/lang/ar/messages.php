@@ -132,6 +132,7 @@ return [
     'mcq_key_not_an_option' => 'يجب أن تكون الإجابة الصحيحة أحد الخيارات.',
     'mcq_key_not_same_option' => 'يجب أن تكون الإجابة الصحيحة الخيار نفسه بالإنجليزية والعربية.',
     'assignment_already_submitted'     => 'لقد أرسلت هذه المهمة مسبقًا.',
+    'answer_locked'                    => 'لقد أجبت عن هذا السؤال. لا يمكن تغيير الإجابات التي تُصحَّح عند الإرسال.',
     'assignment_not_submitted'         => 'لم ترسل هذه المهمة بعد.',
     'assignment_question_not_in_assignment' => 'هذا السؤال لا ينتمي إلى هذه المهمة.',
     'quiz_question_not_in_quiz' => 'هذا السؤال لا ينتمي إلى هذا الاختبار.',

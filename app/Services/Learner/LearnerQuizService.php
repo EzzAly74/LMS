@@ -103,6 +103,16 @@ class LearnerQuizService
         $locale = app()->getLocale();
 
         DB::transaction(function () use ($submission, $question, $payload, $graded) {
+            // An auto-checked answer is final once given (NEW2B-6323).
+            $given = UserExamAnswer::query()
+                ->where('user_exam_id', $submission->id)
+                ->where('question_id', $question->id)
+                ->lockForUpdate()
+                ->exists();
+            if ($given && $this->grader->isAutoGraded($question)) {
+                throw new HttpException(409, __('messages.answer_locked'));
+            }
+
             UserExamAnswer::updateOrCreate(
                 ['user_exam_id' => $submission->id, 'question_id' => $question->id],
                 [

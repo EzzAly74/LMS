@@ -117,6 +117,27 @@ class LearnerAssignmentSubmissionTest extends ApiTestCase
         $this->assertSame('submitted', $openResponse->json('result.results.submission_status'));
     }
 
+    /** NEW2B-6323: an auto-checked answer is final once given; an open answer can be revised until sent. */
+    public function test_an_auto_checked_answer_cannot_be_changed_but_an_open_one_can(): void
+    {
+        $course = Course::factory()->create();
+        ['assignment' => $assignment, 'mcq' => $mcq, 'open' => $open] = $this->buildAssignment($course);
+        // A third question keeps the attempt open (answering every question sends it).
+        CourseAssignmentQuestion::create([
+            'course_assignment_id' => $assignment->id, 'position' => 2, 'type' => 'open', 'score' => 5, 'question_en' => 'Anything else?',
+        ]);
+        ['headers' => $headers] = $this->enrolledToken($course);
+        $url = fn ($q) => self::BASE . "/courses/{$course->id}/assignments/{$assignment->id}/questions/{$q->id}/answer";
+
+        $this->withHeaders($headers)->postJson($url($mcq), ['value' => '1'])->assertOk();
+        $this->withHeaders($headers)->postJson($url($mcq), ['value' => '2'])->assertStatus(409)
+            ->assertJsonPath('message', __('messages.answer_locked'));
+
+        $this->withHeaders($headers)->postJson($url($open), ['value' => 'First draft'])->assertOk();
+        $this->withHeaders($headers)->postJson($url($open), ['value' => 'Better answer'])->assertOk()->assertJsonPath('result.finalized', false);
+        $this->assertSame(['value' => 'Better answer'], \App\Models\UserCourseAssignmentAnswer::query()->where('course_assignment_question_id', $open->id)->value('answer'));
+    }
+
     public function test_results_reflect_updated_score_after_instructor_grades_pending_open_answer(): void
     {
         $course = Course::factory()->create();

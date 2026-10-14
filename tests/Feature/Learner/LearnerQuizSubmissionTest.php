@@ -129,6 +129,27 @@ class LearnerQuizSubmissionTest extends ApiTestCase
         $this->assertFalse($result['finalized']);
     }
 
+    /** NEW2B-6323: an auto-checked answer is final once given; an open answer can be revised until submitted. */
+    public function test_an_auto_checked_answer_cannot_be_changed_but_an_open_one_can(): void
+    {
+        $course = Course::factory()->create();
+        ['quiz' => $quiz, 'mcq' => $mcq, 'open' => $open, 'reorder' => $reorder] = $this->buildQuiz($course);
+        ['headers' => $headers] = $this->enrolledToken($course);
+        $url = fn ($q) => self::BASE . "/courses/{$course->id}/quizzes/{$quiz->id}/questions/{$q->id}/answer";
+
+        $this->withHeaders($headers)->postJson($url($mcq), ['value' => '3'])->assertOk()->assertJsonPath('result.is_correct', false);
+        $this->withHeaders($headers)->postJson($url($mcq), ['value' => '4'])->assertStatus(409)
+            ->assertJsonPath('message', __('messages.answer_locked'));
+        $this->assertSame(0, (int) \App\Models\UserExamAnswer::query()->where('question_id', $mcq->id)->value('awarded_score'));
+
+        $this->withHeaders($headers)->postJson($url($reorder), ['order' => ['Step 2', 'Step 1', 'Step 3']])->assertOk();
+        $this->withHeaders($headers)->postJson($url($reorder), ['order' => ['Step 1', 'Step 2', 'Step 3']])->assertStatus(409);
+
+        $this->withHeaders($headers)->postJson($url($open), ['value' => 'First draft'])->assertOk();
+        $this->withHeaders($headers)->postJson($url($open), ['value' => 'Better answer'])->assertOk();
+        $this->assertSame(['value' => 'Better answer'], \App\Models\UserExamAnswer::query()->where('question_id', $open->id)->value('answer_payload'));
+    }
+
     public function test_open_answer_is_pending_and_contributes_zero(): void
     {
         $course = Course::factory()->create();

@@ -37,6 +37,16 @@ class QuestionAnswerGrader
      * @param  array<string, mixed>  $payload  `['value' => ...]` for mcq/yes_no/open, `['order' => string[]]` for reorder.
      * @return array{awarded_score: int|null, is_correct: bool|null, pending: bool}
      */
+    /**
+     * Checked on submit (MCQ, Yes/No, reorder): the learner sees the verdict
+     * and the correct answer at once, so the answer is final (NEW2B-6323).
+     * Open and file answers wait for a person and may change until sent.
+     */
+    public function isAutoGraded(object $question): bool
+    {
+        return in_array($question->type, [self::TYPE_MCQ, self::TYPE_YES_NO, self::TYPE_REORDER], true);
+    }
+
     public function grade(object $question, array $payload): array
     {
         return match ($question->type) {

@@ -34,6 +34,7 @@ class DashboardAccountUpdateRequest extends FormRequest
             'title_ar'              => ['sometimes', 'nullable', 'string', 'max:150'],
             'brief_en'              => ['sometimes', 'nullable', 'string', 'max:2000'],
             'brief_ar'              => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'linkedin_url'          => ['sometimes', 'nullable', 'string', 'max:255', 'url:https', 'regex:/^https:\/\/([a-z]{2,3}\.)?linkedin\.com\//i'],
             'image'                 => ['sometimes', 'nullable', 'image', 'mimes:'.DashboardAccountStoreRequest::IMAGE_TYPES, 'max:'.DashboardAccountStoreRequest::IMAGE_MAX_KB],
             // Removes the current photo (NEW2B-6160); ignored when a new one is sent.
             'remove_image'          => ['sometimes', 'boolean'],

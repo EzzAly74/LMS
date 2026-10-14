@@ -73,6 +73,8 @@ class AdminUserListResource extends JsonResource
             'brief_en'               => $briefEn ?: null,
             'brief_ar'               => $briefAr ?: null,
             'brief'                  => $brief ?: null,
+            // An instructor's LinkedIn profile (Figma 715:57123 "Link").
+            'linkedin_url'           => isset($row->linkedin_url) && $row->linkedin_url !== '' ? (string) $row->linkedin_url : null,
             'email'                  => $row->email,
             'phone'                  => $row->phone,
             'machine_code'           => $row->machine_code,

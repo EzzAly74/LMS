@@ -47,6 +47,8 @@ class DashboardAccountStoreRequest extends FormRequest
             'title_ar'              => ['nullable', 'string', 'max:150'],
             'brief_en'              => ['nullable', 'string', 'max:2000'],
             'brief_ar'              => ['nullable', 'string', 'max:2000'],
+            // An instructor's LinkedIn profile: an https linkedin.com address only.
+            'linkedin_url'          => ['nullable', 'string', 'max:255', 'url:https', 'regex:/^https:\/\/([a-z]{2,3}\.)?linkedin\.com\//i'],
             // GIF too: the photo picker offers it (NEW2B-6165). Never SVG (D-044).
             'image'                 => ['nullable', 'image', 'mimes:'.self::IMAGE_TYPES, 'max:'.self::IMAGE_MAX_KB],
         ];
@@ -65,6 +67,8 @@ class DashboardAccountStoreRequest extends FormRequest
             'image.mimes'  => __('validation.account_image.mimes'),
             'image.image'  => __('validation.account_image.mimes'),
             'image.max'    => __('validation.account_image.max'),
+            'linkedin_url.url'   => __('validation.account_linkedin'),
+            'linkedin_url.regex' => __('validation.account_linkedin'),
         ];
     }
 

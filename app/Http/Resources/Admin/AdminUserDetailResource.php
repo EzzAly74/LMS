@@ -15,6 +15,9 @@ class AdminUserDetailResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        return (new AdminUserListResource($this->resource))->toArray($request);
+        return (new AdminUserListResource($this->resource))->toArray($request) + [
+            // The courses taught or enrolled in, each a link on the profile (NEW2B-5947).
+            'courses' => $this->resource->courses ?? [],
+        ];
     }
 }

@@ -83,6 +83,47 @@ class DashboardAccountTest extends ApiTestCase
         $this->assertSame('سارة علي', Instructor::query()->find($row['instructor_id'])->getTranslation('name', 'ar'));
     }
 
+    /** NEW2B-5947: an instructor's profile lists the courses they teach (Figma 715:57123). */
+    public function test_the_profile_lists_the_persons_courses(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+        $instructor = \App\Models\Instructor::query()->create(['name' => ['en' => 'Mona Adel', 'ar' => 'منى عادل'], 'email' => 'mona@academy.test']);
+        $taught = \App\Models\Course::factory()->create(['title' => ['en' => 'Fire Safety', 'ar' => 'السلامة من الحرائق']]);
+        $taught->instructors()->attach($instructor->id);
+        \App\Models\Course::factory()->create(); // not hers
+
+        // An instructor's Dashboard account (linked to the instructor) lists them; one without a link, none.
+        $account = \App\Models\Admin::factory()->create();
+        $account->forceFill(['instructor_id' => $instructor->id])->save();
+        $this->assertSame([['id' => $taught->id, 'title' => 'Fire Safety']],
+            $this->getJson(self::BASE."/admin/users/admin/{$account->id}", $h)->assertOk()->json('result.courses'));
+        $plain = \App\Models\Admin::factory()->create();
+        $this->assertSame([], $this->getJson(self::BASE."/admin/users/admin/{$plain->id}", $h)->assertOk()->json('result.courses'));
+    }
+
+    /** Figma 1532:63886: an instructor's LinkedIn profile is saved, shown, and must be an https linkedin.com link. */
+    public function test_an_instructor_account_keeps_a_linkedin_profile(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+
+        $row = $this->postJson(self::BASE.'/admin/users', $this->payload([
+            'role' => 'instructor', 'linkedin_url' => 'https://www.linkedin.com/in/sara-ali',
+        ]), $h)->assertCreated()->json('result');
+        $this->assertSame('https://www.linkedin.com/in/sara-ali', $row['linkedin_url']);
+        $this->assertSame('https://www.linkedin.com/in/sara-ali', Instructor::query()->find($row['instructor_id'])->linkedin_url);
+        $this->assertSame('https://www.linkedin.com/in/sara-ali',
+            $this->getJson(self::BASE."/admin/users/admin/{$row['id']}", $h)->assertOk()->json('result.linkedin_url'));
+
+        foreach (['https://evil.test/in/sara', 'http://www.linkedin.com/in/sara', 'https://linkedin.com.evil.test/in/x', 'javascript:alert(1)'] as $bad) {
+            $this->postJson(self::BASE.'/admin/users', $this->payload(['role' => 'instructor', 'linkedin_url' => $bad]), $h)
+                ->assertStatus(422)->assertJsonValidationErrors('linkedin_url');
+        }
+
+        // Cleared on edit.
+        $this->putJson(self::BASE."/admin/users/admin/{$row['id']}", ['linkedin_url' => null], $h)->assertOk();
+        $this->assertNull(Instructor::query()->find($row['instructor_id'])->linkedin_url);
+    }
+
     /** Names typed into the other language's field are refused (the swapped-name account, 2026-10-14). */
     public function test_each_name_is_written_in_its_own_language(): void
     {

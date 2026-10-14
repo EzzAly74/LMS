@@ -178,6 +178,7 @@ return [
         'parts' => 'Enter the :attribute as at least :min names (for example, first and last name).',
         'part_length' => 'Each name in the :attribute must be at least :min letters long.',
     ],
+    'account_linkedin' => 'Enter a LinkedIn profile link, for example https://www.linkedin.com/in/your-name.',
     'name_script' => [
         'en' => 'Write the :attribute in English letters; the Arabic name has its own field.',
         'ar' => 'Write the :attribute in Arabic letters; the English name has its own field.',

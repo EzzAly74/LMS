@@ -63,7 +63,37 @@ class DashboardAccountService
 
     public function show(int $id): object
     {
-        return $this->row(Admin::query()->with(['roles', 'instructor'])->findOrFail($id));
+        $admin = Admin::query()->with(['roles', 'instructor'])->findOrFail($id);
+        $row = $this->row($admin);
+        $row->courses = $this->coursesTaughtBy($admin->instructor_id);
+
+        return $row;
+    }
+
+    /** Assigned Courses on the profile, each a link (NEW2B-5947, Figma 715:57123). */
+    public const PROFILE_COURSES_LIMIT = 50;
+
+    /**
+     * The courses an instructor's account teaches (its linked instructor), in
+     * the reader's language and within the viewer's course scope (D-074);
+     * none for an account that is not an instructor.
+     *
+     * @return list<array{id:int,title:string}>
+     */
+    private function coursesTaughtBy(?int $instructorId): array
+    {
+        if ($instructorId === null) {
+            return [];
+        }
+        $locale = app()->getLocale();
+
+        return \App\Models\Course::query()
+            ->whereIn('courses.id', \Illuminate\Support\Facades\DB::table('courses_instructors')->select('course_id')->where('instructor_id', $instructorId))
+            ->orderBy('courses.id')
+            ->limit(self::PROFILE_COURSES_LIMIT)
+            ->get(['courses.id', 'courses.title'])
+            ->map(fn (\App\Models\Course $c) => ['id' => (int) $c->id, 'title' => (string) $c->getTranslation('title', $locale)])
+            ->values()->all();
     }
 
     /** @return array{total_users:int,instructors:int,admins:int,inactive:int} */
@@ -284,6 +314,9 @@ class DashboardAccountService
         if (array_key_exists('brief_ar', $data)) {
             $instructor->setTranslation('bio', 'ar', (string) ($data['brief_ar'] ?? ''));
         }
+        if (array_key_exists('linkedin_url', $data)) {
+            $instructor->linkedin_url = trim((string) ($data['linkedin_url'] ?? '')) ?: null;
+        }
         if ($admin->image) {
             $instructor->image = $admin->image;
         }
@@ -328,6 +361,7 @@ class DashboardAccountService
             'title_ar'               => $instructor?->getTranslation('title', 'ar', false) ?: null,
             'bio_en'                 => $instructor?->getTranslation('bio', 'en', false) ?: null,
             'bio_ar'                 => $instructor?->getTranslation('bio', 'ar', false) ?: null,
+            'linkedin_url'           => $instructor?->linkedin_url ?: null,
             'email'                  => $admin->email,
             'phone'                  => null,
             'machine_code'           => null,

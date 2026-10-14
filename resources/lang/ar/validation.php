@@ -140,6 +140,7 @@ return [
         'parts'       => 'أدخل :attribute من :min أسماء على الأقل (مثل الاسم الأول واسم العائلة).',
         'part_length' => 'يجب أن يتكون كل اسم في :attribute من :min أحرف على الأقل.',
     ],
+    'account_linkedin' => 'أدخل رابط ملف LinkedIn الشخصي، مثل https://www.linkedin.com/in/your-name.',
     'name_script'          => [
         'en' => 'اكتب :attribute بحروف إنجليزية؛ للاسم العربي حقل مستقل.',
         'ar' => 'اكتب :attribute بحروف عربية؛ للاسم الإنجليزي حقل مستقل.',

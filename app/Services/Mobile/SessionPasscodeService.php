@@ -24,7 +24,11 @@ final class SessionPasscodeService
 {
     public function __construct(private readonly MobileSettings $settings) {}
 
-    public function issue(CourseSession $session, ?int $lengthOverride, ?Carbon $expiresAt): CourseSession
+    /**
+     * `$audited` false: an automatic rotation, which is the system's doing,
+     * not a person's, so it stays out of the audit log (NEW2B-6098).
+     */
+    public function issue(CourseSession $session, ?int $lengthOverride, ?Carbon $expiresAt, bool $audited = true): CourseSession
     {
         $length = $lengthOverride !== null && $lengthOverride > 0
             ? $lengthOverride
@@ -43,7 +47,8 @@ final class SessionPasscodeService
             'passcode_issued_at'        => $now,
             'passcode_expires_at'       => $effectiveExpiry,
             'attendance_window_minutes' => $expiresAt === null ? $validityMinutes : null,
-        ])->save();
+        ]);
+        $audited ? $session->save() : $session->saveQuietly();
 
         return $session->fresh();
     }

@@ -187,7 +187,8 @@ class DashboardPasscodeController extends ApiController
         return $this->success(
             __('messages.passcode.session_started'),
             new SessionPasscodeStateResource(
-                $this->service->regenerateCurrent($courseIds),
+                // `auto`: the widget's own rotation when a code lapses (NEW2B-6098).
+                $this->service->regenerateCurrent($courseIds, $request->boolean('auto')),
             ),
         );
     }

@@ -140,6 +140,29 @@ class PasscodeRotationTest extends TestCase
         $this->assertTrue(Carbon::parse((string) $fresh->passcode_expires_at)->isFuture());
     }
 
+    /** NEW2B-6098: the widget's automatic rotation is not audited; the Regenerate button is. */
+    public function test_only_a_person_regenerating_is_audited(): void
+    {
+        $this->setSetting('course_attendance_enabled', '0');
+        $this->setSetting('passcode_reset_seconds', '30');
+        $this->actingAs(\App\Models\Admin::factory()->create());
+
+        $course  = Course::factory()->create();
+        $session = $this->sessionFor($course, ['time_from' => null, 'time_to' => null]);
+        $logged = fn () => \App\Models\AuditLog::query()->where('model_type', CourseSession::class)->where('model_id', $session->id)->count();
+        $before = $logged();
+
+        $service = app(DashboardPasscodeService::class);
+        foreach (range(1, 3) as $tick) {
+            $auto = $service->regenerateCurrent([$course->id], true);
+            $this->assertSame('live', $auto['state']);
+        }
+        $this->assertSame($before, $logged(), 'automatic rotations write no audit rows');
+
+        $service->regenerateCurrent([$course->id]);
+        $this->assertSame($before + 1, $logged(), 'Regenerate is audited');
+    }
+
     public function test_regenerate_is_a_no_op_when_no_session_is_live(): void
     {
         $course = Course::factory()->create(); // course with no sessions today

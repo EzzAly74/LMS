@@ -97,7 +97,8 @@ final class DashboardPasscodeService
             }
 
             return $needsReissue
-                ? $this->issueFor($startedLive, null, null)
+                // A self-heal, not a person's action: not audited (NEW2B-6098).
+                ? $this->issueFor($startedLive, null, null, false)
                 : $this->compose($startedLive, 'live', $length);
         }
 
@@ -244,7 +245,7 @@ final class DashboardPasscodeService
      * @param  array<int, int>|null  $courseIds
      * @return array<string, mixed>
      */
-    public function regenerateCurrent(?array $courseIds): array
+    public function regenerateCurrent(?array $courseIds, bool $auto = false): array
     {
         if (empty($courseIds)) {
             return $this->currentState($courseIds);
@@ -262,7 +263,8 @@ final class DashboardPasscodeService
             return $this->currentState($courseIds);
         }
 
-        return $this->issueFor($session, null, null);
+        // The widget's automatic rotation is not audited; Regenerate is (NEW2B-6098).
+        return $this->issueFor($session, null, null, ! $auto);
     }
 
     /**
@@ -340,9 +342,9 @@ final class DashboardPasscodeService
      *
      * @return array<string, mixed>
      */
-    public function issueFor(CourseSession $session, ?int $length, ?Carbon $expiresAt): array
+    public function issueFor(CourseSession $session, ?int $length, ?Carbon $expiresAt, bool $audited = true): array
     {
-        $fresh = $this->passcodes->issue($session, $length, $expiresAt);
+        $fresh = $this->passcodes->issue($session, $length, $expiresAt, $audited);
 
         // Re-attach the relations the freshly-pulled model lost so
         // compose() doesn't fire two extra lazy queries.

@@ -9,6 +9,7 @@ use App\Models\CourseExamQuestion;
 use App\Models\User;
 use App\Models\UserExam;
 use App\Services\CertificateService;
+use App\Support\CourseInstructors;
 use App\Support\PersonName;
 use App\Support\QuizVerdict;
 use App\Models\UserExamAnswer;
@@ -118,7 +119,7 @@ class AdminQuizService
         return CourseExam::query()
             ->with([
                 'course:id,title',
-                'creator:id,name,name_en,name_ar',
+                'creator:id,name,name_ar',
                 // B-136: legacy options / answer key live in course_exam_question_answers.
                 'richQuestions.answers',
                 'cohorts.cohort:id,name',
@@ -239,7 +240,7 @@ class AdminQuizService
             ->with([
                 'user:id,name,name_en,name_ar',
                 'exam.course:id,title',
-                'exam.creator:id,name,name_en,name_ar',
+                'exam.course.instructors' => CourseInstructors::eager(),
                 'exam.cohorts.cohort:id,name',
             ])
             ->latest('id')
@@ -264,7 +265,8 @@ class AdminQuizService
 
         return [
             'learners'    => $this->people($this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->select('user_id')),
-            'instructors' => $this->people(CourseExam::query()->whereIn('id', $examIds())->whereNotNull('created_by')->select('created_by')),
+            // The courses' instructors, who teach and grade (NEW2B-6291).
+            'instructors' => CourseInstructors::options(CourseExam::query()->whereIn('id', $examIds())->select('course_id')),
             'items'       => CourseExam::query()->whereIn('id', $examIds())->orderBy('id')->limit(self::OPTIONS_LIMIT)->get(['id', 'title'])
                 ->map(fn (CourseExam $e) => ['id' => $e->id, 'name' => $e->title])->values()->all(),
         ];
@@ -320,7 +322,7 @@ class AdminQuizService
             ->when($quizId, fn ($q) => $q->where('exam_id', $quizId))
             ->when($userId, fn ($q) => $q->where('user_id', $userId))
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
-            ->when(!empty($instructorIds), fn ($q) => $q->whereHas('exam', fn ($inner) => $inner->whereIn('created_by', $instructorIds)))
+            ->when(!empty($instructorIds), fn ($q) => $q->whereIn('course_id', CourseInstructors::coursesOf($instructorIds)))
             ->when(!empty($learnerIds), fn ($q) => $q->whereIn('user_id', $learnerIds))
             ->when(!empty($courseIds), fn ($q) => $q->whereIn('course_id', $courseIds))
             // B-134: as B-129 on assignments - an open answer still waiting
@@ -352,7 +354,7 @@ class AdminQuizService
             ->with([
                 'user:id,name,name_en,name_ar',
                 'exam.course:id,title',
-                'exam.creator:id,name,name_en,name_ar',
+                'exam.course.instructors' => CourseInstructors::eager(),
                 'answers.examQuestion',
             ])
             ->findOrFail($id);

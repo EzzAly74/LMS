@@ -15,7 +15,8 @@ class AdminQuizSubmissionResource extends JsonResource
     {
         $quiz         = $this->whenLoaded('exam');
         $course       = $quiz ? optional($this->exam->course) : null;
-        $instructor   = $quiz ? $this->exam->creator : null;
+        // The course's instructors, who teach and grade (NEW2B-6291).
+        $instructorNames = \App\Support\CourseInstructors::names($quiz ? $this->exam->course : null);
         $cohortTitles = $quiz && $this->exam->relationLoaded('cohorts')
             ? $this->exam->cohorts->map(fn ($c) => optional($c->cohort)->name)->filter()->values()
             : collect();
@@ -40,7 +41,7 @@ class AdminQuizSubmissionResource extends JsonResource
             'quiz_type'       => $quiz ? $this->exam->type : null,
             'quiz_title'      => $quiz ? $this->exam->title : null,
             'course_title'    => $course ? $course->title : null,
-            'instructor_name' => $instructor?->getLocalizedName() ?: null,
+            'instructor_name' => $instructorNames,
             'cohort_titles'   => $cohortTitles,
             // The submitting learner's own cohort in the course (Course Details tab).
             'learner_cohort'  => $this->resource->getAttribute('learner_cohort'),

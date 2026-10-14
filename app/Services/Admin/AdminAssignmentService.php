@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use App\Services\Assignments\AssignmentFileService;
+use App\Support\CourseInstructors;
 use App\Support\PersonName;
 
 /**
@@ -94,7 +95,7 @@ class AdminAssignmentService
         return CourseAssignment::query()
             ->with([
                 'course:id,title',
-                'creator:id,name,name_en,name_ar',
+                'creator:id,name,name_ar',
                 'questions',
                 'cohorts.cohort:id,name',
             ])
@@ -189,7 +190,7 @@ class AdminAssignmentService
             ->with([
                 'user:id,name,name_en,name_ar,machine_code,department_name',
                 'assignment.course:id,title',
-                'assignment.creator:id,name,name_en,name_ar',
+                'assignment.course.instructors' => CourseInstructors::eager(),
                 'assignment.cohorts.cohort:id,name',
             ])
             ->withCount(['answers as pending_answers_count' => fn ($a) => $a->whereNull('awarded_score')])
@@ -219,7 +220,8 @@ class AdminAssignmentService
 
         return [
             'learners'    => $this->people($this->submissionsQuery(null, $courseId, null, null, null, null, null, null, null)->select('user_id')),
-            'instructors' => $this->people(CourseAssignment::query()->whereIn('id', $assignmentIds())->whereNotNull('created_by')->select('created_by')),
+            // The courses' instructors, who teach and grade (NEW2B-6291).
+            'instructors' => CourseInstructors::options(CourseAssignment::query()->whereIn('id', $assignmentIds())->select('course_id')),
             'items'       => CourseAssignment::query()->whereIn('id', $assignmentIds())->orderBy('id')->limit(self::OPTIONS_LIMIT)
                 ->get(['id', 'title', 'title_ar'])
                 ->map(fn (CourseAssignment $a) => ['id' => $a->id, 'name' => ($ar ? ($a->title_ar ?: $a->title) : ($a->title ?: $a->title_ar))])
@@ -267,7 +269,7 @@ class AdminAssignmentService
             ->when($assignmentId, fn ($q) => $q->where('course_assignment_id', $assignmentId))
             ->when($userId, fn ($q) => $q->where('user_id', $userId))
             ->when($courseId, fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->where('course_id', $courseId)))
-            ->when(!empty($instructorIds), fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->whereIn('created_by', $instructorIds)))
+            ->when(!empty($instructorIds), fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->whereIn('course_id', CourseInstructors::coursesOf($instructorIds))))
             ->when(!empty($learnerIds), fn ($q) => $q->whereIn('user_id', $learnerIds))
             ->when(!empty($courseIds), fn ($q) => $q->whereHas('assignment', fn ($inner) => $inner->whereIn('course_id', $courseIds)))
             // B-129: the learner flow writes a running total from the first
@@ -296,7 +298,7 @@ class AdminAssignmentService
                 'assignment.course:id,title',
                 'assignment.course:id,title,course_type,category_id',
                 'assignment.course.category:id,name',
-                'assignment.creator:id,name,name_en,name_ar',
+                'assignment.course.instructors' => CourseInstructors::eager(),
                 'answers.question',
             ])
             ->findOrFail($id);

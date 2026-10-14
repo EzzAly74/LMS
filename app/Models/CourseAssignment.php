@@ -104,7 +104,8 @@ class CourseAssignment extends Model
 
     public function creator()
     {
-        return $this->belongsTo(User::class, 'created_by');
+        // `created_by` holds the Dashboard account (admins.id) that saved it.
+        return $this->belongsTo(Admin::class, 'created_by');
     }
 
     public function submissions()

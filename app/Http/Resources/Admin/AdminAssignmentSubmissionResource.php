@@ -18,7 +18,8 @@ class AdminAssignmentSubmissionResource extends JsonResource
     {
         $assignment   = $this->whenLoaded('assignment');
         $course       = $assignment ? optional($this->assignment->course) : null;
-        $instructor   = $assignment ? $this->assignment->creator : null;
+        // The course's instructors, who teach and grade (NEW2B-6291).
+        $instructorNames = \App\Support\CourseInstructors::names($assignment ? $this->assignment->course : null);
         $cohortTitles = $assignment && $this->assignment->relationLoaded('cohorts')
             ? $this->assignment->cohorts->map(fn ($c) => optional($c->cohort)->name)->filter()->values()
             : collect();
@@ -48,7 +49,7 @@ class AdminAssignmentSubmissionResource extends JsonResource
             // Pre / Mid / Post (D-065): the Type column of the list (Figma 1983:42584).
             'assignment_type'  => $assignment ? $this->assignment->type : null,
             'course_title'     => $course ? $course->title : null,
-            'instructor_name'  => $instructor?->getLocalizedName() ?: null,
+            'instructor_name'  => $instructorNames,
             'cohort_titles'    => $cohortTitles,
             // The submitting learner's own cohort in the course (Course Details tab).
             'learner_cohort'   => $this->resource->getAttribute('learner_cohort'),

@@ -269,9 +269,10 @@ class CourseDetailTabsTest extends ApiTestCase
 
     public function test_filter_options_list_only_values_in_this_courses_submissions(): void
     {
-        $creator = User::factory()->create(['name_en' => 'Nora Instructor']);
+        // The Instructor filter lists the course's instructors (NEW2B-6291).
+        $teacher = \App\Models\Instructor::query()->create(['name' => ['en' => 'Nora Instructor', 'ar' => 'نورة'], 'email' => 'nora@academy.test']);
+        $this->course->instructors()->attach($teacher->id);
         $quiz    = $this->quiz();
-        $quiz->update(['created_by' => $creator->id]);
         $unused  = $this->quiz(); // no submissions: not offered
         $learner = $this->learner($this->cohortA, 0, ['name_en' => 'Layla Learner']);
         UserExam::factory()->create(['user_id' => $learner->id, 'course_id' => $this->course->id, 'exam_id' => $quiz->id]);
@@ -285,7 +286,7 @@ class CourseDetailTabsTest extends ApiTestCase
 
         $this->assertSame([$learner->id], array_column($options['learners'], 'id'));
         $this->assertSame('Layla Learner', $options['learners'][0]['name']);
-        $this->assertSame([$creator->id], array_column($options['instructors'], 'id'));
+        $this->assertSame([$teacher->id], array_column($options['instructors'], 'id'));
         $this->assertSame([$quiz->id], array_column($options['items'], 'id'));
         $this->assertNotContains($unused->id, array_column($options['items'], 'id'));
         $this->assertNotContains($elsewhere->user_id, array_column($options['learners'], 'id'));

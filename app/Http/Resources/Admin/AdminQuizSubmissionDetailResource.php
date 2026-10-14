@@ -15,7 +15,8 @@ class AdminQuizSubmissionDetailResource extends JsonResource
     {
         $quiz       = $this->whenLoaded('exam');
         $course     = $quiz ? optional($this->exam->course) : null;
-        $instructor = $quiz ? $this->exam->creator : null;
+        // The course's instructors, who teach and grade (NEW2B-6291).
+        $instructorNames = \App\Support\CourseInstructors::names($quiz ? $this->exam->course : null);
 
         $max     = $this->max_score ?? ($quiz ? (int) $this->exam->total_score : 0);
         $awarded = $this->total_score;
@@ -61,7 +62,7 @@ class AdminQuizSubmissionDetailResource extends JsonResource
                 'total_score'  => (int) $this->exam->total_score,
             ] : null,
             'course_title'    => $course ? $course->title : null,
-            'instructor_name' => $instructor?->getLocalizedName() ?: null,
+            'instructor_name' => $instructorNames,
             'user'            => $this->whenLoaded('user', fn () => [
                 'id'              => $this->user->id,
                 'name'            => $this->user->getLocalizedName(),

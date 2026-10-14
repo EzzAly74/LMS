@@ -21,7 +21,8 @@ class AdminAssignmentSubmissionDetailResource extends JsonResource
     {
         $assignment = $this->whenLoaded('assignment');
         $course     = $assignment ? $this->assignment->course : null;
-        $instructor = $assignment ? $this->assignment->creator : null;
+        // The course's instructors, who teach and grade (NEW2B-6291).
+        $instructorNames = \App\Support\CourseInstructors::names($assignment ? $this->assignment->course : null);
 
         $max     = $this->max_score ?? ($assignment ? (int) $this->assignment->total_score : 0);
         $awarded = $this->total_score;
@@ -48,7 +49,7 @@ class AdminAssignmentSubmissionDetailResource extends JsonResource
             // Delivery badge of the header ("Hybrid", Figma 2393:120281).
             'course_type'      => $course?->course_type,
             'category_name'    => $course?->relationLoaded('category') ? $course->category?->name : null,
-            'instructor_name'  => $instructor?->getLocalizedName() ?: null,
+            'instructor_name'  => $instructorNames,
             'user'             => $this->whenLoaded('user', fn () => [
                 'id'              => $this->user->id,
                 'name'            => $this->user->getLocalizedName(),

@@ -66,4 +66,14 @@ php artisan migrate --force
 
 php artisan optimize:clear
 
+# ---------------------------------------------------------------------------
+# The scheduler must run every minute (D-108): the HR pull every 24 hours,
+# the cohort status roll-over and the "notify me" mails depend on it. This
+# only checks; adding the cron is a server change for the administrator:
+#   * * * * * cd /path/to/backend && php artisan schedule:run >> /dev/null 2>&1
+# ---------------------------------------------------------------------------
+if command -v crontab >/dev/null 2>&1 && ! crontab -l 2>/dev/null | grep -q "schedule:run"; then
+    echo "WARNING: no cron runs 'php artisan schedule:run' for this user: the 24-hour HR sync will not run."
+fi
+
 echo "Deployed Successfully............"

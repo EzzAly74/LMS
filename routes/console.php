@@ -8,8 +8,10 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Previously defined in app/Console/Kernel.php
-Schedule::command('sync:employees')->daily();
+// HR every 24 hours (D-108): checked hourly, pulls when the last successful
+// pull is a day old, so a missed or failed run is retried within the hour.
+// Needs the server cron: * * * * * php artisan schedule:run
+Schedule::command('sync:employees --if-due')->hourly()->withoutOverlapping(60);
 
 // Roll cohort + course statuses forward every day right after
 // midnight so the persisted columns track the calendar. Resources

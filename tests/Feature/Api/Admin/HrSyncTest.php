@@ -7,7 +7,9 @@ use App\Models\JobTitle;
 use App\Models\User;
 use App\Services\HRSystemService;
 use App\Services\HrEmployeeSyncService;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\Feature\Api\ApiTestCase;
@@ -169,5 +171,58 @@ class HrSyncTest extends ApiTestCase
         foreach (['../secret.jpg', 'https://evil.test/a.jpg', '//evil.test/a.jpg', 'Employee/a.php', ''] as $bad) {
             $this->assertNull(\App\Support\HrPhoto::path($bad), $bad);
         }
+    }
+
+    public function test_hr_is_pulled_automatically_every_24_hours_and_retried_hourly_until_it_succeeds(): void
+    {
+        // Registered: checked every hour, pulls only when due (D-108).
+        $event = collect(app(Schedule::class)->events())
+            ->first(fn ($e) => str_contains((string) $e->command, 'sync:employees --if-due'));
+        $this->assertNotNull($event, 'the HR sync is scheduled');
+        $this->assertSame('0 * * * *', $event->expression);
+
+        // Never synced: due, pulls, records a scheduled run.
+        $this->artisan('sync:employees --if-due')->assertSuccessful();
+        $this->assertSame(1, DB::table('hr_sync_runs')->where(['source' => 'schedule', 'state' => 'done'])->count());
+        $this->assertTrue(User::where('machine_code', 'EMP-77')->exists());
+
+        // An hour later: not due, nothing pulled.
+        $this->travel(1)->hours();
+        $this->artisan('sync:employees --if-due')->assertSuccessful();
+        $this->assertSame(1, DB::table('hr_sync_runs')->count());
+
+        // 24 hours after the success: due again.
+        $this->travel(23)->hours();
+        $this->artisan('sync:employees --if-due')->assertSuccessful();
+        $this->assertSame(2, DB::table('hr_sync_runs')->where('state', 'done')->count());
+    }
+
+    public function test_a_failed_automatic_pull_is_recorded_stays_due_and_turns_overdue(): void
+    {
+        config(['hr.admin_password' => '']);
+        $sync = app(HrEmployeeSyncService::class);
+
+        $this->artisan('sync:employees --if-due')->assertFailed();
+        $this->assertSame(1, DB::table('hr_sync_runs')->where(['state' => 'failed', 'reason' => 'not_configured'])->count());
+        $this->assertTrue($sync->isDue(), 'a failure does not reset the 24 hours');
+        $this->assertTrue($sync->status()['overdue']);
+        $this->assertNull($sync->status()['last_success_at']);
+    }
+
+    public function test_a_manual_update_counts_as_the_days_pull(): void
+    {
+        ['headers' => $headers] = $this->adminToken();
+        $this->postJson(self::BASE.'/admin/learners/hr-sync', [], $headers)->assertStatus(202);
+        $this->assertSame(1, DB::table('hr_sync_runs')->where(['source' => 'manual', 'state' => 'done'])->count());
+
+        $status = app(HrEmployeeSyncService::class)->status();
+        $this->assertSame('done', $status['state']);
+        $this->assertNotNull($status['last_success_at']);
+        $this->assertSame(24, $status['auto_every_hours']);
+        $this->assertFalse($status['overdue']);
+
+        $this->assertFalse(app(HrEmployeeSyncService::class)->isDue());
+        $this->artisan('sync:employees --if-due')->assertSuccessful();
+        $this->assertSame(0, DB::table('hr_sync_runs')->where('source', 'schedule')->count());
     }
 }

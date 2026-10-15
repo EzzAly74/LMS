@@ -5,7 +5,10 @@ namespace App\Services;
 use App\Models\JobTitle;
 use App\Models\User;
 use App\Support\HrPhoto;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -28,6 +31,12 @@ final class HrEmployeeSyncService
 
     /** Held while a sync runs, so two runs never overlap. */
     public const LOCK_KEY = 'hr-sync:lock';
+
+    /** The automatic pull runs when the last success is this old (D-108). */
+    public const AUTO_EVERY_HOURS = 24;
+
+    /** Hourly retries allowed before the Dashboard calls the sync overdue. */
+    public const OVERDUE_GRACE_HOURS = 3;
 
     public function __construct(
         private readonly HRSystemService $hr,
@@ -104,48 +113,27 @@ final class HrEmployeeSyncService
     }
 
     /**
-     * Run under the lock and record the outcome for the Dashboard. Returns
-     * false when another run holds the lock.
+     * Run under the lock and record the outcome for the Dashboard and in
+     * `hr_sync_runs` (D-108). Returns false when another run holds the lock.
+     *
+     * @param  'manual'|'schedule'  $source
      */
-    public function runAndRecord(?int $requestedBy = null): bool
+    public function runAndRecord(?int $requestedBy = null, string $source = 'manual'): bool
     {
         $lock = Cache::lock(self::LOCK_KEY, 900);
         if (! $lock->get()) {
             return false;
         }
 
+        $startedAt = now();
         Cache::put(self::STATUS_KEY, [
-            'state' => 'running', 'started_at' => now()->toIso8601String(), 'requested_by' => $requestedBy,
+            'state' => 'running', 'started_at' => $startedAt->toIso8601String(), 'requested_by' => $requestedBy,
         ], now()->addDays(7));
 
-        // Without the HR address and account nothing can be pulled: say so
-        // instead of a bare failure (the Dashboard explains it).
-        if (blank(config('hr.base_url')) || blank(config('hr.admin_email')) || blank(config('hr.admin_password'))) {
-            Cache::put(self::STATUS_KEY, [
-                'state' => 'failed', 'reason' => 'not_configured',
-                'finished_at' => now()->toIso8601String(), 'requested_by' => $requestedBy,
-            ], now()->addDays(7));
-            $lock->release();
-
-            return true;
-        }
-
         try {
-            $report = $this->sync();
-            Cache::put(self::STATUS_KEY, [
-                'state' => $report['employees'] > 0 ? 'done' : 'failed',
-                // HR answered nothing: unreachable or refused the account.
-                'reason' => $report['employees'] > 0 ? null : 'no_data',
-                'finished_at' => now()->toIso8601String(),
-                'requested_by' => $requestedBy,
-                'report' => $report,
-            ], now()->addDays(7));
-        } catch (\Throwable $e) {
-            // HR errors are logged by HRSystemService; never the credentials.
-            Log::error('HR sync failed', ['error' => $e->getMessage()]);
-            Cache::put(self::STATUS_KEY, [
-                'state' => 'failed', 'reason' => 'error', 'finished_at' => now()->toIso8601String(), 'requested_by' => $requestedBy,
-            ], now()->addDays(7));
+            $status = $this->pull($requestedBy);
+            Cache::put(self::STATUS_KEY, $status, now()->addDays(7));
+            $this->remember($status, $source, $requestedBy, $startedAt);
         } finally {
             $lock->release();
         }
@@ -153,11 +141,90 @@ final class HrEmployeeSyncService
         return true;
     }
 
-    /** @return array<string, mixed>|null */
-    public function status(): ?array
+    /** @return array<string, mixed> the finished status */
+    private function pull(?int $requestedBy): array
+    {
+        $finished = fn (array $s) => $s + ['finished_at' => now()->toIso8601String(), 'requested_by' => $requestedBy];
+
+        // Without the HR address and account nothing can be pulled: say so
+        // instead of a bare failure (the Dashboard explains it).
+        if (blank(config('hr.base_url')) || blank(config('hr.admin_email')) || blank(config('hr.admin_password'))) {
+            return $finished(['state' => 'failed', 'reason' => 'not_configured']);
+        }
+
+        try {
+            $report = $this->sync();
+
+            return $finished([
+                'state' => $report['employees'] > 0 ? 'done' : 'failed',
+                // HR answered nothing: unreachable or refused the account.
+                'reason' => $report['employees'] > 0 ? null : 'no_data',
+                'report' => $report,
+            ]);
+        } catch (\Throwable $e) {
+            // HR errors are logged by HRSystemService; never the credentials.
+            Log::error('HR sync failed', ['error' => $e->getMessage()]);
+
+            return $finished(['state' => 'failed', 'reason' => 'error']);
+        }
+    }
+
+    /** @param  array<string, mixed>  $status */
+    private function remember(array $status, string $source, ?int $requestedBy, \Carbon\CarbonInterface $startedAt): void
+    {
+        try {
+            DB::table('hr_sync_runs')->insert([
+                'source' => $source,
+                'state' => $status['state'],
+                'reason' => $status['reason'] ?? null,
+                'requested_by' => $requestedBy,
+                'employees' => (int) ($status['report']['employees'] ?? 0),
+                'created' => (int) ($status['report']['created'] ?? 0),
+                'updated' => (int) ($status['report']['updated'] ?? 0),
+                'started_at' => $startedAt,
+                'finished_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            // The pull itself succeeded or failed already; never lose it to the log row.
+            report($e);
+        }
+    }
+
+    /** When HR last updated the learners successfully (any source). */
+    public function lastSuccessAt(): ?CarbonInterface
+    {
+        $at = DB::table('hr_sync_runs')->where('state', 'done')->max('finished_at');
+
+        return $at === null ? null : Carbon::parse($at);
+    }
+
+    /**
+     * The automatic sync is due when no pull succeeded in the last
+     * AUTO_EVERY_HOURS. Checked every hour, so a missed or failed run is
+     * retried within the hour instead of the next day.
+     */
+    public function isDue(): bool
+    {
+        $last = $this->lastSuccessAt();
+
+        return $last === null || $last->lte(now()->subHours(self::AUTO_EVERY_HOURS));
+    }
+
+    /** @return array<string, mixed> */
+    public function status(): array
     {
         $status = Cache::get(self::STATUS_KEY);
+        $status = is_array($status) ? $status : ['state' => 'idle'];
+        $last = $this->lastSuccessAt();
 
-        return is_array($status) ? $status : null;
+        return $status + [
+            'last_success_at' => $last?->toIso8601String(),
+            'auto_every_hours' => self::AUTO_EVERY_HOURS,
+            // No success for longer than a day and a few hourly retries: the
+            // scheduler is not running or HR keeps failing.
+            'overdue' => $last === null || $last->lte(now()->subHours(self::AUTO_EVERY_HOURS + self::OVERDUE_GRACE_HOURS)),
+        ];
     }
 }

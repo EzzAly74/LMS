@@ -45,10 +45,8 @@ class AdminAssignmentService
             ->withCount('questions')
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->when($status, fn ($q) => $q->where('status', $status))
-            ->when($search, fn ($q) => $q->where(function ($inner) use ($search) {
-                $inner->where('title', 'like', "%{$search}%")
-                      ->orWhere('title_ar', 'like', "%{$search}%");
-            }))
+            // Its title or its course's name (NEW2B-6357).
+            ->when($search, fn ($q) => \App\Support\AssessmentSearch::itemOrCourse($q, $search))
             // NB: no `course_assignment_questions` existence gate. Legacy
             // assignments are file-based (a `file` upload, zero question
             // rows); requiring a question row hid every existing assignment
@@ -72,10 +70,8 @@ class AdminAssignmentService
         return CourseAssignment::query()
             ->select(['id', 'title', 'title_ar', 'course_id', 'status'])
             ->with('course:id,title')
-            ->when($search, fn ($q) => $q->where(function ($inner) use ($search) {
-                $inner->where('title', 'like', "%{$search}%")
-                      ->orWhere('title_ar', 'like', "%{$search}%");
-            }))
+            // Its title or its course's name (NEW2B-6357).
+            ->when($search, fn ($q) => \App\Support\AssessmentSearch::itemOrCourse($q, $search))
             ->orderBy('title')
             ->limit($limit)
             ->get()
@@ -185,8 +181,9 @@ class AdminAssignmentService
         ?int $sectionId = null,
         ?string $result = null,
         array $types = [],
+        array $assignmentIds = [],
     ): LengthAwarePaginator {
-        $page = $this->submissionsQuery($assignmentId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId, $result, $types)
+        $page = $this->submissionsQuery($assignmentId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId, $result, $types, $assignmentIds)
             ->with([
                 'user:id,name,name_en,name_ar,machine_code,department_name',
                 'assignment.course:id,title',
@@ -262,6 +259,7 @@ class AdminAssignmentService
         ?int $sectionId,
         ?string $result = null,
         array $types = [],
+        array $assignmentIds = [],
     ): Builder {
         return UserCourseAssignment::query()
             // Sent only: a question-based attempt being answered is not a result (B-172).
@@ -278,7 +276,11 @@ class AdminAssignmentService
             // The grade is total_score, or `score` for a file-only submission (B-172).
             ->when($status === 'graded', fn ($q) => $q->whereRaw(UserCourseAssignment::SCORE_SQL.' IS NOT NULL'))
             ->when($status === 'pending', fn ($q) => $q->whereRaw(UserCourseAssignment::SCORE_SQL.' IS NULL'))
-            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => PersonName::whereUserMatches($inner, 'users', $search)))
+            // The learner's name, the assignment's title or its course's name (NEW2B-6357).
+            ->when($search, fn ($q) => $q->where(fn ($w) => $w
+                ->whereHas('user', fn ($inner) => PersonName::whereUserMatches($inner, 'users', $search))
+                ->orWhereHas('assignment', fn ($item) => \App\Support\AssessmentSearch::itemOrCourse($item, $search))))
+            ->when($assignmentIds !== [], fn ($q) => $q->whereIn('course_assignment_id', $assignmentIds))
             ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_course_assignments.user_id', $courseId, $sectionId))
             // Passed / Failed (Figma 1983:42584, D-065): only a fully graded
             // submission has a result, against the pass score or half the

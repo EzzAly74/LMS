@@ -25,14 +25,14 @@ Route::middleware(['auth.user', 'role:Admin', 'section:quizzes'])->prefix('admin
     Route::get('quizzes/submissions', [AdminQuizController::class, 'submissions']);
     // Static segment before {submission}, so it is never captured as an id.
     Route::get('quizzes/submissions/filter-options', [AdminQuizController::class, 'submissionFilterOptions']);
-    Route::get('quizzes/submissions/{submission}', [AdminQuizController::class, 'showSubmission']);
+    Route::get('quizzes/submissions/{submission}', [AdminQuizController::class, 'showSubmission'])->whereNumber(['submission']);
     Route::put('quizzes/submissions/{submission}/answers/{answer}/grade',
         [AdminQuizController::class, 'gradeAnswer']);
 
     // Quiz resource
     Route::get('quizzes',           [AdminQuizController::class, 'index']);
     Route::post('quizzes',          [AdminQuizController::class, 'store'])->ability('create');
-    Route::get('quizzes/{quiz}',    [AdminQuizController::class, 'show']);
-    Route::put('quizzes/{quiz}',    [AdminQuizController::class, 'update']);
-    Route::delete('quizzes/{quiz}', [AdminQuizController::class, 'destroy']);
+    Route::get('quizzes/{quiz}',    [AdminQuizController::class, 'show'])->whereNumber(['quiz']);
+    Route::put('quizzes/{quiz}',    [AdminQuizController::class, 'update'])->whereNumber(['quiz']);
+    Route::delete('quizzes/{quiz}', [AdminQuizController::class, 'destroy'])->whereNumber(['quiz']);
 });

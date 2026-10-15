@@ -55,10 +55,8 @@ class AdminQuizService
             })
             ->when($courseId, fn ($q) => $q->where('course_id', $courseId))
             ->when($status, fn ($q) => $q->where('status', $status))
-            ->when($search, fn ($q) => $q->where(function ($inner) use ($search) {
-                $inner->where('title', 'like', "%{$search}%")
-                      ->orWhere('title_ar', 'like', "%{$search}%");
-            }))
+            // Its title or its course's name (NEW2B-6357).
+            ->when($search, fn ($q) => \App\Support\AssessmentSearch::itemOrCourse($q, $search))
             ->orderByDesc('id')
             ->paginate($perPage);
     }
@@ -96,10 +94,8 @@ class AdminQuizService
                     // only; requiring `question_en` hid every existing quiz
                     // from the admin dashboard (all live data is legacy).
             })
-            ->when($search, fn ($q) => $q->where(function ($inner) use ($search) {
-                $inner->where('title', 'like', "%{$search}%")
-                      ->orWhere('title_ar', 'like', "%{$search}%");
-            }))
+            // Its title or its course's name (NEW2B-6357).
+            ->when($search, fn ($q) => \App\Support\AssessmentSearch::itemOrCourse($q, $search))
             ->orderBy('title')
             ->limit($limit)
             ->get()
@@ -234,8 +230,9 @@ class AdminQuizService
         ?int $sectionId = null,
         ?string $result = null,
         array $types = [],
+        array $quizIds = [],
     ): LengthAwarePaginator {
-        $page = $this->submissionsQuery($quizId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId, $result, $types)
+        $page = $this->submissionsQuery($quizId, $courseId, $userId, $instructorIds, $learnerIds, $courseIds, $status, $search, $sectionId, $result, $types, $quizIds)
             ->withCount(['answers as pending_answers_count' => fn ($a) => $this->pendingAnswer($a)])
             ->with([
                 'user:id,name,name_en,name_ar',
@@ -305,6 +302,7 @@ class AdminQuizService
         ?int $sectionId,
         ?string $result = null,
         array $types = [],
+        array $quizIds = [],
     ): Builder {
         return UserExam::query()
             // A sent attempt only: an opened rich attempt is a row too (B-162, B-172).
@@ -344,7 +342,11 @@ class AdminQuizService
                     [$result === 'passed' ? 1 : 0],
                 )))
             ->when($types !== [], fn ($q) => $q->whereHas('exam', fn ($e) => $e->whereIn('type', $types)))
-            ->when($search, fn ($q) => $q->whereHas('user', fn ($inner) => PersonName::whereUserMatches($inner, 'users', $search)))
+            // The learner's name, the quiz's title or its course's name (NEW2B-6357).
+            ->when($search, fn ($q) => $q->where(fn ($w) => $w
+                ->whereHas('user', fn ($inner) => PersonName::whereUserMatches($inner, 'users', $search))
+                ->orWhereHas('exam', fn ($item) => \App\Support\AssessmentSearch::itemOrCourse($item, $search))))
+            ->when($quizIds !== [], fn ($q) => $q->whereIn('exam_id', $quizIds))
             ->when($courseId && $sectionId, fn ($q) => $this->cohorts->whereInCohort($q, 'user_exams.user_id', $courseId, $sectionId));
     }
 

@@ -142,6 +142,10 @@ class AdminQuizController extends ApiController
             'result'  => ['nullable', 'in:passed,failed'],
             'types'   => ['nullable', 'array', 'max:3'],
             'types.*' => ['in:pre,mid,post'],
+            // The Quiz / Assignment filter (NEW2B-6357).
+            'quiz_ids'   => ['nullable', 'array', 'max:100'],
+            'quiz_ids.*' => ['integer', 'min:1'],
+            'search' => ['nullable', 'string', 'max:255'],
         ]);
         $result = $filters['result'] ?? null;
         $types  = array_values($filters['types'] ?? []);
@@ -159,6 +163,7 @@ class AdminQuizController extends ApiController
             $request->integer('section_id') ?: null,
             $result,
             $types,
+            array_map('intval', $filters['quiz_ids'] ?? []),
         );
 
         return $this->paginated(

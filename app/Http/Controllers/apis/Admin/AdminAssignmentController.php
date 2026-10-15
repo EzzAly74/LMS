@@ -150,6 +150,10 @@ class AdminAssignmentController extends ApiController
             'result'  => ['nullable', 'in:passed,failed'],
             'types'   => ['nullable', 'array', 'max:3'],
             'types.*' => ['in:pre,mid,post'],
+            // The Quiz / Assignment filter (NEW2B-6357).
+            'assignment_ids'   => ['nullable', 'array', 'max:100'],
+            'assignment_ids.*' => ['integer', 'min:1'],
+            'search' => ['nullable', 'string', 'max:255'],
         ]);
 
         $submissions = $this->service->paginateSubmissions(
@@ -165,6 +169,7 @@ class AdminAssignmentController extends ApiController
             $request->integer('section_id') ?: null,
             $filters['result'] ?? null,
             array_values($filters['types'] ?? []),
+            array_map('intval', $filters['assignment_ids'] ?? []),
         );
 
         return $this->paginated(

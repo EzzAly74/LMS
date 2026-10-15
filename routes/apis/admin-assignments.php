@@ -25,7 +25,7 @@ Route::middleware(['auth.user', 'role:Admin', 'section:assignments'])->prefix('a
     Route::get('assignments/submissions',     [AdminAssignmentController::class, 'submissions']);
     // Static segment before {submission}, so it is never captured as an id.
     Route::get('assignments/submissions/filter-options', [AdminAssignmentController::class, 'submissionFilterOptions']);
-    Route::get('assignments/submissions/{submission}', [AdminAssignmentController::class, 'showSubmission']);
+    Route::get('assignments/submissions/{submission}', [AdminAssignmentController::class, 'showSubmission'])->whereNumber(['submission']);
     Route::put('assignments/submissions/{submission}/answers/{answer}/grade',
         [AdminAssignmentController::class, 'gradeAnswer']);
     // File questions (D-033 / D-064): private files, served here only.
@@ -41,7 +41,7 @@ Route::middleware(['auth.user', 'role:Admin', 'section:assignments'])->prefix('a
     // Assignment resource
     Route::get('assignments',                 [AdminAssignmentController::class, 'index']);
     Route::post('assignments',                [AdminAssignmentController::class, 'store'])->ability('create');
-    Route::get('assignments/{assignment}',    [AdminAssignmentController::class, 'show']);
-    Route::put('assignments/{assignment}',    [AdminAssignmentController::class, 'update']);
-    Route::delete('assignments/{assignment}', [AdminAssignmentController::class, 'destroy']);
+    Route::get('assignments/{assignment}',    [AdminAssignmentController::class, 'show'])->whereNumber(['assignment']);
+    Route::put('assignments/{assignment}',    [AdminAssignmentController::class, 'update'])->whereNumber(['assignment']);
+    Route::delete('assignments/{assignment}', [AdminAssignmentController::class, 'destroy'])->whereNumber(['assignment']);
 });

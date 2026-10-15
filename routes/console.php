@@ -20,3 +20,5 @@ Schedule::command('sync:employees --if-due')->hourly()->withoutOverlapping(60);
 Schedule::command('cohorts:sync-statuses')->dailyAt('00:05');
 // After the status sync: tell learners waiting for a course that a cohort opened (NEW2B-5780).
 Schedule::command('cohorts:notify-interests')->dailyAt('00:15');
+// Module uploads started but never completed (D-111).
+Schedule::command('uploads:prune-chunks')->dailyAt('03:30');

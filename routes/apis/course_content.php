@@ -45,6 +45,12 @@ Route::middleware(['auth.user', 'role:Admin', 'section:courses'])->group(functio
     Route::delete('courses/{course}/sections/{section}',   [CourseSectionController::class, 'destroy'])->ability('edit');
 
     // Lectures — write
+    // Module files in parts, any size up to 500 MB (D-111).
+    Route::post('courses/{course}/lectures/uploads', [\App\Http\Controllers\apis\LectureUploadController::class, 'start'])->ability('edit')->middleware('throttle:30,1');
+    Route::get('courses/{course}/lectures/uploads/{upload}', [\App\Http\Controllers\apis\LectureUploadController::class, 'status'])->whereUuid('upload');
+    Route::put('courses/{course}/lectures/uploads/{upload}', [\App\Http\Controllers\apis\LectureUploadController::class, 'append'])->ability('edit')->whereUuid('upload')->middleware('throttle:600,1');
+    Route::post('courses/{course}/lectures/uploads/{upload}/complete', [\App\Http\Controllers\apis\LectureUploadController::class, 'complete'])->ability('edit')->whereUuid('upload')->middleware('throttle:30,1');
+
     // NB: /lectures/upload must come BEFORE /{lecture} to avoid route binding.
     Route::post('courses/{course}/lectures/upload',        [CourseLectureController::class, 'uploadFile'])->ability('edit');
     Route::post('courses/{course}/lectures',               [CourseLectureController::class, 'store'])->ability('edit');

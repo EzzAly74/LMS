@@ -190,19 +190,16 @@ class AdminQuizController extends ApiController
 
     public function gradeAnswer(int $submissionId, int $answerId, AdminQuizAnswerGradeRequest $request): JsonResponse
     {
-        $answer = UserExamAnswer::with('question')
+        $answer = UserExamAnswer::with('examQuestion') // not `question`: a column shadows it (NEW2B-6368)
             ->where('user_exam_id', $submissionId)
             ->where('id', $answerId)
             ->firstOrFail();
-
-        /** @var User|null $user */
-        $user = $request->user();
 
         $graded = $this->service->gradeAnswer(
             $answer,
             (int) $request->input('awarded_score'),
             $request->input('feedback'),
-            $user,
+            $request->user(),
         );
 
         $submission = $this->service->showSubmission($submissionId);

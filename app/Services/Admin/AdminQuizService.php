@@ -366,7 +366,10 @@ class AdminQuizService
         UserExamAnswer $answer,
         int $awardedScore,
         ?string $feedback,
-        ?User $reviewer
+        // NEW2B-6368 / 6360 (as B-131 on assignments): typed ?User, but only
+        // Dashboard accounts (Admin) reach this route, so every quiz grade
+        // was a TypeError (500). The grader is the signed-in account.
+        ?\Illuminate\Contracts\Auth\Authenticatable $reviewer
     ): UserExamAnswer {
         return DB::transaction(function () use ($answer, $awardedScore, $feedback, $reviewer) {
             // `examQuestion` — NOT `question` — see UserExamAnswer::examQuestion()
@@ -380,7 +383,7 @@ class AdminQuizService
                 'is_correct'    => $maxScore > 0 ? $awarded === $maxScore : null,
             ]);
 
-            $this->recalculateSubmissionTotals($answer->user_exam_id, $reviewer?->id);
+            $this->recalculateSubmissionTotals($answer->user_exam_id, $reviewer ? (int) $reviewer->getAuthIdentifier() : null);
 
             return $answer->fresh(['examQuestion']);
         });

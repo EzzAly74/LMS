@@ -1,0 +1,1 @@
+import{ka as i}from"./chunk-IE356ISV.js";var n=(()=>{class t{transform(r,e=3){return(r??"").trim().split(/\s+/).filter(Boolean).slice(0,Math.max(1,e)).join(" ")}static \u0275fac=function(e){return new(e||t)};static \u0275pipe=i({name:"shortName",type:t,pure:!0,standalone:!0})}return t})();export{n as a};

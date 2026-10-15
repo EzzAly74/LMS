@@ -18,15 +18,25 @@
     "apply": "Apply"
   },
   "shared": {
+    "no_ratings": "No ratings yet",
+    "stars_n": "{{count}} of 5 stars",
     "filter_sidebar": {
       "title": "Filters"
+    },
+    "confirm_logout": {
+      "title": "Log out?",
+      "message": "You will need to sign in again to continue your learning.",
+      "confirm": "Log out",
+      "cancel": "Cancel"
     },
     "login_required": {
       "title": "Enrolment Failed",
       "message": "Please sign in first. Once logged in, you can enroll in any course and explore what fits you best.",
       "cancel": "Cancel",
       "login": "Login to my account"
-    }
+    },
+    "ratings_count_one": "{{count}} rating",
+    "ratings_count": "{{count}} ratings"
   },
   "core": {
     "toast": {
@@ -37,6 +47,7 @@
       "close": "Dismiss notification"
     },
     "nav": {
+      "explore": "Explore",
       "catalogue": "Catalogue",
       "my_learnings": "My Learnings",
       "who_we_are": "Who we are",
@@ -100,7 +111,6 @@
         "password_label": "Password",
         "password_ph": "Password",
         "submit": "Sign In",
-        "helper": "Having trouble? Contact your system administrator.",
         "show_password": "Show password",
         "hide_password": "Hide password",
         "brand_line1": "Grow your team's skills.",
@@ -120,6 +130,8 @@
       "latest_in_role": "Latest in your role",
       "latest_blog": "Latest Blog",
       "min_read": "min read",
+      "min_read_count_one": "{{count}} min read",
+      "min_read_count": "{{count}} min read",
       "filters": {
         "topic": "Topic",
         "job_role": "Job Role",
@@ -130,6 +142,10 @@
         "intermediate": "Intermediate",
         "professional": "Professional"
       },
+      "no_results": {
+        "title": "No blogs match",
+        "message": "Try another search, clear the filters or switch to Explore All."
+      },
       "empty": {
         "title": "No blogs yet",
         "message": "Check back soon — new articles are on the way."
@@ -138,6 +154,7 @@
       "about_author": "About the author",
       "related": "Related articles",
       "copy_link": "Copy link",
+      "copy_failed": "Couldn't copy the link. Copy it from the address bar.",
       "link_copied": "Link copied to clipboard",
       "link_copied_short": "Link Copied",
       "love": "Love",
@@ -221,6 +238,7 @@
       "email": "Email",
       "email_ph": "Work Email",
       "guests": "Guests",
+      "guest_email": "Guest {{n}} email",
       "add_guests": "Add guests",
       "remove_guest": "Remove guest",
       "phone": "Phone Number",
@@ -274,7 +292,8 @@
         "message": "Try adjusting your search or filters to find more courses."
       },
       "enrol": {
-        "success": "You're enrolled — find it in My Learnings.",
+        "success": "You’ve been enrolled in {{course}} Course successfully.",
+        "error": "Please try again in a short time and re-enrol in your desired Course.",
         "success_title": "Enrolled Successfully",
         "error_title": "Something Went Wrong!",
         "dialog": {
@@ -323,18 +342,32 @@
         "qualifications_earned": "Qualifications earned"
       },
       "curriculum": {
-        "locked_note": "Full module content is visible after enrolment. Module names and session counts shown below.",
-        "modules_count": "{{count}} modules",
-        "sessions_count": "{{count}} sessions total",
+        "duration_weeks_one": "{{count}} week",
         "duration_weeks": "{{count}} weeks",
-        "locked": "Locked until enrolment"
+        "modules_label_one": "module",
+        "modules_label": "modules",
+        "sessions_label_one": "session total",
+        "sessions_label": "sessions total",
+        "duration_label": "duration",
+        "related_contents_one": "{{count}} related content",
+        "related_contents": "{{count}} related contents",
+        "session": "Week {{n}}",
+        "no_sessions": "The session plan will appear here once a cohort is scheduled."
       },
       "instructor": {
+        "rating_value": "{{value}} rating",
+        "learners_one": "{{count}} learner",
+        "learners": "{{count}} learners",
+        "courses_one": "{{count}} course",
+        "courses": "{{count}} courses",
+        "other_courses": "Other courses by {{name}}",
         "rating": "rating"
       },
       "hero": {
         "enrolled": "enrolled",
-        "earns": "Earns:"
+        "earns": "Earns:",
+        "past_learners_one": "Past Learner",
+        "past_learners": "Past Learners"
       },
       "card": {
         "starts": "Starts",
@@ -344,9 +377,25 @@
         "instructor": "Instructor",
         "includes": "This course includes",
         "remaining_seats": "Remaining Seats",
-        "seats_left": "{{count}} Left"
+        "seats_left": "{{count}} Left",
+        "cohort": "Cohort"
       },
       "includes": {
+        "videos_one": "{{count}} video lesson",
+        "videos": "{{count}} video lessons",
+        "readings_one": "{{count}} reading",
+        "readings": "{{count}} readings",
+        "links_one": "{{count}} external resource",
+        "links": "{{count}} external resources",
+        "quizzes_one": "{{count}} quiz",
+        "quizzes": "{{count}} quizzes",
+        "assignments_one": "{{count}} assignment",
+        "assignments": "{{count}} assignments",
+        "hours_one": "{{count}} hour of content",
+        "hours": "{{count}} hours of content",
+        "minutes_one": "{{count}} minute of content",
+        "minutes": "{{count}} minutes of content",
+        "sessions_one": "{{count}} live session",
         "sessions": "{{count}} live sessions",
         "reading": "Reading materials & resources",
         "assessments": "Quizzes & assignments",
@@ -373,7 +422,9 @@
       "not_found": {
         "title": "Course not found",
         "message": "This course may have been removed or is no longer available."
-      }
+      },
+      "back_to_catalogue": "Back to Catalogue",
+      "breadcrumb_catalogue": "Catalogue"
     },
     "my_learnings": {
       "evaluation": {
@@ -390,8 +441,9 @@
         "stars": "{{count}} out of 5 stars",
         "text_placeholder": "Write your answer",
         "cancel": "Cancel",
-        "submit": "Submit Evaluation",
-        "group_count": "{{answered}}/{{total}} answered",
+        "submit": "Submit",
+        "submit_next": "Submit & Next",
+        "step": "Step {{step}} of {{total}}",
         "required_left": "Required answers left: {{count}}",
         "ready": "All required questions are answered.",
         "thanks": "Thank you. Your evaluation was submitted."
@@ -406,8 +458,12 @@
         "external_link": "External"
       },
       "card": {
+        "sessions_one": "{{count}} session",
         "sessions": "{{count}} sessions",
+        "schedule": "Schedule:",
+        "starts": "Starts on",
         "started": "Started in",
+        "cohort": "Cohort: {{name}}",
         "total": "Total"
       },
       "complete": "complete",
@@ -431,6 +487,7 @@
       },
       "actions": {
         "continue": "Continue Learning",
+        "view_details": "View details",
         "download_certificate": "Download Certificate"
       },
       "download_failed": "Couldn't download the certificate. Please try again.",
@@ -482,6 +539,8 @@
         "cohort_scheduled": "Cohort open for enrolment",
         "download_certificate": "Download certificate",
         "download_failed": "Couldn't download the certificate. Please try again.",
+        "notify_waiting": "We'll let you know when the next cohort opens",
+        "notify_done": "Done. We'll notify you when a cohort opens.",
         "notify_me": "Notify me when the next cohort opens",
         "empty": {
           "title": "No qualifications assigned",
@@ -494,15 +553,21 @@
           "current": "Current",
           "completed": "Completed"
         },
+        "starts_in_one": "Starts in {{count}} day",
         "starts_in": "Starts in {{count}} days",
         "view_details": "View Details",
         "review": "Review",
         "completed_on": "Completed",
         "score": "Score: {{score}}%",
+        "progress": "{{percent}}% complete",
+        "progress_label": "Course completion",
         "not_certified": "Not certified",
         "enrol_again": "Enrol again",
         "enrolled": "Enrolled",
         "my_rating": "My Rating:",
+        "rate_course": "Rate this course",
+        "my_rate": "{{rate}}/5 {{label}}",
+        "rated": "Thanks, your rating is saved.",
         "certificate": {
           "earned": "Certificate: Earned",
           "on_track": "Certificate: On track",
@@ -540,6 +605,7 @@
         "absent": "Absent",
         "session_upcoming": "Upcoming",
         "no_sessions": "No sessions scheduled yet.",
+        "at_risk_score": "Certificate at risk: your final exam score is below the required threshold.",
         "at_risk": "Certificate at risk — your attendance is below the required threshold.",
         "this_week": "This week",
         "legend_active": "Active",
@@ -575,12 +641,47 @@
       "modules_completed": "{{completed}} of {{total}} modules completed",
       "curriculum": "Course Curriculum",
       "track_certificate": "Track your certificate",
+      "completion_step": {
+        "item": "Certificate",
+        "earned": "Congratulations! You've earned your certificate",
+        "completed": "Congratulations! You've completed the course",
+        "did_it": "You did it!",
+        "certificate_soon": "Your certificate will be sent to you here as soon as possible",
+        "certificate_alt": "Your certificate for {{course}}",
+        "certificate_error": "The certificate could not be loaded. You can download it from My Learnings.",
+        "evaluate_title": "One last step",
+        "evaluate_text": "Evaluate the course to complete it.",
+        "waiting_title": "You've finished the content",
+        "wait": {
+          "certificate_pending": "Your certificate will be issued as soon as its requirements are confirmed.",
+          "starts": "The course starts on {{date}}.",
+          "content": "Finish the remaining items: {{count}}.",
+          "final_exam": "Pass the final exam.",
+          "evaluation": "Send the course evaluation.",
+          "attendance": "Attend at least {{needed}} of the {{total}} sessions (attended so far: {{attended}}).",
+          "score": "Score at least {{threshold}}% in the final exam."
+        },
+        "locked_title": "Your certificate will appear here",
+        "locked_text": "Complete the course to finish. Items left: {{count}}"
+      },
+      "progress_label": "Course progress",
+      "outline_label": "Course content",
+      "outline_hide": "Hide course content",
+      "outline_show": "Show course content",
+      "item_failed": "Not passed",
+      "assignment_closed": "The due date ({{date}}) has passed, so this assignment can no longer be answered.",
+      "item_completed": "Completed",
+      "document": {
+        "preview_unavailable": "The document preview isn't shown here.",
+        "download": "Download {{name}}"
+      },
       "empty": {
         "title": "No content yet",
         "message": "This course doesn't have any curriculum content yet. Please check back later."
       },
       "nav": {
         "previous": "Previous",
+        "finish_course": "Finish course",
         "next": "Next",
         "position": "{{index}} of {{total}}"
       },
@@ -594,21 +695,21 @@
         "video_question": "Did you complete this video?",
         "document_question": "Did you read this document?",
         "article_question": "Did you read this article?",
-        "link_question": "Visit the link, then mark this as complete.",
+        "link_question": "Did you complete the task?",
         "yes": "Yes",
         "no": "No",
         "mark_complete": "Mark as completed",
-        "not_yet": "Not Yet",
         "duration": "Approximate duration: {{count}} mins",
         "required": "Require completion of this module to continue",
         "link_visit": "External link won't appear here, please click to navigate to the link",
-        "link_cta": "Visit link"
+        "link_cta": "Open Link"
       },
       "quiz": {
         "title": "Quiz",
         "assignment_title": "Assignment",
         "question_of": "Question {{current}} of {{total}}",
         "score": "Score",
+        "failed": "Not passed",
         "passed": "Passed",
         "submit": "Submit Answer",
         "next_question": "Next Question",
@@ -616,6 +717,10 @@
         "char_count": "{{count}} / {{max}}",
         "answer_ph": "Type your answer here...",
         "correct_order": "Correct order",
+        "answer_locked": "You answered this question. Answers checked on submit cannot be changed.",
+        "update_answer": "Update answer",
+        "move_up": "Move up",
+        "move_down": "Move down",
         "your_order": "Your order",
         "true": "True",
         "false": "False"
@@ -624,6 +729,8 @@
         "score_pending": "Score pending",
         "out_of_short": "out of {{total}}",
         "title": "Review Results",
+        "verdict_passed": "Passed. The pass score is {{pass}}.",
+        "verdict_failed": "Not passed. The pass score is {{pass}}.",
         "final_score": "Final Score",
         "out_of": "out of {{total}} points",
         "question_review": "Question Review",
@@ -674,6 +781,7 @@
         "pause": "Pause",
         "back_15": "Go backwards 15 seconds",
         "fwd_15": "Go forward 15 seconds",
+        "seek": "Seek",
         "expand": "Expand video",
         "collapse": "Collapse video",
         "step1": "1 — Admin sets the role",

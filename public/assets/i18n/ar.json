@@ -18,15 +18,28 @@
     "apply": "تطبيق"
   },
   "shared": {
+    "no_ratings": "لا توجد تقييمات بعد",
+    "stars_n": "{{count}} من 5 نجوم",
     "filter_sidebar": {
       "title": "عوامل التصفية"
+    },
+    "confirm_logout": {
+      "title": "تسجيل الخروج؟",
+      "message": "ستحتاج إلى تسجيل الدخول مرة أخرى لمتابعة تعلّمك.",
+      "confirm": "تسجيل الخروج",
+      "cancel": "إلغاء"
     },
     "login_required": {
       "title": "فشل التسجيل",
       "message": "يرجى تسجيل الدخول أولاً. بعد تسجيل الدخول، يمكنك الالتحاق بأي دورة واستكشاف ما يناسبك.",
       "cancel": "إلغاء",
       "login": "تسجيل الدخول إلى حسابي"
-    }
+    },
+    "ratings_count_one": "تقييم واحد",
+    "ratings_count_two": "تقييمان",
+    "ratings_count_few": "{{count}} تقييمات",
+    "ratings_count_many": "{{count}} تقييمًا",
+    "ratings_count": "{{count}} تقييم"
   },
   "core": {
     "toast": {
@@ -37,6 +50,7 @@
       "close": "إغلاق الإشعار"
     },
     "nav": {
+      "explore": "استكشف",
       "catalogue": "الدورات",
       "my_learnings": "تعلّمي",
       "who_we_are": "من نحن",
@@ -100,7 +114,6 @@
         "password_label": "كلمة المرور",
         "password_ph": "كلمة المرور",
         "submit": "تسجيل الدخول",
-        "helper": "تواجه مشكلة؟ تواصل مع مسؤول النظام.",
         "show_password": "إظهار كلمة المرور",
         "hide_password": "إخفاء كلمة المرور",
         "brand_line1": "طوّر مهارات فريقك.",
@@ -120,6 +133,10 @@
       "latest_in_role": "الأحدث في مجالك",
       "latest_blog": "أحدث مدونة",
       "min_read": "دقيقة قراءة",
+      "min_read_count_one": "دقيقة قراءة واحدة",
+      "min_read_count_two": "دقيقتا قراءة",
+      "min_read_count_few": "{{count}} دقائق قراءة",
+      "min_read_count": "{{count}} دقيقة قراءة",
       "filters": {
         "topic": "الموضوع",
         "job_role": "المسمى الوظيفي",
@@ -130,6 +147,10 @@
         "intermediate": "متوسط",
         "professional": "محترف"
       },
+      "no_results": {
+        "title": "لا توجد مدونات مطابقة",
+        "message": "جرّب بحثًا آخر، أو امسح عوامل التصفية، أو انتقل إلى استكشف الكل."
+      },
       "empty": {
         "title": "لا توجد مدونات بعد",
         "message": "عد قريبًا — مقالات جديدة في الطريق."
@@ -138,6 +159,7 @@
       "about_author": "عن الكاتب",
       "related": "مقالات ذات صلة",
       "copy_link": "نسخ الرابط",
+      "copy_failed": "تعذّر نسخ الرابط. انسخه من شريط العنوان.",
       "link_copied": "تم نسخ الرابط",
       "link_copied_short": "تم نسخ الرابط",
       "love": "إعجاب",
@@ -221,6 +243,7 @@
       "email": "البريد الإلكتروني",
       "email_ph": "البريد الإلكتروني للعمل",
       "guests": "ضيوف",
+      "guest_email": "بريد الضيف {{n}}",
       "add_guests": "إضافة ضيوف",
       "remove_guest": "إزالة الضيف",
       "phone": "رقم الهاتف",
@@ -274,7 +297,8 @@
         "message": "جرّب تعديل البحث أو عوامل التصفية للعثور على مزيد من الدورات."
       },
       "enrol": {
-        "success": "تم تسجيلك — ستجدها في تعلّمي.",
+        "success": "تم تسجيلك في دورة {{course}} بنجاح.",
+        "error": "يُرجى المحاولة مرة أخرى بعد قليل وإعادة التسجيل في الدورة التي تريدها.",
         "success_title": "تم التسجيل بنجاح",
         "error_title": "حدث خطأ ما!",
         "dialog": {
@@ -323,18 +347,50 @@
         "qualifications_earned": "المؤهلات المكتسبة"
       },
       "curriculum": {
-        "locked_note": "يظهر محتوى الوحدات كاملاً بعد التسجيل. أسماء الوحدات وعدد الجلسات معروضة أدناه.",
-        "modules_count": "{{count}} وحدات",
-        "sessions_count": "{{count}} جلسة إجمالاً",
+        "duration_weeks_one": "أسبوع واحد",
+        "duration_weeks_two": "أسبوعان",
+        "duration_weeks_many": "{{count}} أسبوعًا",
+        "duration_weeks_other": "{{count}} أسبوع",
         "duration_weeks": "{{count}} أسابيع",
-        "locked": "مقفل حتى التسجيل"
+        "modules_label_one": "وحدة",
+        "modules_label_two": "وحدتان",
+        "modules_label_few": "وحدات",
+        "modules_label": "وحدة",
+        "sessions_label_one": "جلسة إجمالاً",
+        "sessions_label_two": "جلستان إجمالاً",
+        "sessions_label_few": "جلسات إجمالاً",
+        "sessions_label": "جلسة إجمالاً",
+        "duration_label": "المدة",
+        "related_contents_zero": "لا يوجد محتوى مرتبط",
+        "related_contents_one": "محتوى مرتبط واحد",
+        "related_contents_two": "محتويان مرتبطان",
+        "related_contents_few": "{{count}} محتويات مرتبطة",
+        "related_contents": "{{count}} محتوى مرتبط",
+        "session": "الأسبوع {{n}}",
+        "no_sessions": "ستظهر خطة الجلسات هنا بعد جدولة دفعة."
       },
       "instructor": {
+        "rating_value": "تقييم {{value}}",
+        "learners_one": "متدرب واحد",
+        "learners_two": "متدربان",
+        "learners_few": "{{count}} متدربين",
+        "learners": "{{count}} متدرب",
+        "courses_one": "دورة واحدة",
+        "courses_two": "دورتان",
+        "courses_many": "{{count}} دورة",
+        "courses_other": "{{count}} دورة",
+        "courses": "{{count}} دورات",
+        "other_courses": "دورات أخرى للمدرب {{name}}",
         "rating": "تقييم"
       },
       "hero": {
         "enrolled": "مسجَّل",
-        "earns": "يمنح:"
+        "earns": "يمنح:",
+        "past_learners_one": "متعلم سابق",
+        "past_learners_two": "متعلمان سابقان",
+        "past_learners_few": "متعلمين سابقين",
+        "past_learners_many": "متعلمًا سابقًا",
+        "past_learners": "متعلم سابق"
       },
       "card": {
         "starts": "يبدأ",
@@ -344,9 +400,41 @@
         "instructor": "المدرّب",
         "includes": "تشمل هذه الدورة",
         "remaining_seats": "المقاعد المتبقية",
-        "seats_left": "متبقٍ {{count}}"
+        "seats_left": "متبقٍ {{count}}",
+        "cohort": "المجموعة"
       },
       "includes": {
+        "videos_one": "درس فيديو واحد",
+        "videos_two": "درسا فيديو",
+        "videos_few": "{{count}} دروس فيديو",
+        "videos": "{{count}} درس فيديو",
+        "readings_one": "مادة قراءة واحدة",
+        "readings_two": "مادتا قراءة",
+        "readings_few": "{{count}} مواد قراءة",
+        "readings": "{{count}} مادة قراءة",
+        "links_one": "مورد خارجي واحد",
+        "links_two": "موردان خارجيان",
+        "links_few": "{{count}} موارد خارجية",
+        "links": "{{count}} موردًا خارجيًا",
+        "quizzes_one": "اختبار واحد",
+        "quizzes_two": "اختباران",
+        "quizzes_few": "{{count}} اختبارات",
+        "quizzes": "{{count}} اختبارًا",
+        "assignments_one": "مهمة واحدة",
+        "assignments_two": "مهمتان",
+        "assignments_few": "{{count}} مهام",
+        "assignments": "{{count}} مهمة",
+        "hours_one": "ساعة محتوى واحدة",
+        "hours_two": "ساعتا محتوى",
+        "hours_few": "{{count}} ساعات محتوى",
+        "hours": "{{count}} ساعة محتوى",
+        "minutes_one": "دقيقة محتوى واحدة",
+        "minutes_two": "دقيقتا محتوى",
+        "minutes_few": "{{count}} دقائق محتوى",
+        "minutes": "{{count}} دقيقة محتوى",
+        "sessions_one": "جلسة مباشرة واحدة",
+        "sessions_two": "جلستان مباشرتان",
+        "sessions_few": "{{count}} جلسات مباشرة",
         "sessions": "{{count}} جلسة مباشرة",
         "reading": "مواد قراءة وموارد",
         "assessments": "اختبارات ومهام",
@@ -373,7 +461,9 @@
       "not_found": {
         "title": "الدورة غير موجودة",
         "message": "قد تكون هذه الدورة قد أُزيلت أو لم تعد متاحة."
-      }
+      },
+      "back_to_catalogue": "العودة إلى الكتالوج",
+      "breadcrumb_catalogue": "الكتالوج"
     },
     "my_learnings": {
       "evaluation": {
@@ -390,8 +480,9 @@
         "stars": "{{count}} من 5 نجوم",
         "text_placeholder": "اكتب إجابتك",
         "cancel": "إلغاء",
-        "submit": "إرسال التقييم",
-        "group_count": "تمت الإجابة: {{answered}}/{{total}}",
+        "submit": "إرسال",
+        "submit_next": "إرسال والتالي",
+        "step": "الخطوة {{step}} من {{total}}",
         "required_left": "الإجابات المطلوبة المتبقية: {{count}}",
         "ready": "تمت الإجابة عن جميع الأسئلة المطلوبة.",
         "thanks": "شكرًا لك. تم إرسال تقييمك."
@@ -406,8 +497,14 @@
         "external_link": "رابط خارجي"
       },
       "card": {
+        "sessions_one": "جلسة واحدة",
+        "sessions_two": "جلستان",
+        "sessions_few": "{{count}} جلسات",
         "sessions": "{{count}} جلسة",
+        "schedule": "الجدول:",
+        "starts": "يبدأ في",
         "started": "بدأت في",
+        "cohort": "المجموعة: {{name}}",
         "total": "الإجمالي"
       },
       "complete": "مكتملة",
@@ -421,7 +518,7 @@
         "link": "رابط خارجي",
         "external_link": "رابط خارجي",
         "quiz": "اختبار",
-        "assignment": "واجب"
+        "assignment": "مهمة"
       },
       "certificate": {
         "earned": "الشهادة: تم الحصول عليها",
@@ -431,6 +528,7 @@
       },
       "actions": {
         "continue": "متابعة التعلّم",
+        "view_details": "عرض التفاصيل",
         "download_certificate": "تحميل الشهادة"
       },
       "download_failed": "تعذّر تحميل الشهادة. يرجى المحاولة مرة أخرى.",
@@ -482,6 +580,8 @@
         "cohort_scheduled": "مجموعة متاحة للتسجيل",
         "download_certificate": "تحميل الشهادة",
         "download_failed": "تعذّر تحميل الشهادة. يرجى المحاولة مرة أخرى.",
+        "notify_waiting": "سنُعلمك عند فتح المجموعة القادمة",
+        "notify_done": "تم. سنُعلمك عند فتح مجموعة جديدة.",
         "notify_me": "أعلمني عند فتح المجموعة القادمة",
         "empty": {
           "title": "لا توجد مؤهلات مُسندة",
@@ -494,15 +594,25 @@
           "current": "الحالية",
           "completed": "المكتملة"
         },
+        "starts_in_one": "تبدأ غدًا",
+        "starts_in_two": "تبدأ خلال يومين",
+        "starts_in_few": "تبدأ خلال {{count}} أيام",
+        "starts_in_many": "تبدأ خلال {{count}} يومًا",
+        "starts_in_other": "تبدأ خلال {{count}} يوم",
         "starts_in": "تبدأ خلال {{count}} يوم",
         "view_details": "عرض التفاصيل",
         "review": "مراجعة",
         "completed_on": "اكتملت في",
         "score": "النتيجة: {{score}}٪",
+        "progress": "مكتمل {{percent}}٪",
+        "progress_label": "نسبة إتمام الدورة",
         "not_certified": "غير معتمدة",
         "enrol_again": "سجّل مرة أخرى",
         "enrolled": "مُسجَّل",
         "my_rating": "تقييمي:",
+        "rate_course": "قيّم هذه الدورة",
+        "my_rate": "{{rate}}/5 {{label}}",
+        "rated": "شكرًا، تم حفظ تقييمك.",
         "certificate": {
           "earned": "الشهادة: تم الحصول عليها",
           "on_track": "الشهادة: على المسار الصحيح",
@@ -540,6 +650,7 @@
         "absent": "غائب",
         "session_upcoming": "قادم",
         "no_sessions": "لا توجد جلسات مجدولة بعد.",
+        "at_risk_score": "الشهادة معرّضة للخطر: درجتك في الاختبار النهائي أقل من الحد المطلوب.",
         "at_risk": "الشهادة في خطر — نسبة حضورك أقل من الحد المطلوب.",
         "this_week": "هذا الأسبوع",
         "legend_active": "نشطة",
@@ -575,12 +686,47 @@
       "modules_completed": "{{completed}} من {{total}} وحدات مكتملة",
       "curriculum": "منهج الدورة",
       "track_certificate": "تتبع شهادتك",
+      "completion_step": {
+        "item": "الشهادة",
+        "earned": "تهانينا! لقد حصلت على شهادتك",
+        "completed": "تهانينا! لقد أكملت الدورة",
+        "did_it": "لقد فعلتها!",
+        "certificate_soon": "سيتم إرسال شهادتك إليك هنا في أقرب وقت ممكن",
+        "certificate_alt": "شهادتك في {{course}}",
+        "certificate_error": "تعذر تحميل الشهادة. يمكنك تنزيلها من صفحة تعلّمي.",
+        "evaluate_title": "خطوة أخيرة",
+        "evaluate_text": "قيّم الدورة لإكمالها.",
+        "waiting_title": "لقد أنهيت المحتوى",
+        "wait": {
+          "certificate_pending": "ستصدر شهادتك فور التحقق من استيفاء متطلباتها.",
+          "starts": "تبدأ الدورة في {{date}}.",
+          "content": "أكمل العناصر المتبقية: {{count}}.",
+          "final_exam": "اجتز الاختبار النهائي.",
+          "evaluation": "أرسل تقييم الدورة.",
+          "attendance": "احضر {{needed}} جلسات على الأقل من {{total}} (حضرت حتى الآن: {{attended}}).",
+          "score": "احصل على {{threshold}}% على الأقل في الاختبار النهائي."
+        },
+        "locked_title": "ستظهر شهادتك هنا",
+        "locked_text": "أكمل الدورة للانتهاء. العناصر المتبقية: {{count}}"
+      },
+      "progress_label": "تقدم الدورة",
+      "outline_label": "محتوى الدورة",
+      "outline_hide": "إخفاء محتوى الدورة",
+      "outline_show": "إظهار محتوى الدورة",
+      "item_failed": "لم يجتز",
+      "assignment_closed": "انتهى موعد التسليم ({{date}})، لذا لا يمكن الإجابة عن هذه المهمة الآن.",
+      "item_completed": "مكتمل",
+      "document": {
+        "preview_unavailable": "لا تظهر معاينة المستند هنا.",
+        "download": "تنزيل {{name}}"
+      },
       "empty": {
         "title": "لا يوجد محتوى بعد",
         "message": "لا يحتوي هذا المساق على أي محتوى حتى الآن. يرجى المراجعة لاحقًا."
       },
       "nav": {
         "previous": "السابق",
+        "finish_course": "إنهاء الدورة",
         "next": "التالي",
         "position": "{{index}} من {{total}}"
       },
@@ -594,21 +740,21 @@
         "video_question": "هل أكملت مشاهدة هذا الفيديو؟",
         "document_question": "هل قرأت هذا المستند؟",
         "article_question": "هل قرأت هذا المقال؟",
-        "link_question": "قم بزيارة الرابط، ثم ضع علامة على هذا كمكتمل.",
+        "link_question": "هل أكملت المهمة؟",
         "yes": "نعم",
         "no": "لا",
         "mark_complete": "وضع علامة كمكتمل",
-        "not_yet": "ليس بعد",
         "duration": "المدة التقريبية: {{count}} دقيقة",
         "required": "إكمال هذه الوحدة مطلوب للمتابعة",
         "link_visit": "لن يظهر الرابط الخارجي هنا، يرجى النقر للانتقال إلى الرابط",
-        "link_cta": "زيارة الرابط"
+        "link_cta": "فتح الرابط"
       },
       "quiz": {
         "title": "اختبار",
         "assignment_title": "مهمة",
         "question_of": "السؤال {{current}} من {{total}}",
         "score": "النتيجة",
+        "failed": "لم تجتز",
         "passed": "ناجح",
         "submit": "إرسال الإجابة",
         "next_question": "السؤال التالي",
@@ -616,6 +762,10 @@
         "char_count": "{{count}} / {{max}}",
         "answer_ph": "اكتب إجابتك هنا...",
         "correct_order": "الترتيب الصحيح",
+        "answer_locked": "لقد أجبت عن هذا السؤال. لا يمكن تغيير الإجابات التي تُصحَّح عند الإرسال.",
+        "update_answer": "تحديث الإجابة",
+        "move_up": "نقل لأعلى",
+        "move_down": "نقل لأسفل",
         "your_order": "ترتيبك",
         "true": "صحيح",
         "false": "خطأ"
@@ -624,6 +774,8 @@
         "score_pending": "الدرجة قيد التقييم",
         "out_of_short": "من {{total}}",
         "title": "مراجعة النتائج",
+        "verdict_passed": "ناجح. درجة النجاح {{pass}}.",
+        "verdict_failed": "لم تجتز. درجة النجاح {{pass}}.",
         "final_score": "النتيجة النهائية",
         "out_of": "من أصل {{total}} نقطة",
         "question_review": "مراجعة الأسئلة",
@@ -674,6 +826,7 @@
         "pause": "إيقاف مؤقت",
         "back_15": "الرجوع 15 ثانية",
         "fwd_15": "التقدم 15 ثانية",
+        "seek": "الانتقال في الفيديو",
         "expand": "تكبير الفيديو",
         "collapse": "تصغير الفيديو",
         "step1": "1 — المسؤول يحدد الدور",

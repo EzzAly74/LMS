@@ -124,36 +124,74 @@ class CohortScheduleEditTest extends ApiTestCase
         $this->assertSame('2026-10-01', substr((string) $section->start_date, 0, 10));
     }
 
-    /** D-080: the sheet is the schedule from now on; held sessions stay even when left out. */
-    public function test_a_sheet_of_only_new_sessions_replaces_the_upcoming_ones_and_keeps_the_held(): void
+    /**
+     * D-110 (human, 2026-10-15): the upload never removes a session. A sheet
+     * with only the session to add (the human's sheet) adds it; every other
+     * session stays, with no question asked.
+     */
+    public function test_a_sheet_of_only_new_sessions_adds_them_and_removes_nothing(): void
     {
         [$course, $section] = $this->cohort();
 
-        $this->edit($course, $section, $this->xlsx([[1, '2026-10-29', '09:00', '12:00', 'Hall']]))
-            ->assertOk()->assertJsonPath('result.sessions_added', 1)->assertJsonPath('result.sessions_removed', 1);
+        $this->edit($course, $section, $this->xlsx([[4, '2026-10-30', '11:00', '13:00', '8th Floor', '']]))
+            ->assertOk()->assertJsonPath('result.sessions_added', 1)->assertJsonPath('result.sessions_updated', 0)
+            ->assertJsonMissingPath('result.sessions_removed');
 
         $this->assertSame([
             ['2026-10-01', '09:00', '11:00', 'Room A', 'Session 1'],
             ['2026-10-08', '09:00', '11:00', 'Room A', 'Session 2'],
-            ['2026-10-29', '09:00', '12:00', 'Hall', 'Session 3'],
+            ['2026-10-15', '09:00', '11:00', 'Room A', 'Session 3'],
+            ['2026-10-30', '11:00', '13:00', '8th Floor', 'Session 4'],
         ], $this->sessions($section));
+        $this->assertSame('2026-10-30', substr((string) $section->refresh()->end_date, 0, 10));
+        $this->assertSame(4, (int) $section->number_of_sessions);
     }
 
-    /** NEW2B-6189: a sheet with fewer rows leaves fewer sessions. */
-    public function test_a_shorter_sheet_reduces_the_sessions(): void
+    public function test_a_session_added_between_others_is_numbered_by_date(): void
     {
         [$course, $section] = $this->cohort();
 
-        $this->edit($course, $section, $this->xlsx([self::HELD_1, self::HELD_2]))
-            ->assertOk()->assertJsonPath('result.sessions_removed', 1)
-            ->assertJsonPath('result.section.number_of_sessions', 2);
+        $this->edit($course, $section, $this->xlsx([[9, '2026-10-12', '14:00', '15:30', '']]))->assertOk();
 
-        $this->assertCount(2, $this->sessions($section));
-        $this->assertSame('2026-10-08', substr((string) $section->refresh()->end_date, 0, 10));
+        $this->assertSame(['Session 1', 'Session 2', 'Session 3', 'Session 4'], array_column($this->sessions($section), 4));
+        $this->assertSame(['2026-10-01', '2026-10-08', '2026-10-12', '2026-10-15'], array_column($this->sessions($section), 0));
     }
 
-    /** NEW2B-6217: moving an upcoming session moves it; no extra session, the cohort dates follow. */
-    public function test_moving_the_start_of_an_upcoming_cohort_moves_its_sessions(): void
+    public function test_arabic_digits_slashes_and_12_hour_times_are_read(): void
+    {
+        [$course, $section] = $this->cohort();
+
+        $this->edit($course, $section, $this->xlsx([[4, '٢٠٢٦/١٠/٣٠', '11:00 ص', '1:30 م', '8th Floor'], [5, '2026.11.06', '9:00 AM', '12:00 PM', '']]))
+            ->assertOk()->assertJsonPath('result.sessions_added', 2);
+
+        $rows = array_slice($this->sessions($section), -2);
+        $this->assertSame(['2026-10-30', '11:00', '13:30'], array_slice($rows[0], 0, 3));
+        $this->assertSame(['2026-11-06', '09:00', '12:00'], array_slice($rows[1], 0, 3));
+    }
+
+    public function test_a_year_typo_and_a_day_first_date_are_refused(): void
+    {
+        [$course, $section] = $this->cohort();
+
+        $errors = $this->edit($course, $section, $this->xlsx([[4, '2062-10-30', '11:00', '13:00', ''], [5, '30/10/2026', '11:00', '13:00', '']]))
+            ->assertStatus(422)->json('report.errors');
+        $this->assertSame(__('messages.schedule_date_too_far', ['years' => 2]), $errors[0]['message']);
+        $this->assertSame(__('messages.schedule_date_format'), $errors[1]['message']);
+        $this->assertCount(3, $this->sessions($section));
+    }
+
+    public function test_a_shorter_sheet_removes_nothing(): void
+    {
+        [$course, $section] = $this->cohort();
+
+        // Only rows already in the cohort: nothing to add, nothing goes.
+        $this->edit($course, $section, $this->xlsx([self::HELD_1, self::HELD_2]))
+            ->assertStatus(422)->assertJsonPath('report.errors.0.message', __('messages.schedule_nothing_new'));
+
+        $this->assertCount(3, $this->sessions($section));
+    }
+
+    public function test_an_upcoming_session_moves_when_its_row_gets_a_new_date(): void
     {
         $course = Course::factory()->create();
         $id = $this->post(self::BASE."/courses/{$course->id}/sections/scheduled", [
@@ -162,23 +200,68 @@ class CohortScheduleEditTest extends ApiTestCase
         ], $this->headers + ['Accept' => 'application/json'])->assertCreated()->json('result.id');
         $section = CourseSection::query()->findOrFail($id);
 
+        $ids = $this->ids($section);
+
+        // Rows 1 and 2 are sessions 1 and 2 (session_no): not started yet,
+        // so their dates change; no session is added or removed (NEW2B-6217).
         $this->edit($course, $section, $this->xlsx([[1, '2026-10-19', '09:00', '11:00', ''], [2, '2026-10-20', '09:00', '11:00', '']]))
             ->assertOk()
+            ->assertJsonPath('result.sessions_added', 0)
+            ->assertJsonPath('result.sessions_updated', 2)
             ->assertJsonPath('result.section.number_of_sessions', 2)
             ->assertJsonPath('result.section.start_date', '2026-10-19')
             ->assertJsonPath('result.section.status', 'open_for_enrollment');
 
         $this->assertSame(['2026-10-19', '2026-10-20'], array_column($this->sessions($section), 0));
+        $this->assertSame($ids, $this->ids($section), 'the same sessions, moved');
+
+        // Without numbers, new dates are new sessions next to the planned ones.
+        $this->edit($course, $section, $this->xlsx([['', '2026-10-26', '09:00', '11:00', '']]))
+            ->assertOk()->assertJsonPath('result.sessions_added', 1);
+        $this->assertSame(['2026-10-19', '2026-10-20', '2026-10-26'], array_column($this->sessions($section), 0));
     }
 
-    public function test_an_upcoming_session_someone_attended_is_not_removed(): void
+    public function test_an_upcoming_session_may_change_its_time_but_not_onto_another_or_into_the_past(): void
     {
         [$course, $section] = $this->cohort();
-        $upcoming = DB::table('course_sessions')->where('section_id', $section->id)->where('session_date', '2026-10-15')->value('id');
-        DB::table('attendances')->insert(['user_id' => User::factory()->create()->id, 'course_id' => $course->id, 'section_id' => $section->id, 'session_id' => $upcoming, 'created_at' => now(), 'updated_at' => now()]);
 
-        $this->edit($course, $section, $this->xlsx([self::HELD_1, self::HELD_2]))->assertStatus(422);
+        // Session 3 (15 Oct 09:00) to 14:00 the same day.
+        $this->edit($course, $section, $this->xlsx([[3, '2026-10-15', '14:00', '16:00', 'Room A']]))
+            ->assertOk()->assertJsonPath('result.sessions_updated', 1);
+        $this->assertSame(['2026-10-15', '14:00', '16:00', 'Room A', 'Session 3'], $this->sessions($section)[2]);
 
+        // Into the past: refused.
+        $this->edit($course, $section, $this->xlsx([[3, '2026-10-09', '14:00', '16:00', '']]))
+            ->assertStatus(422)->assertJsonPath('report.errors.0.message', __('messages.schedule_new_session_in_past'));
+
+        // Onto a new session of the same sheet: the sheet's rows overlap.
+        $this->edit($course, $section, $this->xlsx([[3, '2026-10-22', '09:00', '11:00', ''], ['', '2026-10-22', '10:00', '12:00', '']]))
+            ->assertStatus(422)->assertJsonPath('report.errors.0.column', 'start_time');
+        $this->assertSame(['2026-10-15', '14:00', '16:00', 'Room A', 'Session 3'], $this->sessions($section)[2]);
+    }
+
+    public function test_one_session_twice_or_a_bad_number_is_refused(): void
+    {
+        [$course, $section] = $this->cohort();
+
+        $errors = $this->edit($course, $section, $this->xlsx([
+            [3, '2026-10-15', '09:00', '11:00', 'Room A'],
+            [3, '2026-10-22', '09:00', '11:00', ''],
+            ['x', '2026-10-29', '09:00', '11:00', ''],
+        ]))->assertStatus(422)->json('report.errors');
+
+        $this->assertSame(['session_no', 'session_no'], array_column($errors, 'column'));
+        $this->assertSame(__('messages.schedule_session_no_twice', ['row' => 2]), $errors[0]['message']);
+        $this->assertSame(__('messages.schedule_session_no_format'), $errors[1]['message']);
+        $this->assertCount(3, $this->sessions($section));
+    }
+
+    public function test_a_new_row_at_the_time_of_a_planned_session_is_refused_as_an_overlap(): void
+    {
+        [$course, $section] = $this->cohort();
+
+        $this->edit($course, $section, $this->xlsx([[4, '2026-10-15', '10:00', '12:00', '']]))
+            ->assertStatus(422)->assertJsonPath('report.errors.0.column', 'start_time');
         $this->assertCount(3, $this->sessions($section));
     }
 
@@ -200,12 +283,12 @@ class CohortScheduleEditTest extends ApiTestCase
         [$course, $section] = $this->cohort();
         $before = $this->sessions($section);
 
-        // 8 Oct moved to 10:00 reads as a new session in the past.
+        // Session 2 (8 Oct, held) moved to 10:00: a held session cannot change.
         $this->edit($course, $section, $this->xlsx([self::HELD_1, [2, '2026-10-08', '10:00', '11:00', 'Room A'], self::UPCOMING, [4, '2026-10-22', '09:00', '11:00', '']]))
             ->assertStatus(422)
             ->assertJsonPath('report.errors.0.row', 3)
             ->assertJsonPath('report.errors.0.column', 'date')
-            ->assertJsonPath('report.errors.0.message', __('messages.schedule_new_session_in_past'));
+            ->assertJsonPath('report.errors.0.message', __('messages.schedule_held_session_locked'));
 
         // All or nothing: not the valid new row, not the name.
         $this->assertSame($before, $this->sessions($section));
@@ -216,9 +299,9 @@ class CohortScheduleEditTest extends ApiTestCase
     {
         [$course, $section] = $this->cohort();
 
-        $this->edit($course, $section, $this->xlsx([[1, '2026-10-10', '11:00', '13:00', '']]))
+        $this->edit($course, $section, $this->xlsx([['', '2026-10-10', '11:00', '13:00', '']]))
             ->assertStatus(422)->assertJsonPath('report.errors.0.message', __('messages.schedule_new_session_in_past'));
-        $this->edit($course, $section, $this->xlsx([[1, '2026-10-10', '15:00', '16:00', '']]))
+        $this->edit($course, $section, $this->xlsx([['', '2026-10-10', '15:00', '16:00', '']]))
             ->assertOk()->assertJsonPath('result.sessions_added', 1);
     }
 

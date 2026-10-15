@@ -181,7 +181,7 @@ class CohortScheduleContentTest extends ApiTestCase
 
     // ───────────────────────────────────────────────────────────── edit
 
-    public function test_editing_changes_content_of_held_and_upcoming_sessions_and_an_empty_cell_clears_it(): void
+    public function test_editing_changes_content_of_upcoming_sessions_only_and_an_empty_cell_clears_it(): void
     {
         [$course, $m] = $this->courseWithModules();
         $id = $this->create($course, $this->xlsx([
@@ -190,16 +190,22 @@ class CohortScheduleContentTest extends ApiTestCase
         ]))->assertCreated()->json('result.id');
         $section = CourseSection::query()->findOrFail($id);
 
-        $result = $this->edit($course, $section, $this->xlsx([
+        // A held session cannot be changed, its content included (human, 2026-10-15).
+        $this->edit($course, $section, $this->xlsx([
             [1, '2026-10-01', '09:00', '11:00', '', "1, 3"],
+        ]))->assertStatus(422)->assertJsonPath('report.errors.0.column', 'content')
+            ->assertJsonPath('report.errors.0.message', __('messages.schedule_held_session_locked'));
+
+        $result = $this->edit($course, $section, $this->xlsx([
+            [1, '2026-10-01', '09:00', '11:00', '', 1],
             [2, '2026-10-20', '09:00', '11:00', '', ''],
             [3, '2026-10-27', '09:00', '11:00', '', 2],
         ]))->assertOk()->json('result');
 
         $this->assertSame(1, $result['sessions_added']);
-        $this->assertSame(2, $result['sessions_updated']);
+        $this->assertSame(1, $result['sessions_updated']);
         $this->assertSame([
-            '2026-10-01' => [$m[0]->id, $m[2]->id],
+            '2026-10-01' => [$m[0]->id],
             '2026-10-20' => [],
             '2026-10-27' => [$m[1]->id],
         ], $this->links($id));

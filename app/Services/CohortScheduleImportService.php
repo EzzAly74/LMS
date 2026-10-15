@@ -35,6 +35,9 @@ class CohortScheduleImportService
 
     private const MAX_LOCATION = 191;
 
+    /** A session dated further ahead than this is taken for a typo in the year. */
+    public const MAX_YEARS_AHEAD = 2;
+
     /** Most items (modules, quizzes, assignments) one session may list in its content cell. */
     public const MAX_CONTENT = 50;
 
@@ -49,6 +52,8 @@ class CohortScheduleImportService
      */
     public function create(Course $course, array $cohort, UploadedFile $file): array
     {
+        // Past rows are allowed here: a cohort already under way is set up
+        // with the sessions it has held (D-110).
         $parsed = $this->parse($file, $course);
         if ($parsed['errors'] !== []) {
             return ['section' => null, 'errors' => $parsed['errors']];
@@ -101,25 +106,25 @@ class CohortScheduleImportService
      * Edit Cohort (same dialog as New Cohort): rename, change the capacity and,
      * optionally, upload the schedule again.
      *
-     * The sheet is compared with the sessions the cohort already has, by date,
-     * start and end time:
+     * The sheet is compared with the sessions the cohort already has (human,
+     * 2026-10-15, D-110). A row is an existing session when its session_no is
+     * that session's number in the schedule (the edit template writes them),
+     * or, without one, when its date, start and end match it:
      *   - a row that matches an existing session is that session: it is kept,
      *     and only its location may change - and only before it starts - and
      *     its content (the modules it covers), at any time; an empty content
      *     cell on such a row clears it;
      *   - every other row is a new session and must start in the future;
-     *   - an existing session that the sheet leaves out is removed when it has
-     *     not started and nobody has attended it (NEW2B-6189, NEW2B-6217, D-080):
-     *     the uploaded sheet is the schedule from now on, so fewer rows mean
-     *     fewer sessions and a moved date moves the session. A held session
-     *     is never removed or changed, whether the sheet lists it or not.
+     *   - a session the sheet leaves out stays as it is: the upload never
+     *     removes a session (human, 2026-10-15, D-110; replaces D-080). A
+     *     held session is never changed, whether the sheet lists it or not.
      * New sessions may not overlap each other or any existing session. Any
      * problem returns the full list and changes nothing (the name and capacity
      * included); otherwise everything is written in one transaction, under a
      * lock on the cohort so two uploads cannot both add the same sessions.
      *
      * @param  array{name: array{en: string, ar: string}, capacity: int}  $cohort
-     * @return array{section: ?CourseSection, added: int, removed?: int, updated: int, errors: list<array{row: int, column: ?string, message: string}>}
+     * @return array{section: ?CourseSection, added: int, updated: int, errors: list<array{row: int, column: ?string, message: string}>}
      */
     public function update(Course $course, CourseSection $section, array $cohort, ?UploadedFile $file): array
     {
@@ -158,73 +163,97 @@ class CohortScheduleImportService
 
             $linked = $this->contentBySession($existing->pluck('id')->map(fn ($id) => (int) $id)->all());
 
+            // Sessions by their number in the schedule, as the template numbers them.
+            $byNumber = [];
+            foreach ($existing->values() as $i => $s) {
+                $byNumber[$i + 1] = $s;
+            }
+            // Held: started, or run at another time than planned (D-105).
+            $held = fn (object $s): bool => $s->planned_date !== null
+                || $this->starts((string) $s->session_date, (string) $s->time_from) <= $now;
+
             $errors   = [];
             $new      = [];
-            $moved    = [];
-            $relinked = [];
+            $moved    = [];   // id => new location
+            $relinked = [];   // id => new content
+            $retimed  = [];   // id => sheet row with the new date / times
+            $matched  = [];   // id => sheet line
             foreach ($rows as $r) {
-                $match = $byKey[$this->key($r['date'], $r['from'], $r['to'])] ?? null;
-                if ($match !== null) {
-                    if ($r['content'] !== ($linked[(int) $match->id] ?? [])) {
-                        $relinked[(int) $match->id] = $r['content'];
-                    }
-                    if ((string) ($match->location ?? '') === (string) ($r['location'] ?? '')) {
-                        continue; // location unchanged
-                    }
-                    if (isset($movedKeys[$this->key($r['date'], $r['from'], $r['to'])]) || $this->starts($r['date'], $r['from']) <= $now) {
-                        $errors[] = [$r['line'], 'location', __('messages.schedule_held_session_locked')];
+                $slot  = $this->key($r['date'], $r['from'], $r['to']);
+                $match = ($r['no'] !== null ? ($byNumber[$r['no']] ?? null) : null) ?? ($byKey[$slot] ?? null);
+                if ($match === null) {
+                    // A new session: in the future, never in place of another.
+                    if ($this->starts($r['date'], $r['from']) <= $now) {
+                        $errors[] = [$r['line'], 'date', __('messages.schedule_new_session_in_past')];
                         continue;
                     }
-                    $moved[$match->id] = $r['location'];
+                    $new[] = $r;
                     continue;
                 }
-                if ($this->starts($r['date'], $r['from']) <= $now) {
-                    $errors[] = [$r['line'], 'date', __('messages.schedule_new_session_in_past')];
+
+                $id = (int) $match->id;
+                if (isset($matched[$id])) {
+                    $errors[] = [$r['line'], 'session_no', __('messages.schedule_session_no_twice', ['row' => $matched[$id]])];
                     continue;
                 }
-                $new[] = $r;
-            }
+                $matched[$id] = $r['line'];
 
-            // Sessions the sheet leaves out (D-080): future ones go, held ones stay.
-            $removed = [];
-            if ($file !== null) {
-                $listed = [];
-                foreach ($rows as $r) {
-                    $listed[$this->key($r['date'], $r['from'], $r['to'])] = true;
+                $own = $this->key((string) $match->session_date, (string) $match->time_from, (string) $match->time_to);
+                $sameSlot = $slot === $own || ($movedKeys[$slot] ?? false) && ($byKey[$slot] ?? null) === $match;
+                $sameLocation = (string) ($match->location ?? '') === (string) ($r['location'] ?? '');
+                $sameContent = $r['content'] === ($linked[$id] ?? []);
+
+                // A held session cannot be changed (human, 2026-10-15): its row
+                // may only repeat it.
+                if ($held($match)) {
+                    $column = ! $sameSlot ? 'date' : (! $sameLocation ? 'location' : (! $sameContent ? 'content' : null));
+                    if ($column !== null) {
+                        $errors[] = [$r['line'], $column, __('messages.schedule_held_session_locked')];
+                    }
+                    continue;
                 }
-                foreach ($existing as $s) {
-                    $key = $this->key((string) $s->session_date, (string) $s->time_from, (string) $s->time_to);
-                    if (isset($listed[$key]) || $s->planned_date !== null || $this->starts((string) $s->session_date, (string) $s->time_from) <= $now) {
+
+                // An upcoming session: date, times, location and content may change.
+                if (! $sameSlot) {
+                    if ($this->starts($r['date'], $r['from']) <= $now) {
+                        $errors[] = [$r['line'], 'date', __('messages.schedule_new_session_in_past')];
                         continue;
                     }
-                    if (DB::table('attendances')->where('session_id', $s->id)->exists()) {
-                        $errors[] = [0, 'date', __('messages.schedule_attended_session_kept', [
-                            'date' => (string) $s->session_date, 'from' => substr((string) $s->time_from, 0, 5),
-                        ])];
-                        continue;
-                    }
-                    $removed[] = (int) $s->id;
+                    $retimed[$id] = $r;
                 }
-                // New rows only need to clear the sessions that stay.
-                $existing = $existing->reject(fn ($s) => in_array((int) $s->id, $removed, true))->values();
+                if (! $sameLocation) {
+                    $moved[$id] = $r['location'];
+                }
+                if (! $sameContent) {
+                    $relinked[$id] = $r['content'];
+                }
             }
 
-
-            // New sessions against the ones the cohort keeps (the sheet's own
-            // rows were already checked against each other).
-            foreach ($new as $r) {
-                foreach ($existing as $s) {
-                    if ((string) $s->session_date === $r['date'] && $s->time_from !== null && $s->time_to !== null
-                        && $r['from'] < (string) $s->time_to && (string) $s->time_from < $r['to']) {
+            // New and re-timed sessions against every session they would sit
+            // next to (the sheet's own rows were checked against each other).
+            // Sessions the sheet leaves out stay (D-110).
+            $slots = [];
+            foreach ($existing as $s) {
+                $r = $retimed[(int) $s->id] ?? null;
+                $slots[] = ['id' => (int) $s->id, 'date' => $r['date'] ?? (string) $s->session_date, 'from' => $r['from'] ?? $s->time_from, 'to' => $r['to'] ?? $s->time_to];
+            }
+            foreach ([...array_map(fn ($r) => [$r, null], $new), ...array_map(fn ($id, $r) => [$r, $id], array_keys($retimed), $retimed)] as [$r, $self]) {
+                foreach ($slots as $o) {
+                    // A re-timed session is a sheet row too: parse() compared the rows.
+                    if ($o['id'] === $self || isset($retimed[$o['id']]) || $o['from'] === null || $o['to'] === null
+                        || substr((string) $o['date'], 0, 10) !== $r['date']) {
+                        continue;
+                    }
+                    if ($r['from'] < (string) $o['to'] && (string) $o['from'] < $r['to']) {
                         $errors[] = [$r['line'], 'start_time', __('messages.schedule_overlap_existing', [
-                            'date' => $r['date'], 'from' => substr((string) $s->time_from, 0, 5), 'to' => substr((string) $s->time_to, 0, 5),
+                            'date' => $r['date'], 'from' => substr((string) $o['from'], 0, 5), 'to' => substr((string) $o['to'], 0, 5),
                         ])];
                         break;
                     }
                 }
             }
 
-            if ($errors === [] && $file !== null && $new === [] && $moved === [] && $relinked === [] && $removed === []) {
+            if ($errors === [] && $file !== null && $new === [] && $moved === [] && $relinked === [] && $retimed === []) {
                 $errors[] = [0, null, __('messages.schedule_nothing_new')];
             }
             if ($errors !== []) {
@@ -232,9 +261,10 @@ class CohortScheduleImportService
             }
 
             $stamp = now();
-            if ($removed !== []) {
-                // Content links cascade; nobody attended these (checked above).
-                DB::table('course_sessions')->whereIn('id', $removed)->delete();
+            foreach ($retimed as $id => $r) {
+                DB::table('course_sessions')->where('id', $id)->update([
+                    'session_date' => $r['date'], 'time_from' => $r['from'], 'time_to' => $r['to'], 'updated_at' => $stamp,
+                ]);
             }
             foreach ($moved as $id => $location) {
                 DB::table('course_sessions')->where('id', $id)->update(['location' => $location, 'updated_at' => $stamp]);
@@ -265,7 +295,7 @@ class CohortScheduleImportService
             if ($status !== null) {
                 $update['status'] = $status;
             }
-            $rescheduled = $new !== [] || $removed !== [];
+            $rescheduled = $new !== [] || $retimed !== [];
             if ($rescheduled) {
                 $this->renumber($section);
                 $update += $this->derived($section);
@@ -279,8 +309,7 @@ class CohortScheduleImportService
             return [
                 'section' => $section->refresh(),
                 'added'   => count($new),
-                'removed' => count($removed),
-                'updated' => count(array_unique([...array_keys($moved), ...array_keys($relinked)])),
+                'updated' => count(array_unique([...array_keys($moved), ...array_keys($relinked), ...array_keys($retimed)])),
                 'errors'  => [],
             ];
         });
@@ -496,6 +525,7 @@ class CohortScheduleImportService
 
         $errors   = [];
         $sessions = [];
+        $numbers  = []; // session_no => sheet line
         foreach ($rows as $i => $row) {
             $line = $i + 2; // 1-based, after the header row
 
@@ -507,6 +537,23 @@ class CohortScheduleImportService
             );
             if ($filled === []) {
                 continue;
+            }
+
+            // The session's number in the schedule: on edit, a row naming an
+            // existing number is that session (D-110). Blank is a new row.
+            $noRaw = trim(self::latinDigits((string) $cell($row, 'session_no')));
+            $no = null;
+            if ($noRaw !== '') {
+                if (! preg_match('/^\d{1,4}(\.0+)?$/', $noRaw) || (int) $noRaw < 1) {
+                    $errors[] = [$line, 'session_no', __('messages.schedule_session_no_format')];
+                    continue;
+                }
+                $no = (int) $noRaw;
+                if (isset($numbers[$no])) {
+                    $errors[] = [$line, 'session_no', __('messages.schedule_session_no_twice', ['row' => $numbers[$no]])];
+                    continue;
+                }
+                $numbers[$no] = $line;
             }
 
             $date = $this->date($cell($row, 'date'));
@@ -547,6 +594,11 @@ class CohortScheduleImportService
                 $content = array_values($resolved);
             }
 
+            if ($date !== null && $date > CarbonImmutable::today()->addYears(self::MAX_YEARS_AHEAD)->toDateString()) {
+                // 2062 for 2026: a typo, not a plan.
+                $errors[] = [$line, 'date', __('messages.schedule_date_too_far', ['years' => self::MAX_YEARS_AHEAD])];
+                continue;
+            }
             if ($date === null || $from === null || $to === null || $content === null) {
                 continue;
             }
@@ -557,6 +609,7 @@ class CohortScheduleImportService
 
             $sessions[] = [
                 'line'     => $line,
+                'no'       => $no,
                 'date'     => $date,
                 'from'     => $from,
                 'to'       => $to,
@@ -597,8 +650,11 @@ class CohortScheduleImportService
             return $value > 0 ? CarbonImmutable::instance(ExcelDate::excelToDateTimeObject($value))->toDateString() : null;
         }
 
-        $text = trim((string) $value);
-        if (! preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $text, $m) || ! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+        // Year first, so never ambiguous: 2026-10-30, 2026/10/30, 2026.10.30,
+        // in Latin or Arabic-Indic digits. Day-first (30/10/2026) is refused:
+        // 03/10 would be March to one admin and October to another.
+        $text = self::latinDigits(trim((string) $value));
+        if (! preg_match('#^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$#', $text, $m) || ! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
             return null;
         }
 
@@ -622,7 +678,7 @@ class CohortScheduleImportService
             return $value > 0 && floor($value) === $value ? [(int) $value] : null;
         }
 
-        $text = trim((string) $value);
+        $text = self::latinDigits(trim((string) $value));
         if ($text === '') {
             return [];
         }
@@ -653,11 +709,30 @@ class CohortScheduleImportService
             return sprintf('%02d:%02d:00', intdiv($minutes, 60) % 24, $minutes % 60);
         }
 
-        if (! preg_match('/^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/', trim((string) $value), $m)) {
+        $text = self::latinDigits(trim((string) $value));
+
+        // 12-hour: 9:30 AM, 9:30pm, 9:30 ص / م (Arabic morning / evening).
+        if (preg_match('/^(0?[1-9]|1[0-2]):([0-5]\d)(?::[0-5]\d)?\s*(am|pm|a\.m\.|p\.m\.|ص|م)$/iu', $text, $m)) {
+            $pm = in_array(mb_strtolower($m[3]), ['pm', 'p.m.', 'م'], true);
+            $h = (int) $m[1] % 12 + ($pm ? 12 : 0);
+
+            return sprintf('%02d:%02d:00', $h, $m[2]);
+        }
+
+        if (! preg_match('/^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/', $text, $m)) {
             return null;
         }
 
         return sprintf('%02d:%02d:00', $m[1], $m[2]);
+    }
+
+    /** Arabic-Indic and Persian digits (٠-٩, ۰-۹) to 0-9: Arabic keyboards type them. */
+    private static function latinDigits(string $text): string
+    {
+        return strtr($text, [
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4', '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+        ]);
     }
 
     private function seconds(string $time): int

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\apis\Admin;
 
 use App\Http\Controllers\apis\ApiController;
+use App\Http\Requests\Api\Admin\AdminRoleIndexRequest;
 use App\Http\Requests\Api\Admin\AdminRoleStoreRequest;
 use App\Http\Requests\Api\Admin\AdminRoleUpdateRequest;
 use App\Services\Admin\AdminRoleService;
@@ -30,11 +31,13 @@ class AdminRoleController extends ApiController
     public function __construct(private readonly AdminRoleService $service) {}
 
     /** GET /api/v1/admin/roles */
-    public function index(Request $request): JsonResponse
+    public function index(AdminRoleIndexRequest $request): JsonResponse
     {
         $payload = $this->service->list(
             $request->user(),
-            mb_substr($request->string('search')->toString(), 0, 100) ?: null,
+            $request->search(),
+            $request->page(),
+            $request->perPage(),
         );
 
         return $this->success(__('messages.retrieved'), $payload);

@@ -29,7 +29,7 @@ class BlogController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $blogs = $this->service->paginate(
-            perPage: (int) $request->get('per_page', 9),
+            perPage: \App\Support\Paging::perPage($request, 9),
             filters: [
                 'search'                 => $request->get('search'),
                 'level'                  => $request->get('level'),
@@ -101,7 +101,7 @@ class BlogController extends ApiController
         }
 
         $blogs = $this->service->paginate(
-            perPage: (int) $request->get('per_page', 9),
+            perPage: \App\Support\Paging::perPage($request, 9),
             filters: [
                 'search'            => $request->get('search'),
                 'level'             => $request->get('level'),
@@ -157,7 +157,7 @@ class BlogController extends ApiController
     public function adminIndex(Request $request): JsonResponse
     {
         $blogs = $this->service->paginate(
-            perPage: (int) $request->get('per_page', 15),
+            perPage: \App\Support\Paging::perPage($request, 15),
             filters: [
                 'search'                 => $request->get('search'),
                 'level'                  => $request->get('level'),

@@ -44,7 +44,7 @@ class AdminQuizController extends ApiController
             $request->integer('course_id') ?: null,
             $request->get('search'),
             $request->get('status'),
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
         );
 
         return $this->paginated(
@@ -62,7 +62,7 @@ class AdminQuizController extends ApiController
     {
         return $this->success(
             __('messages.retrieved'),
-            $this->service->listMinimal($request->get('search'), (int) $request->get('limit', 200)),
+            $this->service->listMinimal($request->get('search'), \App\Support\Paging::perPage($request, 200, 'limit')),
         );
     }
 

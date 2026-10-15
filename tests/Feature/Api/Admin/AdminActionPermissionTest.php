@@ -337,4 +337,73 @@ class AdminActionPermissionTest extends ApiTestCase
         $this->postJson(self::BASE.'/auth/admin/login', ['email' => $admin->email, 'password' => 'pass-1234!'])
             ->assertStatus(403);
     }
+
+    // ------------------------------------------- own-courses roles (reported 2026-10-15)
+
+    /**
+     * A role edited to "only the courses they teach" kept External Courses,
+     * Job Titles, Qualifications and Audit Log: the form showed them disabled
+     * but checked, and its users saw those pages, which all loaded empty
+     * (every call is refused for such an account, D-074).
+     */
+    public function test_limiting_a_role_to_its_own_courses_drops_the_org_wide_sections(): void
+    {
+        ['headers' => $h] = $this->superAdmin();
+        $all = ['view-courses', 'edit-courses', 'view-external-training', 'view-job-titles',
+            'edit-qualifications', 'view-qualifications', 'view-audit-log'];
+
+        $role = $this->postJson(self::BASE.'/admin/roles', [
+            'name_en' => 'Everything', 'name_ar' => 'كل شيء', 'permissions' => $all,
+        ], $h)->assertCreated()->json('result');
+        $this->assertEqualsCanonicalizing($all, $role['permissions']);
+
+        $role = $this->putJson(self::BASE."/admin/roles/{$role['id']}", [
+            'course_scope' => 'assigned', 'permissions' => $all,
+        ], $h)->assertOk()->json('result');
+
+        $this->assertSame('assigned', $role['course_scope']);
+        $this->assertEqualsCanonicalizing(['view-courses', 'edit-courses'], $role['permissions']);
+
+        // Created that way it is never stored either.
+        $created = $this->postJson(self::BASE.'/admin/roles', [
+            'name_en' => 'Teacher', 'name_ar' => 'معلم', 'course_scope' => 'assigned', 'permissions' => $all,
+        ], $h)->assertCreated()->json('result');
+        $this->assertEqualsCanonicalizing(['view-courses', 'edit-courses'], $created['permissions']);
+    }
+
+    public function test_a_role_already_stored_that_way_is_cleaned_on_its_next_save(): void
+    {
+        ['headers' => $h] = $this->superAdmin();
+        ['role' => $role] = $this->adminWith('view-courses', 'view-job-titles', 'view-audit-log');
+        \Illuminate\Support\Facades\DB::table('roles')->where('id', $role->id)->update(['course_scope' => 'assigned']);
+
+        $saved = $this->putJson(self::BASE."/admin/roles/{$role->id}", ['name_en' => 'Renamed'], $h)
+            ->assertOk()->json('result');
+
+        $this->assertEqualsCanonicalizing(['view-courses'], $saved['permissions']);
+    }
+
+    public function test_me_never_offers_an_own_courses_account_the_org_wide_sections(): void
+    {
+        ['headers' => $h, 'role' => $role] = $this->adminWith(
+            'view-courses', 'view-external-training', 'view-job-titles', 'edit-qualifications', 'view-qualifications', 'view-audit-log');
+        \Illuminate\Support\Facades\DB::table('roles')->where('id', $role->id)->update(['course_scope' => 'assigned']);
+
+        $me = $this->getJson(self::BASE.'/auth/admin/me', $h)->assertOk()->json('result');
+
+        $this->assertSame('assigned', $me['course_scope']);
+        $this->assertSame(['view-courses'], $me['view_keys']);
+        $this->assertSame(['view-courses'], $me['permissions']);
+        // The pages stay refused regardless.
+        $this->getJson(self::BASE.'/admin/job-titles', $h)->assertStatus(403);
+    }
+
+    public function test_an_organisation_wide_role_keeps_those_sections(): void
+    {
+        ['headers' => $h] = $this->adminWith('view-courses', 'view-job-titles');
+
+        $me = $this->getJson(self::BASE.'/auth/admin/me', $h)->assertOk()->json('result');
+
+        $this->assertEqualsCanonicalizing(['view-courses', 'view-job-titles'], $me['view_keys']);
+    }
 }

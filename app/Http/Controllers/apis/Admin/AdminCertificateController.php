@@ -84,7 +84,7 @@ class AdminCertificateController extends ApiController
     {
         $paginator = $this->service->paginateIssued(
             // Bounded (B-21): the Dashboard's Show All asks for 200.
-            min(max((int) $request->get('per_page', 20), 1), 200),
+            min(max(\App\Support\Paging::perPage($request, 20), 1), 200),
             $request->get('search'),
             $request->integer('course_id') ?: null,
         );

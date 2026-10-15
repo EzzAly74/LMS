@@ -104,7 +104,7 @@ class CourseAssignmentController extends ApiController
         $assignments = $this->service->paginateAll(
             $request->integer('course_id') ?: null,
             $request->get('search'),
-            $request->integer('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
         );
         return $this->paginated(__('messages.retrieved'), CourseAssignmentResource::collection($assignments));
     }
@@ -115,7 +115,7 @@ class CourseAssignmentController extends ApiController
             $request->integer('user_id') ?: null,
             $request->integer('course_id') ?: null,
             $request->get('status'),
-            $request->integer('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
         );
         return $this->paginated(__('messages.retrieved'), UserCourseAssignmentResource::collection($submissions));
     }
@@ -247,7 +247,7 @@ class CourseAssignmentController extends ApiController
     public function submissions(Course $course, CourseAssignment $assignment, Request $request): JsonResponse
     {
         abort_if($assignment->course_id !== $course->id, 404);
-        $submissions = $this->service->listSubmissions($assignment, (int) $request->get('per_page', 20));
+        $submissions = $this->service->listSubmissions($assignment, \App\Support\Paging::perPage($request, 20));
         return $this->paginated(__('messages.retrieved'), $submissions);
     }
 

@@ -49,7 +49,7 @@ class ArticleController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $articles = $this->service->paginate(
-            perPage: (int) $request->get('per_page', 20),
+            perPage: \App\Support\Paging::perPage($request, 20),
             type:    $request->get('type'),
             search:  $request->get('search'),
         );

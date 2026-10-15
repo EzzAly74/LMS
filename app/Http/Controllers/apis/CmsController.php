@@ -109,7 +109,7 @@ class CmsController extends ApiController
      */
     public function testimonialIndex(Request $request): JsonResponse
     {
-        $testimonials = $this->service->paginateTestimonials((int) $request->get('per_page', 20));
+        $testimonials = $this->service->paginateTestimonials(\App\Support\Paging::perPage($request, 20));
         return $this->paginated(__('messages.retrieved'), $testimonials);
     }
 

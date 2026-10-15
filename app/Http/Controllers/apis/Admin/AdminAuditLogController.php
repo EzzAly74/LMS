@@ -45,7 +45,7 @@ class AdminAuditLogController extends ApiController
             dateFrom:      $request->string('date_from')->toString() ?: null,
             dateTo:        $request->string('date_to')->toString()   ?: null,
             instructorIds: $this->intArray($request->input('instructor_ids')),
-            perPage:       (int) $request->get('per_page', AdminAuditLogService::PER_PAGE_DEFAULT),
+            perPage:       \App\Support\Paging::perPage($request, AdminAuditLogService::PER_PAGE_DEFAULT),
         );
 
         return $this->paginated(

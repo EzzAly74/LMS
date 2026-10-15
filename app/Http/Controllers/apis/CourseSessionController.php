@@ -57,7 +57,7 @@ class CourseSessionController extends ApiController
     {
         $sessions = $this->service->paginate(
             $course,
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
             $request->get('section_id') ? (int) $request->get('section_id') : null
         );
         return $this->paginated(__('messages.retrieved'), $sessions);

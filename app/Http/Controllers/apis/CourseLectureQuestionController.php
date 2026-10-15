@@ -71,7 +71,7 @@ class CourseLectureQuestionController extends ApiController
         ], fn ($v) => $v !== null);
 
         $questions = $this->questionService->paginate(
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
             $filters,
         );
 

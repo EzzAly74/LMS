@@ -89,6 +89,27 @@ final class AdminSections
             && ! in_array($section, self::ORG_WIDE, true);
     }
 
+    /**
+     * The permissions a role limited to its own courses can actually use:
+     * the org-wide sections are dropped (the middleware refuses them anyway).
+     * Names outside the matrix are kept as they are.
+     *
+     * @param  iterable<string>  $permissions
+     * @return list<string>
+     */
+    public static function withoutOrgWide(iterable $permissions): array
+    {
+        $kept = [];
+        foreach ($permissions as $permission) {
+            $parsed = self::parse((string) $permission);
+            if ($parsed === null || ! in_array($parsed[0], self::ORG_WIDE, true)) {
+                $kept[] = (string) $permission;
+            }
+        }
+
+        return $kept;
+    }
+
     /** Roles that hold every permission and cannot be edited or assigned by anyone else. */
     public const SUPER_ADMIN_ROLES = ['superadmin', 'super-admin', 'super_admin'];
 

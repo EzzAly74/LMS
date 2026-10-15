@@ -1,0 +1,1 @@
+import"./chunk-4X36HX5K.js";var o=[{path:"",loadComponent:()=>import("./chunk-G6EM54VP.js").then(t=>t.JobTitleListComponent),title:"Job Titles \u2014 2B Academy"},{path:":id",loadComponent:()=>import("./chunk-73ZTLJPV.js").then(t=>t.JobTitleDetailComponent),title:"Job Title \u2014 2B Academy"}];export{o as JOB_TITLES_ROUTES};

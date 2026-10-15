@@ -43,7 +43,7 @@ class NotificationController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $notifications = $this->service->paginate((int) $request->get('per_page', 20));
+        $notifications = $this->service->paginate(\App\Support\Paging::perPage($request, 20));
         return $this->paginated(__('messages.retrieved'), $notifications);
     }
 

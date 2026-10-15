@@ -86,12 +86,14 @@ class AdminRoleService
      * ------------------------------------------------------------------ */
 
     /**
-     * Every admin-guard role (not paginated: the screen is a card grid over a
-     * small, bounded set).
+     * The admin-guard roles. With a `$page` the list is one bounded page and
+     * carries its paging meta (the Roles screen); without one it is every role
+     * (the Controllers role picker), as before. `total` is always the number
+     * of roles matching the search.
      *
-     * @return array{total_views:int,total_permissions:int,roles:list<array<string,mixed>>}
+     * @return array{total_views:int,total_permissions:int,total:int,roles:list<array<string,mixed>>,current_page?:int,per_page?:int,last_page?:int}
      */
-    public function list(Admin $actor, ?string $search = null): array
+    public function list(Admin $actor, ?string $search = null, ?int $page = null, int $perPage = 12): array
     {
         $query = DB::table('roles')->where('guard_name', 'admin');
 
@@ -104,19 +106,31 @@ class AdminRoleService
             });
         }
 
-        $rows = $query->orderByDesc('is_system')->orderBy('name_en')->get();
+        // `id` breaks ties so a page never repeats or skips a role.
+        $query->orderByDesc('is_system')->orderBy('name_en')->orderBy('id');
+        $total = $page === null ? null : (clone $query)->count();
+        $rows = $page === null ? $query->get() : $query->forPage($page, $perPage)->get();
         $ids = $rows->pluck('id')->map(fn ($v) => (int) $v)->all();
         $permissions = $this->loadPermissionsByRole($ids);
         $users = $this->loadUserCounts($ids);
         $held = $actor->roles()->pluck('roles.id')->map(fn ($v) => (int) $v)->all();
 
-        return [
+        $payload = [
             'total_views'       => $this->sectionCount(),
             'total_permissions' => count(AdminSections::permissionNames(catalogOnly: true)),
+            'total'             => $total ?? $rows->count(),
             'roles'             => $rows->map(fn ($r) => $this->shape(
                 $r, $permissions[$r->id] ?? [], (int) ($users[$r->id] ?? 0), $actor, $held,
             ))->all(),
         ];
+
+        if ($page !== null) {
+            $payload['current_page'] = $page;
+            $payload['per_page'] = $perPage;
+            $payload['last_page'] = max(1, (int) ceil($total / $perPage));
+        }
+
+        return $payload;
     }
 
     public function show(Admin $actor, int $id): array
@@ -141,6 +155,10 @@ class AdminRoleService
     public function create(Admin $actor, array $data): array
     {
         $permissions = $this->authority->resolvePermissions($actor, $this->requested($data));
+        // A role limited to its own courses never stores the org-wide sections.
+        if (($data['course_scope'] ?? 'all') === 'assigned') {
+            $permissions = AdminSections::withoutOrgWide($permissions);
+        }
 
         $id = DB::transaction(function () use ($data, $permissions) {
             $now = now();
@@ -180,6 +198,17 @@ class AdminRoleService
         if (! AdminSections::isSuperAdminRole((string) $row->name)
             && (array_key_exists('permissions', $data) || array_key_exists('view_keys', $data))) {
             $after = $this->authority->resolvePermissions($actor, $this->requested($data), $before);
+        }
+
+        // A role limited to its own courses never keeps the org-wide sections
+        // (they were saved checked but every page of theirs answered 403):
+        // switching to "own courses" or re-saving such a role drops them.
+        $scope = array_key_exists('course_scope', $data) ? (string) $data['course_scope'] : (string) ($row->course_scope ?? 'all');
+        if ($scope === 'assigned' && ! AdminSections::isSuperAdminRole((string) $row->name)) {
+            $stripped = AdminSections::withoutOrgWide($after ?? $before);
+            if ($after !== null || count($stripped) !== count($before)) {
+                $after = $stripped;
+            }
         }
 
         $changed = [];

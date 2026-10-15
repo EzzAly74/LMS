@@ -45,7 +45,7 @@ class AdminController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $admins = $this->service->paginate(
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
             $request->get('search')
         );
         return $this->paginated(__('messages.retrieved'), $admins);

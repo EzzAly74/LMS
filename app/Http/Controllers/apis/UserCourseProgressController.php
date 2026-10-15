@@ -69,7 +69,7 @@ class UserCourseProgressController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $results = $this->service->paginate(
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
             $request->integer('course_id') ?: null,
             $request->integer('group_id')  ?: null,
             $request->integer('user_id')   ?: null,

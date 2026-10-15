@@ -31,7 +31,7 @@ class ReportController extends ApiController
     {
         $users = User::select('id', DB::raw(PersonName::userSql('users').' as name'), 'email', 'job_title', 'department_name')
             ->withCount('courses as enrolled_courses')
-            ->paginate((int) $request->get('per_page', 50));
+            ->paginate(\App\Support\Paging::perPage($request, 50));
 
         return $this->paginated(__('messages.retrieved'), $users);
     }
@@ -53,7 +53,7 @@ class ReportController extends ApiController
                 'attendances.created_at'
             )
             ->orderByDesc('attendances.created_at')
-            ->paginate((int) $request->get('per_page', 50));
+            ->paginate(\App\Support\Paging::perPage($request, 50));
 
         return $this->paginated(__('messages.retrieved'), $data);
     }
@@ -62,7 +62,7 @@ class ReportController extends ApiController
     {
         $data = UsersCourse::with(['user' => $this->userWithLocalizedName(...), 'course:id,title'])
             ->orderByDesc('created_at')
-            ->paginate((int) $request->get('per_page', 50));
+            ->paginate(\App\Support\Paging::perPage($request, 50));
 
         return $this->paginated(__('messages.retrieved'), $data);
     }
@@ -72,7 +72,7 @@ class ReportController extends ApiController
         $data = UserExam::with(['user' => $this->userWithLocalizedName(...), 'exam.course:id,title'])
             ->select('id', 'user_id', 'exam_id', 'course_id', 'user_degree', 'status', 'created_at')
             ->orderByDesc('created_at')
-            ->paginate((int) $request->get('per_page', 50));
+            ->paginate(\App\Support\Paging::perPage($request, 50));
 
         return $this->paginated(__('messages.retrieved'), $data);
     }
@@ -89,7 +89,7 @@ class ReportController extends ApiController
                 'users_courses.created_at as enrolled_at'
             )
             ->orderByDesc('users_courses.created_at')
-            ->paginate((int) $request->get('per_page', 50));
+            ->paginate(\App\Support\Paging::perPage($request, 50));
 
         return $this->paginated(__('messages.retrieved'), $data);
     }

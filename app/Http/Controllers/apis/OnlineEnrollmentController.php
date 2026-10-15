@@ -56,7 +56,7 @@ class OnlineEnrollmentController extends ApiController
     {
         $enrollments = $this->enrollmentService->paginate(
             courseId: $course->id,
-            perPage:  (int) $request->get('per_page', 20),
+            perPage:  \App\Support\Paging::perPage($request, 20),
             search:   $request->get('search'),
         );
 

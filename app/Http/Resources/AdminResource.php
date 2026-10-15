@@ -80,7 +80,23 @@ class AdminResource extends JsonResource
             })
             ->unique()
             ->values()
-            ->all();
+            ->pipe(fn ($keys) => $this->usable($keys->all()));
+    }
+
+    /**
+     * An account limited to its own courses cannot use the org-wide sections
+     * (D-074, the middleware answers 403), so they are not offered to it:
+     * the sidebar, route guard and buttons hide them instead of showing
+     * pages that load empty.
+     *
+     * @param  array<int,string>  $names
+     * @return array<int,string>
+     */
+    private function usable(array $names): array
+    {
+        return $this->courseScope() === 'assigned'
+            ? \App\Support\Permissions\AdminSections::withoutOrgWide($names)
+            : array_values($names);
     }
 
     /**
@@ -105,7 +121,7 @@ class AdminResource extends JsonResource
             ->filter(fn (string $name) => in_array($name, $matrix, true))
             ->unique()
             ->values()
-            ->all();
+            ->pipe(fn ($names) => $this->usable($names->all()));
     }
 
     private function courseScope(): string

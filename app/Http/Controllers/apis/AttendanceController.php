@@ -92,7 +92,7 @@ class AttendanceController extends ApiController
         ]);
 
         $attendance = $this->attendanceService->paginate(
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
             $filters,
         );
 

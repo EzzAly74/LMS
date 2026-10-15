@@ -20,7 +20,7 @@ class AdminMessageController extends ApiController
         $user = $request->user();
 
         $messages = $this->service->list(
-            perPage: (int) $request->get('per_page', 15),
+            perPage: \App\Support\Paging::perPage($request, 15),
             search:  $request->get('search'),
             tab:     $request->get('tab', 'all'),
             adminId: $user instanceof \App\Models\Admin ? $user->id : null,

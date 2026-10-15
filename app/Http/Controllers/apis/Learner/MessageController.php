@@ -34,7 +34,7 @@ final class MessageController extends ApiController
         $conversations = $this->service->conversationsFor(
             $request->user(),
             $request->get('role'),
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
         );
 
         // Return a plain array (the widget doesn't page) so the client always

@@ -171,7 +171,8 @@ class AdminReportService
                     'compliance_pct' => $values->isEmpty() ? 0 : (int) round($values->avg()),
                 ];
             })
-            ->sortByDesc('learners')
+            // Largest groups first; the name breaks ties so pages are stable.
+            ->sortBy([['learners', 'desc'], ['role', 'asc']])
             ->take($limit)
             ->values()
             ->all();

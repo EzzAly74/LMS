@@ -48,7 +48,7 @@ class FormController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $forms = $this->service->paginate(
-            perPage: (int) $request->get('per_page', 20),
+            perPage: \App\Support\Paging::perPage($request, 20),
             search:  $request->get('search'),
         );
         return $this->paginated(__('messages.retrieved'), $forms);

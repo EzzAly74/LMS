@@ -19,7 +19,7 @@ class LmsResourceController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $resources = $this->service->list(
-            perPage: (int) $request->get('per_page', 15),
+            perPage: \App\Support\Paging::perPage($request, 15),
             search:  $request->get('search'),
             type:    $request->get('type'),
         );

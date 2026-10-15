@@ -4,6 +4,7 @@ namespace App\Http\Controllers\apis\Admin;
 
 use App\Exports\GenericReportExport;
 use App\Http\Controllers\apis\ApiController;
+use App\Http\Requests\Api\Admin\AdminReportPreviewRequest;
 use App\Services\Admin\AdminReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,12 +38,31 @@ class AdminReportController extends ApiController
     /**
      * GET /api/v1/admin/reports/compliance-preview
      *
-     * Live grouped compliance preview shown beneath the cards.
+     * Live grouped compliance preview shown beneath the cards. With `page`
+     * it is one page of every job-title row plus its paging meta; without
+     * it, the first 25 rows (the original contract).
      */
-    public function compliancePreview(): JsonResponse
+    public function compliancePreview(AdminReportPreviewRequest $request): JsonResponse
     {
+        $page = $request->page();
+        if ($page === null) {
+            return $this->success(__('messages.retrieved'), [
+                'rows' => $this->service->compliancePreview(),
+            ]);
+        }
+
+        // The rows are grouped in memory over every learner in scope, so the
+        // page is a slice of that one result.
+        $perPage = $request->perPage();
+        $all = $this->service->compliancePreview(limit: PHP_INT_MAX);
+        $total = count($all);
+
         return $this->success(__('messages.retrieved'), [
-            'rows' => $this->service->compliancePreview(),
+            'rows'         => array_slice($all, ($page - 1) * $perPage, $perPage),
+            'total'        => $total,
+            'current_page' => $page,
+            'per_page'     => $perPage,
+            'last_page'    => max(1, (int) ceil($total / $perPage)),
         ]);
     }
 

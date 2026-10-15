@@ -48,7 +48,7 @@ class CertificateController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $certificates = $this->service->paginate(
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
             $request->integer('course_id') ?: null
         );
 

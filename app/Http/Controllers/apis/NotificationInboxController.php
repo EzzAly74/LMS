@@ -48,7 +48,7 @@ class NotificationInboxController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $perPage = (int) $request->get('per_page', 20);
+        $perPage = \App\Support\Paging::perPage($request, 20);
         $notifications = $this->feedQuery($request)
             ->latest()
             ->paginate($perPage);
@@ -214,7 +214,7 @@ class NotificationInboxController extends ApiController
      */
     public function forInstructor(Request $request, Instructor $instructor): JsonResponse
     {
-        $perPage = (int) $request->get('per_page', 20);
+        $perPage = \App\Support\Paging::perPage($request, 20);
         $notifications = $instructor->notifications()->paginate($perPage);
 
         return $this->paginated(__('messages.retrieved'), NotificationInboxResource::collection($notifications));

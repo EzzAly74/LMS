@@ -52,7 +52,7 @@ class CategoryController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $categories = $this->categoryService->list(
-            perPage: (int) $request->get('per_page', 15),
+            perPage: \App\Support\Paging::perPage($request, 15),
             search:  $request->get('search'),
             active:  $request->has('active') ? filter_var($request->active, FILTER_VALIDATE_BOOLEAN) : null,
         );

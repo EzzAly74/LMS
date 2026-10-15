@@ -15,7 +15,7 @@ class QuizController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $perPage  = (int) $request->get('per_page', 20);
+        $perPage  = \App\Support\Paging::perPage($request, 20);
         $courseId = $request->get('course_id') ? (int) $request->get('course_id') : null;
         $userId   = $request->get('user_id')   ? (int) $request->get('user_id')   : null;
         $status   = $request->get('status');

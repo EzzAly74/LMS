@@ -80,7 +80,7 @@ class RoleController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $roles = $this->service->paginate(
-            (int) $request->get('per_page', 20),
+            \App\Support\Paging::perPage($request, 20),
             $request->get('search')
         );
         return $this->paginated(__('messages.retrieved'), RoleResource::collection($roles));

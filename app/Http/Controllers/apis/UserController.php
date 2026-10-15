@@ -64,7 +64,7 @@ class UserController extends ApiController
                 : null;
 
         $users = $this->userService->list(
-            perPage:     (int) $request->get('per_page', 20),
+            perPage:     \App\Support\Paging::perPage($request, 20),
             search:      $request->get('search'),
             role:        $role,
             learnerType: $learnerType,

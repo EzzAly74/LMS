@@ -59,7 +59,24 @@ class CohortAttendanceService
             ->where('course_id', $course->id)
             ->orderByRaw('COALESCE(session_date, created_at) asc')
             ->orderByRaw('COALESCE(time_from, "00:00:00") asc')
-            ->get(['id', 'title', 'session_date', 'time_from', 'time_to', 'location']);
+            ->get(['id', 'title', 'session_date', 'time_from', 'time_to', 'location', 'started_at', 'planned_date']);
+
+        // Only a session that has ended can have absentees (human,
+        // 2026-10-15): an upcoming one is "upcoming", a live one counts who
+        // is marked present so far.
+        $now = now();
+        $statusOf = function ($s) use ($now): string {
+            $date = $s->session_date !== null ? substr((string) $s->session_date, 0, 10) : null;
+            $start = $date !== null ? \Illuminate\Support\Carbon::parse($date.' '.($s->time_from ?? '00:00:00')) : null;
+            $end = $date !== null ? \Illuminate\Support\Carbon::parse($date.' '.($s->time_to ?? '23:59:59')) : null;
+            $started = $s->started_at !== null || $s->planned_date !== null || ($start !== null && $start->lte($now));
+            if (! $started) {
+                return 'upcoming';
+            }
+
+            return $end !== null && $end->gt($now) ? 'live' : 'held';
+        };
+        $status = $sessions->mapWithKeys(fn ($s) => [(int) $s->id => $statusOf($s)]);
 
         // 2. Enrolled learners for this cohort (offline enrollment table).
         $learners = DB::table('users_courses as uc')
@@ -98,13 +115,14 @@ class CohortAttendanceService
         }
 
         // 6. Per-session aggregates (counts + names of absentees).
-        $sessionsOut = $sessions->values()->map(function ($s, $i) use ($learners, $bitmap) {
+        $sessionsOut = $sessions->values()->map(function ($s, $i) use ($learners, $bitmap, $status) {
+            $state       = $status[(int) $s->id];
             $absentNames = [];
             $attended    = 0;
             foreach ($learners as $l) {
                 if (!empty($bitmap[$l->id][$s->id])) {
                     $attended++;
-                } else {
+                } elseif ($state === 'held') {
                     $absentNames[] = ['id' => (int) $l->id, 'name' => (string) ($l->name ?? '')];
                 }
             }
@@ -118,21 +136,25 @@ class CohortAttendanceService
                 'time_from'       => $s->time_from,
                 'time_to'         => $s->time_to,
                 'location'        => $s->location,
+                'status'          => $state, // upcoming | live | held
                 'attended_count'  => $attended,
-                'absent_count'    => $total - $attended,
+                'absent_count'    => count($absentNames),
                 'total'           => $total,
-                'full_attendance' => $total > 0 && $attended === $total,
+                'full_attendance' => $state === 'held' && $total > 0 && $attended === $total,
                 'absent_learners' => $absentNames,
             ];
         })->all();
 
         // 7. Per-learner aggregates (counts + which sessions they missed).
-        $learnersOut = $learners->values()->map(function ($l) use ($sessions, $bitmap) {
+        $learnersOut = $learners->values()->map(function ($l) use ($sessions, $bitmap, $status) {
             $attended       = 0;
             $absentSessions = [];
+            $upcoming       = 0;
             foreach ($sessions as $i => $s) {
                 if (!empty($bitmap[$l->id][$s->id])) {
                     $attended++;
+                } elseif ($status[(int) $s->id] !== 'held') {
+                    $upcoming++; // not missed: it has not ended yet
                 } else {
                     $absentSessions[] = [
                         'id'    => (int) $s->id,
@@ -151,7 +173,8 @@ class CohortAttendanceService
                 'department'      => $l->department_name,
                 'total_sessions'  => $total,
                 'attended_count'  => $attended,
-                'absent_count'    => $total - $attended,
+                'absent_count'    => count($absentSessions),
+                'upcoming_count'  => $upcoming,
                 'absent_sessions' => $absentSessions,
             ];
         })->all();
@@ -180,6 +203,7 @@ class CohortAttendanceService
                 'learners' => $totalLearners,
                 'attended' => (int) $attendedTotal,
                 'absent'   => (int) $absentTotal,
+                'upcoming' => $status->filter(fn ($st) => $st === 'upcoming')->count(),
             ],
             'sessions' => $sessionsOut,
             'learners' => $learnersOut,

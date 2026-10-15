@@ -159,24 +159,30 @@ final class MobileAttendanceService
                 ? round(((float) $course->hours) / $effectiveSessions, 2)
                 : (float) $course->hours;
 
-            $attendanceId = DB::table('attendances')->insertGetId([
-                'user_id'              => $user->id,
-                // machine_code is the audit identity — denormalized
-                // exactly like the legacy front-attendance flow.
-                'user_machine_code'    => $user->machine_code,
-                'user_department'      => $user->department_name,
-                'course_category_id'   => $course->category?->id,
-                'course_category_name' => $course->category?->name,
-                'course_id'            => $course->id,
-                'course_name'          => $course->title,
-                'course_hours'         => $course->hours,
-                'section_id'           => $cohortId,
-                'session_id'           => $session->id,
-                'attendance_hours'     => $attendanceHours,
-                'is_manual'            => false,
-                'created_at'           => now(),
-                'updated_at'           => now(),
-            ]);
+            // The unique (user_id, session_id) index (B-197) is the last
+            // guard: a second row is refused and reported as already marked.
+            try {
+                $attendanceId = DB::table('attendances')->insertGetId([
+                    'user_id'              => $user->id,
+                    // machine_code is the audit identity — denormalized
+                    // exactly like the legacy front-attendance flow.
+                    'user_machine_code'    => $user->machine_code,
+                    'user_department'      => $user->department_name,
+                    'course_category_id'   => $course->category?->id,
+                    'course_category_name' => $course->category?->name,
+                    'course_id'            => $course->id,
+                    'course_name'          => $course->title,
+                    'course_hours'         => $course->hours,
+                    'section_id'           => $cohortId,
+                    'session_id'           => $session->id,
+                    'attendance_hours'     => $attendanceHours,
+                    'is_manual'            => false,
+                    'created_at'           => now(),
+                    'updated_at'           => now(),
+                ]);
+            } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+                return null;
+            }
 
             AttendanceLog::create([
                 'attendance_id' => $attendanceId,

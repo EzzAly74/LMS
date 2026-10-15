@@ -72,8 +72,9 @@ class ActiveCardParityTest extends MobileTestCase
     {
         $user = $this->employee();
         [$course, $cohort, $sessions] = $this->enrolled($user);
-        // Attended the first session twice (a duplicate row) and the second once.
-        foreach ([$sessions[0], $sessions[0], $sessions[1]] as $sessionId) {
+        // Attended the first two sessions (a duplicate row is refused by the
+        // unique index, B-197).
+        foreach ([$sessions[0], $sessions[1]] as $sessionId) {
             DB::table('attendances')->insert(['user_id' => $user->id, 'course_id' => $course->id, 'section_id' => $cohort->id,
                 'session_id' => $sessionId, 'created_at' => now(), 'updated_at' => now()]);
         }

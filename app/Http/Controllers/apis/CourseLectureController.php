@@ -93,6 +93,23 @@ class CourseLectureController extends ApiController
     }
 
     /**
+     * @OA\Get(
+     *     path="/courses/{course}/content",
+     *     tags={"Course Lectures"},
+     *     summary="The course Content tab: modules, quizzes and assignments in one list, with their schedule-sheet codes (admin).",
+     *     security={{"BearerAuth": {}}},
+     *     @OA\Parameter(name="course", in="path", required=true, @OA\Schema(type="integer", minimum=1)),
+     *     @OA\Response(response=200, description="OK"),
+     *     @OA\Response(response=403, description="Forbidden"),
+     *     @OA\Response(response=404, description="Not found or outside the account's courses")
+     * )
+     */
+    public function contentList(Course $course): JsonResponse
+    {
+        return $this->success(__('messages.retrieved'), \App\Http\Resources\CourseContentItemResource::collection($this->service->contentForCourse($course)));
+    }
+
+    /**
      * @OA\Post(
      *     path="/courses/{course}/lectures",
      *     tags={"Course Lectures"},

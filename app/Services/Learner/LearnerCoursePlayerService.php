@@ -24,12 +24,11 @@ use Illuminate\Support\Facades\DB;
  * plus the persistent certificate-status header badge and overall module
  * progress.
  *
- * Grouping: lectures and rich exams both carry `section_id` → the
- * translatable `course_sections.name` (confirmed the real grouping field —
- * see LectureProgressService::getLectureProgress). Rich assignments have no
- * `section_id` of their own (only a session-level cohort_scope pivot, a
- * different concept), so they're placed in a trailing "Assessments" group
- * rather than guessing a week association the schema doesn't support.
+ * Grouping: the learner's cohort schedule (D-079, D-109). Modules, quizzes
+ * and assignments sit under the first session of the cohort whose sheet
+ * "content" lists them, in the sheet's order. Modules no session lists go to
+ * a "Course content" group; quizzes and assignments no session lists stay in
+ * a trailing "Assessments" group.
  *
  * Reuses LectureProgressService::getLectureProgress and
  * CertificateProjectionService::projectForCourse rather than re-deriving
@@ -78,19 +77,24 @@ class LearnerCoursePlayerService
         // nothing as a heading. Generated session titles are shown in the
         // reader's language and numbered by the schedule (SessionTitle). $order keeps sessions in
         // schedule order ahead of the assessments tail.
-        $sessionOf = $this->firstSessionByLecture($user, $course);
+        $sessionOf = $this->firstSessionByItem($user, $course);
         $groups = [];
         $order  = [];
+        // Place an item under its session (label, sort, position in the
+        // session), or in $fallback / $fallbackSort when no session lists it.
+        $place = function (string $kind, int $id, string $fallback, int $fallbackSort) use ($sessionOf, $locale): array {
+            $session = $sessionOf[$kind.':'.$id] ?? null;
+            if ($session === null) {
+                return [$fallback, $fallbackSort, PHP_INT_MAX];
+            }
+
+            return [$this->weekLabel($session['title'], $session['number'], $locale), $session['number'], $session['position']];
+        };
+        $positions = [];
 
         foreach ($lectures as $lecture) {
-            $session = $sessionOf[(int) $lecture['lecture_id']] ?? null;
-            if ($session !== null) {
-                $label = \App\Support\SessionTitle::localize($session['title'], $session['number'], $locale) ?? $session['title'];
-                $sort  = $session['number'];
-            } else {
-                $label = __('messages.course_player.general_content');
-                $sort  = 9000;
-            }
+            [$label, $sort, $position] = $place('lecture', (int) $lecture['lecture_id'], __('messages.course_player.general_content'), 9000);
+            $positions[$label][] = $position;
             $groups[$label][] = [
                 'kind' => 'lecture',
                 'id' => $lecture['lecture_id'],
@@ -102,7 +106,8 @@ class LearnerCoursePlayerService
         }
 
         foreach ($exams as $exam) {
-            $label = __('messages.course_player.assessments_group');
+            [$label, $sort, $position] = $place('quiz', (int) $exam->id, __('messages.course_player.assessments_group'), 9500);
+            $positions[$label][] = $position;
 
             $userExam = $userExamsByExamId->get($exam->id);
 
@@ -122,11 +127,12 @@ class LearnerCoursePlayerService
                 'completed' => $result === 'passed',
                 'result' => $result,
             ];
-            $order[$label] ??= 9500;
+            $order[$label] ??= $sort;
         }
 
         foreach ($assignments as $assignment) {
-            $label = __('messages.course_player.assessments_group');
+            [$label, $sort, $position] = $place('assignment', (int) $assignment->id, __('messages.course_player.assessments_group'), 9999);
+            $positions[$label][] = $position;
             $userAssignment = $userAssignmentsByAssignmentId->get($assignment->id);
 
             // Sent: passed, failed, or waiting for a person's score. Only a
@@ -145,7 +151,15 @@ class LearnerCoursePlayerService
                 'completed' => $result === 'passed',
                 'result' => $result,
             ];
-            $order[$label] ??= 9999;
+            $order[$label] ??= $sort;
+        }
+
+        // Within a session, the sheet's order across modules and assessments
+        // (stable: unlisted items keep their order at the end).
+        foreach ($groups as $label => $items) {
+            $keys = array_keys($items);
+            usort($keys, fn ($a, $b) => [$positions[$label][$a], $a] <=> [$positions[$label][$b], $b]);
+            $groups[$label] = array_map(fn ($k) => $items[$k], $keys);
         }
 
         uksort($groups, fn ($a, $b) => ($order[$a] ?? 9999) <=> ($order[$b] ?? 9999));
@@ -329,13 +343,15 @@ class LearnerCoursePlayerService
 
     /** A quiz only qualifies for the rich learner flow once it has rich-authored questions. */
     /**
-     * For each module, the first session of the learner's cohort that covers
-     * it: its title and its 1-based number in the cohort's schedule. Empty
-     * when the learner has no cohort on this course.
+     * For each module, quiz and assignment ("lecture:12", "quiz:5",
+     * "assignment:3"), the first session of the learner's cohort that covers
+     * it: its title, its 1-based number in the cohort's schedule and the
+     * item's position in that session. Empty when the learner has no cohort
+     * on this course.
      *
-     * @return array<int, array{title: string, number: int}>
+     * @return array<string, array{title: string, number: int, position: int}>
      */
-    private function firstSessionByLecture(User $user, Course $course): array
+    private function firstSessionByItem(User $user, Course $course): array
     {
         $cohortId = DB::table('users_courses')
             ->where('user_id', $user->id)
@@ -358,18 +374,34 @@ class LearnerCoursePlayerService
         $titles  = $sessions->mapWithKeys(fn ($s) => [(int) $s->id => (string) $s->title])->all();
 
         $out = [];
-        $links = DB::table('course_session_lectures')
-            ->whereIn('session_id', array_keys($numbers))
-            ->get(['session_id', 'lecture_id']);
-        foreach ($links as $link) {
-            $n = $numbers[(int) $link->session_id];
-            $lectureId = (int) $link->lecture_id;
-            if (! isset($out[$lectureId]) || $n < $out[$lectureId]['number']) {
-                $out[$lectureId] = ['title' => $titles[(int) $link->session_id], 'number' => $n];
+        foreach (\App\Support\SessionContent::itemsBySession(array_keys($numbers)) as $sessionId => $items) {
+            $n = $numbers[$sessionId];
+            foreach ($items as $item) {
+                $key = $item['kind'].':'.$item['id'];
+                if (! isset($out[$key]) || $n < $out[$key]['number']) {
+                    $out[$key] = ['title' => $titles[$sessionId], 'number' => $n, 'position' => $item['position']];
+                }
             }
         }
 
         return $out;
+    }
+
+    /**
+     * The sidebar heading of a session's group (human, 2026-10-15; Figma
+     * 913:47084): "Week N" / "الأسبوع N" by the session's place in the
+     * schedule, then ": <title>" when an admin typed one ("Week 3: Delivering
+     * Excellence"). Generated "Session N" / live-session titles add nothing.
+     */
+    private function weekLabel(?string $title, int $number, string $locale): string
+    {
+        $week = __('messages.course_player.week', ['number' => $number], $locale);
+        $title = trim((string) $title);
+        if ($title === '' || \App\Support\SessionTitle::isGenerated($title)) {
+            return $week;
+        }
+
+        return $week.': '.$title;
     }
 
     /**

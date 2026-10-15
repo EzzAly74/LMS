@@ -18,6 +18,9 @@ class CourseAssignment extends Model
     /** The cohorts chosen when cohort_scope is "specific" (NEW2B-6255). */
     public const COHORT_PIVOT = ['course_assignment_cohorts', 'course_assignment_id'];
 
+    /** Sessions that list this assignment in the schedule sheet (D-109). */
+    public const SESSION_PIVOT = ['course_session_assignments', 'assignment_id'];
+
     /**
      * What a learner may see: published (not a draft) and with questions.
      * Legacy rows without a status count as published.

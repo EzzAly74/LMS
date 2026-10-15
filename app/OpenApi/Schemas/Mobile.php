@@ -30,6 +30,11 @@ use OpenApi\Annotations as OA;
  *     @OA\Property(property="time_to", type="string", example="11:30:00", nullable=true),
  *     @OA\Property(property="location", type="string", nullable=true, example="Hybrid · HQ Auditorium"),
  *     @OA\Property(property="content_ids", type="array", @OA\Items(type="integer"), description="Ids of `units` this session covers (cohort schedule sheet)."),
+ *     @OA\Property(property="contents", type="array", description="Everything this session covers in sheet order, quizzes and assignments included; `key` matches `content[].key`.",
+ *         @OA\Items(type="object",
+ *             @OA\Property(property="kind", type="string", enum={"lecture","quiz","assignment"}),
+ *             @OA\Property(property="id", type="integer"),
+ *             @OA\Property(property="key", type="string", example="quiz-5"))),
  *     @OA\Property(property="duration_minutes", type="integer", nullable=true, example=150),
  *     @OA\Property(property="status", type="string", enum={"completed","upcoming"}, nullable=true)
  * )

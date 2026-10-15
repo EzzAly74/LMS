@@ -32,6 +32,55 @@ class CourseLectureService
         return $course->lectures()->orderBy('id')->get();
     }
 
+    /**
+     * The course "Content" tab (Figma 342:11813, D-109): modules, quizzes and
+     * assignments in one numbered list, in the order they were added, each
+     * with the code the schedule sheet takes. Drafts are included (admins
+     * see them; learners never get this list).
+     *
+     * @return list<array{kind: string, id: int, code: int|string, title: string, content_type: ?string, duration_minutes: ?int, status: ?string, due_date: ?string, at: string}>
+     */
+    public function contentForCourse(Course $course): array
+    {
+        $locale = app()->getLocale();
+        $items = [];
+
+        foreach ($course->lectures()->orderBy('id')->get(['id', 'title', 'content_type', 'duration_minutes', 'created_at']) as $m) {
+            $items[] = [
+                'kind' => 'lecture', 'id' => (int) $m->id, 'code' => \App\Support\SessionContent::token('lecture', (int) $m->id),
+                'title' => (string) $m->getTranslation('title', $locale),
+                'content_type' => $m->content_type, 'duration_minutes' => $m->duration_minutes !== null ? (int) $m->duration_minutes : null,
+                'status' => null, 'due_date' => null, 'at' => (string) $m->created_at,
+            ];
+        }
+        foreach (\App\Models\CourseExam::query()->where('course_id', $course->id)->orderBy('id')
+            ->get(['id', 'title', 'title_ar', 'duration', 'status', 'due_date', 'created_at']) as $q) {
+            $title = (string) $q->getTranslation('title', $locale);
+            $items[] = [
+                'kind' => 'quiz', 'id' => (int) $q->id, 'code' => \App\Support\SessionContent::token('quiz', (int) $q->id),
+                'title' => $locale === 'ar' && trim((string) $q->title_ar) !== '' ? (string) $q->title_ar : $title,
+                'content_type' => null, 'duration_minutes' => $q->duration !== null ? (int) $q->duration : null,
+                'status' => $q->status, 'due_date' => $q->due_date !== null ? substr((string) $q->due_date, 0, 10) : null,
+                'at' => (string) $q->created_at,
+            ];
+        }
+        foreach (\App\Models\CourseAssignment::query()->where('course_id', $course->id)->orderBy('id')
+            ->get(['id', 'title', 'title_ar', 'status', 'due_date', 'created_at']) as $a) {
+            $items[] = [
+                'kind' => 'assignment', 'id' => (int) $a->id, 'code' => \App\Support\SessionContent::token('assignment', (int) $a->id),
+                'title' => $a->localizedTitle($locale),
+                'content_type' => null, 'duration_minutes' => null,
+                'status' => $a->status, 'due_date' => $a->due_date !== null ? substr((string) $a->due_date, 0, 10) : null,
+                'at' => (string) $a->created_at,
+            ];
+        }
+
+        $rank = ['lecture' => 0, 'quiz' => 1, 'assignment' => 2];
+        usort($items, fn ($x, $y) => [$x['at'], $rank[$x['kind']], $x['id']] <=> [$y['at'], $rank[$y['kind']], $y['id']]);
+
+        return $items;
+    }
+
     public function create(Course $course, array $data): CourseLecture
     {
         $data = $this->prepare($data, $course);

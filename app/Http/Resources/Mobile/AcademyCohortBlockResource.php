@@ -85,10 +85,31 @@ class AcademyCohortBlockResource extends JsonResource
                     'content_ids'  => $s->relationLoaded('lectures')
                         ? $s->lectures->map(fn ($l) => (int) $l->id)->values()
                         : [],
+                    // Everything the session covers in sheet order, quizzes
+                    // and assignments included (D-109); `key` is the key of
+                    // the course's `content` item.
+                    'contents'     => $this->contents($s),
                     ...$this->sessionTiming($s->session_date, $s->time_from, $s->time_to, $now),
                 ])->values()
                 : [],
         ];
+    }
+
+    /** @return list<array{kind: string, id: int, key: string}> */
+    private function contents(mixed $session): array
+    {
+        $items = [];
+        foreach (['lecture' => 'lectures', 'quiz' => 'exams', 'assignment' => 'assignments'] as $kind => $relation) {
+            if (! $session->relationLoaded($relation)) {
+                continue;
+            }
+            foreach ($session->{$relation} as $row) {
+                $items[] = ['kind' => $kind, 'id' => (int) $row->id, 'key' => $kind.'-'.(int) $row->id, 'p' => (int) ($row->pivot->position ?? 0)];
+            }
+        }
+        usort($items, fn ($a, $b) => $a['p'] <=> $b['p']);
+
+        return array_map(fn ($i) => ['kind' => $i['kind'], 'id' => $i['id'], 'key' => $i['key']], $items);
     }
 
     private function sessionTiming(mixed $date, ?string $from, ?string $to, Carbon $now): array

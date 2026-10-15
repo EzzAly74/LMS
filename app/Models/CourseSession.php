@@ -54,4 +54,20 @@ class CourseSession extends Model
             ->withPivot('position')
             ->orderBy('course_session_lectures.position');
     }
+
+    /** The quizzes this session covers (schedule sheet "content" column, D-109). */
+    public function exams()
+    {
+        return $this->belongsToMany(CourseExam::class, 'course_session_exams', 'session_id', 'exam_id')
+            ->withPivot('position')
+            ->orderBy('course_session_exams.position');
+    }
+
+    /** The assignments this session covers (schedule sheet "content" column, D-109). */
+    public function assignments()
+    {
+        return $this->belongsToMany(CourseAssignment::class, 'course_session_assignments', 'session_id', 'assignment_id')
+            ->withPivot('position')
+            ->orderBy('course_session_assignments.position');
+    }
 }

@@ -3,8 +3,8 @@
 namespace App\Services;
 
 use App\Models\Course;
-use App\Models\CourseLecture;
 use App\Models\CourseSection;
+use App\Support\SessionContent;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -16,9 +16,10 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
  *
  * The admin downloads CohortScheduleTemplateExport, fills one row per session
  * (date, start, end, optional location) and uploads it with the cohort's name
- * and capacity. A row may also list, in its "content" column, the IDs of the
- * course modules that session covers (D-079); they must be modules of this
- * course. Every row is checked before anything is written; any problem
+ * and capacity. A row may also list, in its "content" column, what that
+ * session covers (D-079): the numbers of the course's Content tab, modules,
+ * quizzes and assignments alike (D-109, NEW2B-6358; Q<id> / A<id> codes are
+ * also read). Every row is checked before anything is written; any problem
  * returns the full list and creates nothing, like the other importers. On
  * success the cohort and its sessions are created in one transaction, the
  * cohort's dates, session count and average length are taken from the rows,
@@ -34,7 +35,7 @@ class CohortScheduleImportService
 
     private const MAX_LOCATION = 191;
 
-    /** Most modules one session may list in its content cell. */
+    /** Most items (modules, quizzes, assignments) one session may list in its content cell. */
     public const MAX_CONTENT = 50;
 
     public function __construct(
@@ -239,7 +240,7 @@ class CohortScheduleImportService
                 DB::table('course_sessions')->where('id', $id)->update(['location' => $location, 'updated_at' => $stamp]);
             }
             foreach ($relinked as $id => $content) {
-                DB::table('course_session_lectures')->where('session_id', $id)->delete();
+                SessionContent::unlink($id);
                 $this->link($id, $content);
             }
             foreach ($new as $s) {
@@ -301,7 +302,7 @@ class CohortScheduleImportService
      * "Download Schedule Template" when editing: the cohort's sessions as they
      * are, so the admin adds rows to them (or uploads only new rows).
      *
-     * @return list<array{date: string, from: ?string, to: ?string, location: ?string, content: list<int>}>
+     * @return list<array{date: string, from: ?string, to: ?string, location: ?string, content: list<int|string>}>
      */
     public function scheduleRows(CourseSection $section): array
     {
@@ -310,6 +311,11 @@ class CohortScheduleImportService
             ->orderBy('session_date')->orderBy('time_from')->orderBy('id')
             ->get(['id', 'session_date', 'time_from', 'time_to', 'location']);
         $linked = $this->contentBySession($sessions->pluck('id')->map(fn ($id) => (int) $id)->all());
+        // Written back as Content-tab numbers, what the admin typed.
+        $numberOf = [];
+        foreach ($this->numbering($section->course) as $number => $item) {
+            $numberOf[(string) $item['token']] = $number;
+        }
 
         return $sessions
             ->map(fn ($s) => [
@@ -317,67 +323,78 @@ class CohortScheduleImportService
                 'from'     => $s->time_from !== null ? substr((string) $s->time_from, 0, 5) : null,
                 'to'       => $s->time_to !== null ? substr((string) $s->time_to, 0, 5) : null,
                 'location' => $s->location,
-                'content'  => $linked[(int) $s->id] ?? [],
+                'content'  => array_map(fn ($t) => $numberOf[(string) $t] ?? $t, $linked[(int) $s->id] ?? []),
             ])
             ->all();
     }
 
     /**
-     * The template's modules sheet: every module of the course, for the
-     * "content" column.
+     * The template's modules sheet: the course's Content tab as it is - every
+     * module, quiz and assignment with its number there (Figma 342:11813), the
+     * number the "content" column takes (D-109, human 2026-10-15).
      *
-     * @return list<array{id: int, en: string, ar: string}>
+     * @return list<array{id: int, en: string, ar: string, type: string, code: string}>
      */
     public function moduleRows(Course $course): array
     {
-        return CourseLecture::query()
-            ->where('course_id', $course->id)
-            ->orderBy('id')
-            ->get(['id', 'title'])
-            ->map(fn (CourseLecture $m) => [
-                'id' => (int) $m->id,
-                'en' => (string) $m->getTranslation('title', 'en', false),
-                'ar' => (string) $m->getTranslation('title', 'ar', false),
-            ])
-            ->all();
+        $rows = [];
+        foreach ($this->numbering($course) as $number => $item) {
+            $rows[] = [
+                'id' => $number,
+                'en' => $item['en'],
+                'ar' => $item['ar'],
+                'type' => $item['kind'] === 'lecture' ? 'module' : $item['kind'],
+                'code' => (string) $item['token'],
+            ];
+        }
+
+        return $rows;
     }
 
     /**
-     * Module IDs linked to each session, in sheet order.
+     * The course's content in Content-tab order (CourseLectureService, the one
+     * order rule), numbered from 1: number => item.
      *
-     * @param  list<int>  $sessionIds
-     * @return array<int, list<int>>
+     * @return array<int, array{kind: string, token: int|string, en: string, ar: string}>
      */
-    private function contentBySession(array $sessionIds): array
+    private function numbering(Course $course): array
     {
-        if ($sessionIds === []) {
-            return [];
-        }
+        $lectures = app(CourseLectureService::class);
+        $en = app()->getLocale();
+        app()->setLocale('en');
+        $english = $lectures->contentForCourse($course);
+        app()->setLocale('ar');
+        $arabic = collect($lectures->contentForCourse($course))->keyBy(fn ($i) => $i['kind'].':'.$i['id']);
+        app()->setLocale($en);
 
-        $out  = [];
-        $rows = DB::table('course_session_lectures')
-            ->whereIn('session_id', $sessionIds)
-            ->orderBy('position')
-            ->get(['session_id', 'lecture_id']);
-        foreach ($rows as $row) {
-            $out[(int) $row->session_id][] = (int) $row->lecture_id;
+        $out = [];
+        foreach (array_values($english) as $i => $item) {
+            $out[$i + 1] = [
+                'kind' => $item['kind'],
+                'token' => $item['code'],
+                'en' => (string) $item['title'],
+                'ar' => (string) ($arabic->get($item['kind'].':'.$item['id'])['title'] ?? ''),
+            ];
         }
 
         return $out;
     }
 
-    /** @param  list<int>  $content */
+    /**
+     * What each session covers, in sheet order, as sheet codes.
+     *
+     * @param  list<int>  $sessionIds
+     * @return array<int, list<int|string>>
+     */
+    private function contentBySession(array $sessionIds): array
+    {
+        return SessionContent::tokensBySession($sessionIds);
+    }
+
+    /** @param  list<int|string>  $content */
     private function link(int $sessionId, array $content): void
     {
-        if ($content === []) {
-            return;
-        }
-
-        DB::table('course_session_lectures')->insert(array_map(
-            static fn (int $lectureId, int $i) => ['session_id' => $sessionId, 'lecture_id' => $lectureId, 'position' => $i + 1],
-            $content,
-            array_keys($content),
-        ));
+        SessionContent::link($sessionId, $content);
     }
 
     /**
@@ -471,7 +488,10 @@ class CohortScheduleImportService
         }
 
         $index   = array_flip($header);
-        $modules = array_flip(CourseLecture::query()->where('course_id', $course->id)->pluck('id')->map(fn ($id) => (int) $id)->all());
+        // What a content cell may name: a number of this course's Content tab,
+        // or a Q<id> / A<id> code of one of its quizzes / assignments.
+        $byNumber = array_map(fn (array $i) => $i['token'], $this->numbering($course));
+        $known = array_flip(array_map('strval', $byNumber));
         $cell  = static fn (array $row, string $col): mixed => array_key_exists($col, $index) ? ($row[$index[$col]] ?? null) : null;
 
         $errors   = [];
@@ -511,10 +531,20 @@ class CohortScheduleImportService
             } elseif (count($content) > self::MAX_CONTENT) {
                 $errors[] = [$line, 'content', __('messages.schedule_content_too_many', ['max' => self::MAX_CONTENT])];
             } else {
-                $unknown = array_values(array_filter($content, static fn (int $id) => ! isset($modules[$id])));
-                if ($unknown !== []) {
-                    $errors[] = [$line, 'content', __('messages.schedule_content_unknown', ['ids' => implode(', ', $unknown)])];
+                $unknown = [];
+                $resolved = [];
+                foreach ($content as $ref) {
+                    $token = is_int($ref) ? ($byNumber[$ref] ?? null) : (isset($known[$ref]) ? $ref : null);
+                    if ($token === null) {
+                        $unknown[] = $ref;
+                    } else {
+                        $resolved[(string) $token] = $token;
+                    }
                 }
+                if ($unknown !== []) {
+                    $errors[] = [$line, 'content', __('messages.schedule_content_unknown', ['ids' => implode(', ', $unknown), 'max' => count($byNumber)])];
+                }
+                $content = array_values($resolved);
             }
 
             if ($date === null || $from === null || $to === null || $content === null) {
@@ -576,11 +606,12 @@ class CohortScheduleImportService
     }
 
     /**
-     * The content cell: module IDs separated by commas (also the Arabic comma,
-     * semicolons or spaces), duplicates dropped, order kept. An empty cell is
-     * no content; null when it is not a list of whole numbers.
+     * The content cell: Content-tab numbers (ints), or Q<id> / A<id> codes
+     * (D-109), separated by commas (also the Arabic comma, semicolons or
+     * spaces), duplicates dropped, order kept. An empty cell is no content;
+     * null when a token is none of those.
      *
-     * @return list<int>|null
+     * @return list<int|string>|null
      */
     private function content(mixed $value): ?array
     {
@@ -596,15 +627,18 @@ class CohortScheduleImportService
             return [];
         }
 
-        $ids = [];
-        foreach (preg_split('/[\s,;\x{060C}]+/u', $text, -1, PREG_SPLIT_NO_EMPTY) as $token) {
-            if (! preg_match('/^\d{1,9}$/', $token) || (int) $token < 1) {
+        $tokens = [];
+        foreach (preg_split('/[\s,;\x{060C}]+/u', $text, -1, PREG_SPLIT_NO_EMPTY) as $raw) {
+            $item = SessionContent::parse($raw);
+            if ($item === null) {
                 return null;
             }
-            $ids[(int) $token] = true;
+            // A bare number is the Content-tab number; Q / A codes name a quiz / assignment.
+            $token = $item[0] === 'lecture' ? $item[1] : SessionContent::token($item[0], $item[1]);
+            $tokens[(string) $token] = $token;
         }
 
-        return array_keys($ids);
+        return array_values($tokens);
     }
 
     /** HH:MM (24-hour) text, or an Excel time fraction, to H:i:s; null otherwise. */

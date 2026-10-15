@@ -106,26 +106,27 @@ class CohortScheduleContentTest extends ApiTestCase
         $sheets   = Excel::toArray(null, $response->baseResponse->getFile()->getPathname(), null, \Maatwebsite\Excel\Excel::XLSX);
 
         $this->assertSame(self::HEADER, $sheets[0][0]);
-        $this->assertSame(['module_id', 'title_en', 'title_ar'], $sheets[1][0]);
+        // D-109: the Content tab's numbers, and the type of each item.
+        $this->assertSame(['number', 'title_en', 'title_ar', 'type'], $sheets[1][0]);
         $this->assertSame([
-            [$modules[0]->id, 'Module 1', 'المحتوى 1'],
-            [$modules[1]->id, 'Module 2', 'المحتوى 2'],
-        ], array_map(fn ($r) => [(int) $r[0], $r[1], $r[2]], array_slice($sheets[1], 1)));
-        $this->assertNotContains($foreign[0]->id, array_map(fn ($r) => (int) $r[0], array_slice($sheets[1], 1)));
+            [1, 'Module 1', 'المحتوى 1', 'module'],
+            [2, 'Module 2', 'المحتوى 2', 'module'],
+        ], array_map(fn ($r) => [(int) $r[0], $r[1], $r[2], $r[3]], array_slice($sheets[1], 1)));
+        $this->assertCount(2, array_slice($sheets[1], 1), 'only this course\'s content');
     }
 
     public function test_the_edit_template_carries_each_sessions_content(): void
     {
         [$course, $m] = $this->courseWithModules();
         $id = $this->create($course, $this->xlsx([
-            [1, '2026-10-20', '09:00', '11:00', '', "{$m[2]->id}, {$m[0]->id}"],
+            [1, '2026-10-20', '09:00', '11:00', '', "3, 1"],
             [2, '2026-10-27', '09:00', '11:00', '', ''],
         ]))->assertCreated()->json('result.id');
 
         $response = $this->get(self::BASE."/courses/{$course->id}/sections/{$id}/schedule-template", $this->headers)->assertOk();
         $rows     = Excel::toArray(null, $response->baseResponse->getFile()->getPathname(), null, \Maatwebsite\Excel\Excel::XLSX)[0];
 
-        $this->assertSame("{$m[2]->id}, {$m[0]->id}", (string) $rows[1][5]);
+        $this->assertSame('3, 1', (string) $rows[1][5]); // Content-tab numbers (D-109)
         $this->assertSame('', (string) $rows[2][5]);
     }
 
@@ -137,9 +138,9 @@ class CohortScheduleContentTest extends ApiTestCase
 
         $id = $this->create($course, $this->xlsx([
             // Arabic comma, semicolon and a repeat are all accepted.
-            [1, '2026-10-20', '09:00', '11:00', '', "{$m[1]->id}، {$m[0]->id}; {$m[1]->id}"],
+            [1, '2026-10-20', '09:00', '11:00', '', "2، 1; 2"],
             [2, '2026-10-27', '09:00', '11:00', '', ''],
-            [3, '2026-11-03', '09:00', '11:00', '', $m[2]->id], // a plain number cell
+            [3, '2026-11-03', '09:00', '11:00', '', 3], // a plain number cell
         ]))->assertCreated()->json('result.id');
 
         $this->assertSame([
@@ -167,13 +168,13 @@ class CohortScheduleContentTest extends ApiTestCase
         [, $foreign]   = $this->courseWithModules(1);
 
         $report = $this->create($course, $this->xlsx([
-            [1, '2026-10-20', '09:00', '11:00', '', "{$m[0]->id}, {$foreign[0]->id}"],
+            [1, '2026-10-20', '09:00', '11:00', '', "1, 99"],
             [2, '2026-10-27', '09:00', '11:00', '', 'Module 1'],
             [3, '2026-11-03', '09:00', '11:00', '', implode(',', range(1, 51))],
         ]))->assertUnprocessable()->json('report.errors');
 
         $this->assertSame([[2, 'content'], [3, 'content'], [4, 'content']], array_map(fn ($e) => [$e['row'], $e['column']], $report));
-        $this->assertStringContainsString((string) $foreign[0]->id, $report[0]['message']);
+        $this->assertStringContainsString('99', $report[0]['message']);
         $this->assertSame(0, CourseSection::query()->where('course_id', $course->id)->where('name->en', 'Cohort A')->count());
         $this->assertSame(0, DB::table('course_session_lectures')->count());
     }
@@ -184,15 +185,15 @@ class CohortScheduleContentTest extends ApiTestCase
     {
         [$course, $m] = $this->courseWithModules();
         $id = $this->create($course, $this->xlsx([
-            [1, '2026-10-01', '09:00', '11:00', '', $m[0]->id], // already held on 10 Oct
-            [2, '2026-10-20', '09:00', '11:00', '', $m[1]->id],
+            [1, '2026-10-01', '09:00', '11:00', '', 1], // already held on 10 Oct
+            [2, '2026-10-20', '09:00', '11:00', '', 2],
         ]))->assertCreated()->json('result.id');
         $section = CourseSection::query()->findOrFail($id);
 
         $result = $this->edit($course, $section, $this->xlsx([
-            [1, '2026-10-01', '09:00', '11:00', '', "{$m[0]->id}, {$m[2]->id}"],
+            [1, '2026-10-01', '09:00', '11:00', '', "1, 3"],
             [2, '2026-10-20', '09:00', '11:00', '', ''],
-            [3, '2026-10-27', '09:00', '11:00', '', $m[1]->id],
+            [3, '2026-10-27', '09:00', '11:00', '', 2],
         ]))->assertOk()->json('result');
 
         $this->assertSame(1, $result['sessions_added']);
@@ -207,7 +208,7 @@ class CohortScheduleContentTest extends ApiTestCase
     public function test_an_unchanged_sheet_is_still_nothing_new(): void
     {
         [$course, $m] = $this->courseWithModules(1);
-        $rows = [[1, '2026-10-20', '09:00', '11:00', '', $m[0]->id]];
+        $rows = [[1, '2026-10-20', '09:00', '11:00', '', 1]];
         $id   = $this->create($course, $this->xlsx($rows))->assertCreated()->json('result.id');
 
         $this->edit($course, CourseSection::query()->findOrFail($id), $this->xlsx($rows))->assertUnprocessable();
@@ -216,7 +217,7 @@ class CohortScheduleContentTest extends ApiTestCase
     public function test_deleting_a_module_removes_it_from_the_schedule(): void
     {
         [$course, $m] = $this->courseWithModules(2);
-        $id = $this->create($course, $this->xlsx([[1, '2026-10-20', '09:00', '11:00', '', "{$m[0]->id}, {$m[1]->id}"]]))
+        $id = $this->create($course, $this->xlsx([[1, '2026-10-20', '09:00', '11:00', '', "1, 2"]]))
             ->assertCreated()->json('result.id');
 
         $this->deleteJson(self::BASE."/courses/{$course->id}/lectures/{$m[0]->id}", [], $this->headers)->assertSuccessful();
@@ -254,7 +255,7 @@ class CohortScheduleContentTest extends ApiTestCase
     {
         [$course, $m] = $this->courseWithModules(2);
         $id = $this->create($course, $this->xlsx([
-            [1, '2026-10-20', '09:00', '11:00', '', "{$m[1]->id}, {$m[0]->id}"],
+            [1, '2026-10-20', '09:00', '11:00', '', "2, 1"],
             [2, '2026-10-27', '09:00', '11:00', '', ''],
         ]))->assertCreated()->json('result.id');
 
@@ -271,8 +272,8 @@ class CohortScheduleContentTest extends ApiTestCase
     {
         [$course, $m] = $this->courseWithModules();
         $id = $this->create($course, $this->xlsx([
-            [1, '2026-10-20', '09:00', '11:00', '', $m[1]->id],
-            [2, '2026-10-27', '09:00', '11:00', '', "{$m[0]->id}, {$m[1]->id}"],
+            [1, '2026-10-20', '09:00', '11:00', '', 2],
+            [2, '2026-10-27', '09:00', '11:00', '', "1, 2"],
         ]))->assertCreated()->json('result.id');
 
         $user = User::factory()->create();
@@ -290,8 +291,9 @@ class CohortScheduleContentTest extends ApiTestCase
         $this->assertSame([$m[1]->id], $lectures[0]['ids']);
         $this->assertSame([$m[0]->id], $lectures[1]['ids']);
         $this->assertCount(2, $lectures);
-        $this->assertSame('Session 1', $lectures[0]['label']);
-        $this->assertSame('Session 2', $lectures[1]['label']);
+        // The player calls them weeks (human, 2026-10-15).
+        $this->assertSame('Week 1', $lectures[0]['label']);
+        $this->assertSame('Week 2', $lectures[1]['label']);
     }
 
     // ─────────────────────────────────────────── required modules (D-089)
@@ -311,8 +313,8 @@ class CohortScheduleContentTest extends ApiTestCase
         [$course, $m] = $this->courseWithModules();
         DB::table('courses')->where('id', $course->id)->update(['is_evaluate' => false]);
         $id = $this->create($course, $this->xlsx([
-            [1, '2026-10-20', '09:00', '11:00', '', $m[0]->id],
-            [2, '2026-10-27', '09:00', '11:00', '', $m[1]->id],
+            [1, '2026-10-20', '09:00', '11:00', '', 1],
+            [2, '2026-10-27', '09:00', '11:00', '', 2],
         ]))->assertCreated()->json('result.id');
         $headers = $this->learnerIn($course, $id);
         $userId = (int) $headers['user_id'];
@@ -358,8 +360,8 @@ class CohortScheduleContentTest extends ApiTestCase
     {
         [$course, $m] = $this->courseWithModules();
         $id = $this->create($course, $this->xlsx([
-            [1, '2026-10-20', '09:00', '11:00', '', $m[0]->id],
-            [2, '2026-10-27', '09:00', '11:00', '', $m[1]->id],
+            [1, '2026-10-20', '09:00', '11:00', '', 1],
+            [2, '2026-10-27', '09:00', '11:00', '', 2],
         ]))->assertCreated()->json('result.id');
 
         // An Arabic admin added the second session, and an old run left it
@@ -374,8 +376,14 @@ class CohortScheduleContentTest extends ApiTestCase
 
         $en = collect($this->getJson($url, $learner + ['Accept-Language' => 'en'])->assertOk()->json('result.weeks'))->pluck('label')->all();
         $ar = collect($this->getJson($url, $learner + ['Accept-Language' => 'ar'])->assertOk()->json('result.weeks'))->pluck('label')->all();
-        $this->assertSame(['Session 1', 'Session 2'], array_slice($en, 0, 2));
-        $this->assertSame(['الجلسة 1', 'الجلسة 2'], array_slice($ar, 0, 2));
+        // The player heads each session "Week N" by its schedule place (human, 2026-10-15).
+        $this->assertSame(['Week 1', 'Week 2'], array_slice($en, 0, 2));
+        $this->assertSame(['الأسبوع 1', 'الأسبوع 2'], array_slice($ar, 0, 2));
+
+        // A title an admin typed follows the week number (Figma 913:47084).
+        DB::table('course_sessions')->where('id', $second)->update(['title' => 'Delivering Excellence']);
+        $en = collect($this->getJson($url, $learner + ['Accept-Language' => 'en'])->json('result.weeks'))->pluck('label')->all();
+        $this->assertSame('Week 2: Delivering Excellence', $en[1]);
 
         // A title an admin typed is kept as it is.
         $this->assertSame('Kick-off', \App\Support\SessionTitle::localize('Kick-off', 3, 'ar'));

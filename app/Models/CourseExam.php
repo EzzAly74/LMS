@@ -18,6 +18,9 @@ class CourseExam extends Model
     /** The cohorts chosen when cohort_scope is "specific" (NEW2B-6255). */
     public const COHORT_PIVOT = ['course_exam_cohorts', 'course_exam_id'];
 
+    /** Sessions that list this quiz in the schedule sheet (D-109). */
+    public const SESSION_PIVOT = ['course_session_exams', 'exam_id'];
+
     /**
      * What a learner may see: published (a draft is the admin's work in
      * progress) and built with the question editor. Legacy rows without a

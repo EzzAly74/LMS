@@ -29,6 +29,9 @@ Route::middleware(['auth.user', 'course.scope'])->group(function () {
 
 Route::middleware(['auth.user', 'role:Admin', 'section:courses'])->group(function () {
 
+    // Content tab: modules, quizzes and assignments as one list (D-109, Figma 342:11813).
+    Route::get('courses/{course}/content', [CourseLectureController::class, 'contentList']);
+
     // Sections — write
     Route::post('courses/{course}/sections',               [CourseSectionController::class, 'store'])->ability('edit');
     Route::post('courses/{course}/sections/sync',          [CourseSectionController::class, 'sync'])->ability('edit');

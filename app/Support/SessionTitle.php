@@ -22,6 +22,25 @@ final class SessionTitle
 
     private const LOCALES = ['en', 'ar'];
 
+    /** Whether $title is one of the generated titles (in any language), not one an admin typed. */
+    public static function isGenerated(string $title): bool
+    {
+        foreach (self::GENERATED as $key => [$name, $pattern]) {
+            foreach (self::LOCALES as $from) {
+                $template = trans($key, [], $from);
+                if (! is_string($template) || ! str_contains($template, ':'.$name)) {
+                    continue;
+                }
+                $regex = '/^'.str_replace(preg_quote(':'.$name, '/'), '('.$pattern.')', preg_quote($template, '/')).'$/u';
+                if (preg_match($regex, trim($title)) === 1) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @param  int|null  $number  the session's place in its cohort's schedule;
      *                            when given it replaces the number in a

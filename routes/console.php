@@ -22,3 +22,5 @@ Schedule::command('cohorts:sync-statuses')->dailyAt('00:05');
 Schedule::command('cohorts:notify-interests')->dailyAt('00:15');
 // Module uploads started but never completed (D-111).
 Schedule::command('uploads:prune-chunks')->dailyAt('03:30');
+// AI question generations older than 90 days (D-113; AiGeneration::prunable).
+Schedule::command('model:prune', ['--model' => [\App\Models\AiGeneration::class]])->dailyAt('03:45');

@@ -49,7 +49,6 @@ final class AdminSections
         'learners'          => ['group' => 'Learning Operation', 'en' => 'Learners', 'ar' => 'المتعلمون', 'actions' => [self::VIEW], 'catalog' => true],
         'external-training' => ['group' => 'Learning Operation', 'en' => 'External Courses', 'ar' => 'الدورات الخارجية', 'actions' => [self::VIEW, self::EDIT], 'catalog' => true],
         'resources'         => ['group' => 'Learning Operation', 'en' => 'Blogs', 'ar' => 'المدونات', 'actions' => self::CRUD, 'catalog' => true],
-        'ai-assessments'    => ['group' => 'Learning Operation', 'en' => 'AI Assessments', 'ar' => 'التقييمات بالذكاء الاصطناعي', 'actions' => self::CRUD, 'catalog' => true],
 
         // Manage Competency
         'job-titles'        => ['group' => 'Manage Competency', 'en' => 'Job Titles', 'ar' => 'المسميات الوظيفية', 'actions' => [self::VIEW, self::EDIT], 'catalog' => true],

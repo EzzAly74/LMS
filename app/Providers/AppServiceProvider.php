@@ -109,8 +109,8 @@ class AppServiceProvider extends ServiceProvider
         // Per request: caches the signed-in account's course ids (D-074).
         $this->app->scoped(\App\Services\Admin\CourseScope::class);
 
-        // The AI Assessment builder's provider (D-113, H1: Gemini).
-        $this->app->bind(\App\AiAssessments\Ai\QuestionGenerator::class, \App\AiAssessments\Ai\GeminiGenerator::class);
+        // AI question generation for quizzes and assignments (D-113, H1: Gemini).
+        $this->app->bind(\App\AiQuestions\Ai\QuestionGenerator::class, \App\AiQuestions\Ai\GeminiGenerator::class);
 
         \Illuminate\Routing\Route::macro('ability', function (string $ability) {
             /** @var \Illuminate\Routing\Route $this */

@@ -54,9 +54,13 @@ final class PromptBuilder
     public function request(GenerationRequest $request): string
     {
         $a = $request->assessment;
+        $plan = [];
+        foreach ($request->counts as $type => $count) {
+            $plan[] = "- exactly {$count} with \"type\": \"{$type}\": ".self::TYPE_GUIDE[$type];
+        }
         $lines = [
-            'Write '.$request->count.' question(s) for '.self::PURPOSE[$a->type],
-            'Question type: '.self::TYPE_GUIDE[$request->type],
+            'Write '.$request->total().' question(s) for '.self::PURPOSE[$a->type],
+            "Questions by type (set each question's \"type\" field accordingly, and fill only the fields of that type):\n".implode("\n", $plan),
             'Difficulty: '.($a->difficulty === 'mixed' ? 'a mix of easy, medium and hard' : $a->difficulty).'.',
         ];
 
@@ -87,42 +91,45 @@ final class PromptBuilder
     }
 
     /**
-     * The JSON schema Gemini must answer in (OpenAPI subset), per type.
+     * The JSON schema Gemini must answer in (OpenAPI subset): one question
+     * object with a `type` limited to the requested types, the common fields
+     * required, and only the type-specific fields of those types (optional;
+     * QuestionNormalizer enforces each type's shape).
      *
+     * @param  list<string>  $types
      * @return array<string, mixed>
      */
-    public function schema(string $type): array
+    public function schema(array $types): array
     {
         $string = ['type' => 'STRING'];
         $properties = [
+            'type'        => ['type' => 'STRING', 'enum' => array_values($types)],
             'prompt'      => $string,
             'explanation' => $string,
             'source_ref'  => $string,
             'bloom'       => ['type' => 'STRING', 'enum' => QuestionType::BLOOM],
             'difficulty'  => ['type' => 'STRING', 'enum' => QuestionType::DIFFICULTIES],
         ];
-        $required = ['prompt', 'explanation', 'source_ref', 'bloom', 'difficulty'];
 
-        if (QuestionType::usesIndexes($type)) {
-            $properties['options'] = ['type' => 'ARRAY', 'items' => $string];
-            $properties['correct_indexes'] = ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']];
-            array_push($required, 'options', 'correct_indexes');
+        foreach ($types as $type) {
+            if (QuestionType::usesIndexes($type)) {
+                $properties['options'] = ['type' => 'ARRAY', 'items' => $string];
+                $properties['correct_indexes'] = ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']];
+            }
+            $properties += match ($type) {
+                QuestionType::SCENARIO   => ['context' => $string],
+                QuestionType::TRUE_FALSE => ['correct' => ['type' => 'BOOLEAN']],
+                QuestionType::SHORT      => ['model_answer' => $string],
+                QuestionType::FILL_BLANK => ['blank_answers' => ['type' => 'ARRAY', 'items' => $string]],
+                QuestionType::MATCHING   => ['pairs' => ['type' => 'ARRAY', 'items' => [
+                    'type' => 'OBJECT',
+                    'properties' => ['left' => $string, 'right' => $string],
+                    'required' => ['left', 'right'],
+                ]]],
+                default => [],
+            };
         }
-
-        $extra = match ($type) {
-            QuestionType::SCENARIO   => ['context' => $string],
-            QuestionType::TRUE_FALSE => ['correct' => ['type' => 'BOOLEAN']],
-            QuestionType::SHORT      => ['model_answer' => $string],
-            QuestionType::FILL_BLANK => ['blank_answers' => ['type' => 'ARRAY', 'items' => $string]],
-            QuestionType::MATCHING   => ['pairs' => ['type' => 'ARRAY', 'items' => [
-                'type' => 'OBJECT',
-                'properties' => ['left' => $string, 'right' => $string],
-                'required' => ['left', 'right'],
-            ]]],
-            default => [],
-        };
-        $properties += $extra;
-        array_push($required, ...array_keys($extra));
+        $required = ['type', 'prompt', 'explanation', 'source_ref', 'bloom', 'difficulty'];
 
         return [
             'type' => 'OBJECT',

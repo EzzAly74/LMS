@@ -22,8 +22,11 @@ return [
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com'),
         // A stable (non-preview) model by default: preview models can change
         // behaviour or be withdrawn without notice (D-050 risk 2).
-        'model'    => env('GEMINI_MODEL', 'gemini-2.5-flash'),
+        'model'    => env('GEMINI_MODEL', 'gemini-3.8-flash'),
         'timeout'  => (int) env('GEMINI_TIMEOUT', 120),
+        // Optional CA file for TLS verification (never disabled). Empty: the
+        // system bundle, or composer/ca-bundle's when the system has none.
+        'ca_bundle' => env('GEMINI_CA_BUNDLE', ''),
         'temperature' => 0.6,
     ],
 

@@ -127,7 +127,7 @@ abstract class AiAssessmentTestCase extends ApiTestCase
     protected function mcqItem(string $prompt = 'Which item must stay clear?', array $correct = [0]): array
     {
         return [
-            'prompt' => $prompt, 'options' => ['Fire exits', 'Desks', 'Parking', 'Windows'],
+            'type' => 'mcq', 'prompt' => $prompt, 'options' => ['Fire exits', 'Desks', 'Parking', 'Windows'],
             'correct_indexes' => $correct, 'explanation' => 'From the notes.', 'source_ref' => 'Notes, Page 1',
             'bloom' => 'remember', 'difficulty' => 'easy',
         ];
@@ -136,7 +136,7 @@ abstract class AiAssessmentTestCase extends ApiTestCase
     protected function trueFalseItem(string $prompt = 'Near misses must be reported within 24 hours.'): array
     {
         return [
-            'prompt' => $prompt, 'correct' => true, 'explanation' => 'Stated on page 1.',
+            'type' => 'true_false', 'prompt' => $prompt, 'correct' => true, 'explanation' => 'Stated on page 1.',
             'source_ref' => 'Notes, Page 1', 'bloom' => 'understand', 'difficulty' => 'medium',
         ];
     }

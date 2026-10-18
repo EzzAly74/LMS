@@ -90,7 +90,9 @@ class AiAssessmentCrudTest extends AiAssessmentTestCase
             DB::flushQueryLog();
             DB::enableQueryLog();
             $this->getJson(self::URL, $t['headers'])->assertOk();
-            $n = count(DB::getQueryLog());
+            // Reads only: the auth middleware's once-a-minute "last active"
+            // UPDATE lands in whichever request crosses a minute boundary.
+            $n = count(array_filter(DB::getQueryLog(), fn ($q) => stripos(ltrim($q['query']), 'select') === 0));
             DB::disableQueryLog();
 
             return $n;

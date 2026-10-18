@@ -12,6 +12,43 @@ use Illuminate\Support\Facades\Validator;
 final class QuestionNormalizer
 {
     /**
+     * A one-call answer holding several types: each item is checked against
+     * the shape of the `type` it declares, at most `$counts[type]` are kept per
+     * type, and the result is ordered by type as configured (QuestionType
+     * order), then as the model wrote them. Items of a type that was not asked
+     * for are dropped.
+     *
+     * @param  array<string, int>  $counts
+     * @param  list<array<string, mixed>>  $raw
+     * @return list<array<string, mixed>>
+     */
+    public function normalizeMixed(array $counts, array $raw): array
+    {
+        $byType = [];
+        foreach ($raw as $item) {
+            $type = is_string($item['type'] ?? null) ? $item['type'] : null;
+            if ($type !== null && isset($counts[$type])) {
+                $byType[$type][] = $item;
+            }
+        }
+
+        $out = [];
+        $seen = [];
+        foreach ($counts as $type => $count) {
+            foreach ($this->normalize($type, $byType[$type] ?? [], $count) as $q) {
+                // Also no duplicate prompt across types.
+                $key = mb_strtolower(preg_replace('/\s+/u', ' ', $q['prompt']) ?? '');
+                if (! isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $out[] = $q;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $raw
      * @return list<array<string, mixed>>  QuestionType::clean() shapes
      */

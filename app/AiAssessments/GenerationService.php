@@ -92,39 +92,35 @@ final class GenerationService
             return;
         }
 
-        $sources = $assessment->sources()->get()->all();
-        $avoid = [];
-        $position = 0;
+        $counts = $assessment->requestedCounts();
         $tokensIn = 0;
         $tokensOut = 0;
 
         try {
-            foreach ($assessment->requestedCounts() as $type => $count) {
-                $result = $this->generator->generate(new GenerationRequest($assessment, $type, $count, $sources, $avoid));
-                $tokensIn += $result->inputTokens;
-                $tokensOut += $result->outputTokens;
+            // One request for every type: the sources are sent (and paid for) once.
+            $result = $this->generator->generate(new GenerationRequest($assessment, $counts, $assessment->sources()->get()->all()));
+            $tokensIn = $result->inputTokens;
+            $tokensOut = $result->outputTokens;
 
-                $questions = $this->normalizer->normalize($type, $result->questions, $count);
-                if ($questions === []) {
-                    throw new GenerationFailed(GenerationFailed::INVALID_OUTPUT, $type);
-                }
-
-                // Abort quietly if the run was superseded (stale reset) or the
-                // assessment deleted while the provider was answering.
-                if (! AiAssessment::query()->whereKey($assessment->id)->where('current_run_id', $run->id)->exists()) {
-                    $this->finishRun($run, 'failed', $tokensIn, $tokensOut, 'superseded');
-                    AiAssessmentQuestion::query()->where('run_id', $run->id)->delete();
-
-                    return;
-                }
-
-                $now = Carbon::now();
-                AiAssessmentQuestion::query()->insert(array_map(function (array $q) use ($assessment, $run, &$position, $now) {
-                    return $this->row($q, $assessment->id, $run->id, ++$position, $now);
-                }, $questions));
-
-                array_push($avoid, ...array_column($questions, 'prompt'));
+            $questions = $this->normalizer->normalizeMixed($counts, $result->questions);
+            if ($questions === []) {
+                throw new GenerationFailed(GenerationFailed::INVALID_OUTPUT);
             }
+
+            // Abort quietly if the run was superseded (stale reset) or the
+            // assessment deleted while the provider was answering.
+            if (! AiAssessment::query()->whereKey($assessment->id)->where('current_run_id', $run->id)->exists()) {
+                $this->finishRun($run, 'failed', $tokensIn, $tokensOut, 'superseded');
+
+                return;
+            }
+
+            $now = Carbon::now();
+            $rows = [];
+            foreach (array_values($questions) as $i => $q) {
+                $rows[] = $this->row($q, $assessment->id, $run->id, $i + 1, $now);
+            }
+            AiAssessmentQuestion::query()->insert($rows);
 
             DB::transaction(function () use ($assessment, $run) {
                 AiAssessmentQuestion::query()->where('ai_assessment_id', $assessment->id)
@@ -173,9 +169,9 @@ final class GenerationService
 
         try {
             $result = $this->generator->generate(new GenerationRequest(
-                $assessment, $question->type, 1, $assessment->sources()->get()->all(), array_values($avoid),
+                $assessment, [$question->type => 1], $assessment->sources()->get()->all(), array_values($avoid), interactive: true,
             ));
-            $fresh = $this->normalizer->normalize($question->type, $result->questions, 1)[0] ?? null;
+            $fresh = $this->normalizer->normalizeMixed([$question->type => 1], $result->questions)[0] ?? null;
             if ($fresh === null) {
                 throw new GenerationFailed(GenerationFailed::INVALID_OUTPUT);
             }

@@ -8,6 +8,7 @@ use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 
 /**
  * Generation through the (faked) Gemini API: the happy path, what is kept on
@@ -15,14 +16,16 @@ use Illuminate\Support\Facades\Storage;
  */
 class AiAssessmentGenerationTest extends AiAssessmentTestCase
 {
-    public function test_generate_writes_validated_questions_type_by_type(): void
+    public function test_generate_writes_every_type_from_one_request(): void
     {
         $t = $this->trainer();
         $a = $this->withText($this->assessment($t['model']));
-        $this->fakeGemini([
-            $this->geminiBody([$this->mcqItem('Q one?'), $this->mcqItem('Q two?', [1])], 1000, 200),
-            $this->geminiBody([$this->trueFalseItem()], 500, 50),
-        ]);
+        // Mixed order from the model; a type not asked for and an extra MCQ are dropped.
+        $this->fakeGemini([$this->geminiBody([
+            $this->trueFalseItem(), $this->mcqItem('Q one?'),
+            ['type' => 'short', 'prompt' => 'Not requested?', 'model_answer' => 'x', 'explanation' => 'x', 'source_ref' => 'x', 'bloom' => 'apply', 'difficulty' => 'easy'],
+            $this->mcqItem('Q two?', [1]), $this->mcqItem('Q three, one too many?'),
+        ], 1500, 250)]);
 
         $this->postJson(self::URL."/{$a->id}/generate", [], $t['headers'])
             ->assertStatus(202)
@@ -43,7 +46,8 @@ class AiAssessmentGenerationTest extends AiAssessmentTestCase
         $this->assertSame(1500, $run->input_tokens);
         $this->assertSame(250, $run->output_tokens);
         $this->assertSame('gemini-test', $run->model);
-        $this->assertCount(2, $this->generateCalls());
+        $this->assertCount(1, $this->generateCalls(), 'the sources are sent once per generation');
+        $this->assertSame(1, substr_count(json_encode($this->generateCalls()[0]->data(), JSON_UNESCAPED_UNICODE), 'Always wear a helmet'));
     }
 
     public function test_invalid_ai_questions_are_dropped_not_repaired(): void
@@ -51,7 +55,7 @@ class AiAssessmentGenerationTest extends AiAssessmentTestCase
         $t = $this->trainer();
         $a = $this->withText($this->assessment($t['model'], ['question_counts' => ['mcq' => 3]]));
         $broken = $this->mcqItem('Out of range key?', [7]);
-        $noOptions = ['prompt' => 'No options?', 'correct_indexes' => [0], 'explanation' => 'x', 'source_ref' => 'x', 'bloom' => 'apply', 'difficulty' => 'easy'];
+        $noOptions = ['type' => 'mcq', 'prompt' => 'No options?', 'correct_indexes' => [0], 'explanation' => 'x', 'source_ref' => 'x', 'bloom' => 'apply', 'difficulty' => 'easy'];
         $this->fakeGemini([$this->geminiBody([$broken, $noOptions, $this->mcqItem('Good one?'), $this->mcqItem('Good one?')])]);
 
         $this->postJson(self::URL."/{$a->id}/generate", [], $t['headers'])->assertStatus(202);
@@ -65,7 +69,7 @@ class AiAssessmentGenerationTest extends AiAssessmentTestCase
         $a = $this->withText($this->assessment($t['model']));
         $old = $this->question($a, ['prompt' => 'Edited by the trainer']);
         $a->update(['status' => 'ready']);
-        $this->fakeGemini([$this->geminiBody([$this->mcqItem('New A?'), $this->mcqItem('New B?')]), 500, 500, 500]);
+        $this->fakeGemini([500, 500, 500, 500]);
 
         $this->postJson(self::URL."/{$a->id}/generate", [], $t['headers'])->assertStatus(202);
 
@@ -109,6 +113,58 @@ class AiAssessmentGenerationTest extends AiAssessmentTestCase
         $this->fakeGemini([['promptFeedback' => ['blockReason' => 'SAFETY']]]);
         $this->postJson(self::URL."/{$a->id}/generate", [], $t['headers'])->assertStatus(202);
         $this->assertSame('blocked', $a->refresh()->last_error);
+    }
+
+    public function test_a_rate_limit_waits_as_long_as_google_asks_then_succeeds(): void
+    {
+        $t = $this->trainer();
+        $a = $this->withText($this->assessment($t['model'], ['question_counts' => ['mcq' => 1]]));
+        $limited = ['error' => ['code' => 429, 'status' => 'RESOURCE_EXHAUSTED', 'details' => [
+            ['@type' => 'type.googleapis.com/google.rpc.QuotaFailure', 'violations' => [['quotaId' => 'GenerateRequestsPerMinutePerProjectPerModel']]],
+            ['@type' => 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay' => '12s'],
+        ]]];
+        Http::fake(['gemini.test/v1beta/models/*' => Http::sequence()
+            ->push($limited, 429)
+            ->push($this->geminiBody([$this->mcqItem('After the wait?')]), 200)]);
+
+        $this->postJson(self::URL."/{$a->id}/generate", [], $t['headers'])->assertStatus(202);
+
+        $this->assertSame(['After the wait?'], $a->questions()->pluck('prompt')->all());
+        Sleep::assertSlept(fn (\Carbon\CarbonInterval $d) => (int) $d->totalMilliseconds === 12_250, 1);
+    }
+
+    public function test_a_long_retry_delay_is_capped_and_regenerate_one_gives_up_quickly(): void
+    {
+        $t = $this->trainer();
+        $a = $this->withText($this->assessment($t['model']));
+        $q = $this->question($a, ['prompt' => 'Original']);
+        $limited = ['error' => ['code' => 429, 'status' => 'RESOURCE_EXHAUSTED', 'details' => [
+            ['@type' => 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay' => '50s'],
+        ]]];
+        Http::fake(['gemini.test/v1beta/models/*' => Http::response($limited, 429)]);
+
+        $this->postJson(self::URL."/{$a->id}/questions/{$q->id}/regenerate", [], $t['headers'])
+            ->assertStatus(429)->assertJsonPath('errors.reason.0', 'provider_busy');
+
+        $this->assertSame('Original', $q->refresh()->prompt);
+        $this->assertCount(2, $this->generateCalls(), 'two tries for an interactive call');
+        Sleep::assertSlept(fn (\Carbon\CarbonInterval $d) => (int) $d->totalMilliseconds === 3_000, 1);
+    }
+
+    public function test_a_transport_failure_is_a_clean_provider_error(): void
+    {
+        $t = $this->trainer();
+        $a = $this->withText($this->assessment($t['model'], ['question_counts' => ['mcq' => 1]]));
+        // What an unverifiable certificate looks like from Guzzle (cURL error 60).
+        Http::fake(fn (HttpRequest $request) => throw new \GuzzleHttp\Exception\RequestException(
+            'cURL error 60: SSL certificate problem', new \GuzzleHttp\Psr7\Request('POST', $request->url()), null, null, ['errno' => 60],
+        ));
+
+        $this->postJson(self::URL."/{$a->id}/generate", [], $t['headers'])->assertStatus(202);
+
+        $this->assertSame('provider_error', $a->refresh()->last_error);
+        $this->assertSame('draft', $a->status);
+        $this->assertSame('failed', AiGenerationRun::query()->sole()->status);
     }
 
     public function test_generation_is_refused_without_a_key_sources_or_counts(): void
@@ -229,7 +285,11 @@ class AiAssessmentGenerationTest extends AiAssessmentTestCase
         $prompt = end($data['contents'][0]['parts'])['text'];
         $this->assertSame(1, substr_count($prompt, '</source>'), 'only the real fence closes a source');
         $this->assertSame('application/json', $data['generationConfig']['responseMimeType']);
-        $this->assertContains('correct_indexes', $data['generationConfig']['responseSchema']['properties']['questions']['items']['required']);
+        $item = $data['generationConfig']['responseSchema']['properties']['questions']['items'];
+        $this->assertSame(['mcq'], $item['properties']['type']['enum'], 'only the requested types');
+        $this->assertArrayHasKey('correct_indexes', $item['properties']);
+        $this->assertArrayNotHasKey('pairs', $item['properties'], 'no fields of types not asked for');
+        $this->assertContains('type', $item['required']);
     }
 
     public function test_regenerate_one_question_replaces_it_and_counts_a_run(): void

@@ -3,6 +3,8 @@
 namespace App\AiAssessments\Ai;
 
 use App\Models\AiAssessmentSource;
+use Composer\CaBundle\CaBundle;
+use GuzzleHttp\Exception\TransferException;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
@@ -27,6 +29,12 @@ use JsonException;
  */
 final class GeminiGenerator implements QuestionGenerator
 {
+    /** Longest single wait for a rate limit in a background run. */
+    private const MAX_WAIT_MS = 20_000;
+
+    /** Longest single wait while a person waits on the request (Regenerate one). */
+    private const INTERACTIVE_WAIT_MS = 3_000;
+
     public function __construct(private readonly PromptBuilder $prompts) {}
 
     public function isConfigured(): bool
@@ -60,11 +68,11 @@ final class GeminiGenerator implements QuestionGenerator
                 'contents' => [['role' => 'user', 'parts' => $parts]],
                 'generationConfig' => [
                     'responseMimeType' => 'application/json',
-                    'responseSchema'   => $this->prompts->schema($request->type),
+                    'responseSchema'   => $this->prompts->schema(array_keys($request->counts)),
                     'temperature'      => (float) config('ai-assessments.gemini.temperature'),
                 ],
             ],
-        ));
+        ), interactive: $request->interactive);
 
         $body = $response->json() ?? [];
 
@@ -177,26 +185,46 @@ final class GeminiGenerator implements QuestionGenerator
         return $file;
     }
 
-    /** @param  callable(PendingRequest): Response  $call */
-    private function send(callable $call, bool $retry = true): Response
+    /**
+     * One call with retries. Rate limits (429) wait as long as Google's
+     * RetryInfo asks: up to MAX_WAIT_MS per wait in a background run, but only
+     * briefly when a person is waiting on the request (`interactive`).
+     *
+     * @param  callable(PendingRequest): Response  $call
+     */
+    private function send(callable $call, bool $retry = true, bool $interactive = false): Response
     {
         $http = Http::withHeaders(['x-goog-api-key' => (string) config('ai-assessments.gemini.api_key')])
+            ->withOptions(['verify' => $this->caBundle()])
             ->acceptJson()
             ->connectTimeout(10)
             ->timeout((int) config('ai-assessments.gemini.timeout'));
 
         if ($retry) {
-            $http = $http->retry(3, fn (int $attempt) => $attempt * 2000, function (\Throwable $e) {
-                return $e instanceof ConnectionException
+            $cap = $interactive ? self::INTERACTIVE_WAIT_MS : self::MAX_WAIT_MS;
+            $http = $http->retry(
+                $interactive ? 2 : 4,
+                fn (int $attempt, ?\Throwable $e = null) => min($cap, $this->retryDelayMs($e) ?? $attempt * 2000),
+                fn (\Throwable $e) => $e instanceof ConnectionException
                     || ($e instanceof \Illuminate\Http\Client\RequestException
-                        && ($e->response->status() === 429 || $e->response->serverError()));
-            }, throw: false);
+                        && ($e->response->status() === 429 || $e->response->serverError())),
+                throw: false,
+            );
         }
 
         try {
             $response = $call($http);
         } catch (ConnectionException) {
             throw new GenerationFailed(GenerationFailed::TIMEOUT);
+        } catch (TransferException $e) {
+            // TLS, DNS or a dropped connection below the HTTP layer. The class
+            // and cURL error number are enough to diagnose; the message is not
+            // logged (it can carry the request URL).
+            Log::warning('ai-assessments: provider transport failed', [
+                'exception'  => $e::class,
+                'curl_errno' => $e->getHandlerContext()['errno'] ?? null,
+            ]);
+            throw new GenerationFailed(GenerationFailed::PROVIDER_ERROR, 'transport');
         }
 
         if ($response->successful()) {
@@ -206,6 +234,8 @@ final class GeminiGenerator implements QuestionGenerator
         Log::warning('ai-assessments: provider call failed', [
             'http_status'     => $response->status(),
             'provider_status' => $response->json('error.status'),
+            // Which quota ran out (per minute / per day, requests / tokens); no key, no content.
+            'quota'           => $this->quotaIds($response),
         ]);
 
         throw new GenerationFailed(match (true) {
@@ -213,6 +243,49 @@ final class GeminiGenerator implements QuestionGenerator
             $response->status() === 429 => GenerationFailed::PROVIDER_BUSY,
             default => GenerationFailed::PROVIDER_ERROR,
         }, (string) $response->status());
+    }
+
+    /** Google's RetryInfo delay ("12s", "1.5s") of a 429, in ms; null when absent. */
+    private function retryDelayMs(?\Throwable $e): ?int
+    {
+        if (! $e instanceof \Illuminate\Http\Client\RequestException || $e->response->status() !== 429) {
+            return null;
+        }
+        foreach ((array) $e->response->json('error.details') as $detail) {
+            if (is_array($detail) && str_ends_with((string) ($detail['@type'] ?? ''), 'google.rpc.RetryInfo')
+                && preg_match('/^(\d+(?:\.\d+)?)s$/', (string) ($detail['retryDelay'] ?? ''), $m)) {
+                return (int) ceil(((float) $m[1]) * 1000) + 250;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return list<string> the quota ids named by a 429 (QuotaFailure violations) */
+    private function quotaIds(Response $response): array
+    {
+        $ids = [];
+        foreach ((array) $response->json('error.details') as $detail) {
+            foreach ((array) ($detail['violations'] ?? []) as $violation) {
+                if (is_string($violation['quotaId'] ?? null)) {
+                    $ids[] = mb_substr($violation['quotaId'], 0, 120);
+                }
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * TLS is always verified. The CA file is GEMINI_CA_BUNDLE when set, else
+     * the operating system's bundle, else composer/ca-bundle's Mozilla copy
+     * (Windows PHP builds often ship with none configured).
+     */
+    private function caBundle(): string
+    {
+        $configured = (string) config('ai-assessments.gemini.ca_bundle');
+
+        return $configured !== '' && is_file($configured) ? $configured : CaBundle::getSystemCaRootBundlePath();
     }
 
     private function base(): string

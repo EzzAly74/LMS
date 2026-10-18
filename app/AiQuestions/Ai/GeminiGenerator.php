@@ -188,9 +188,10 @@ final class GeminiGenerator implements QuestionGenerator
             $http = $http->retry(
                 4,
                 fn (int $attempt, ?\Throwable $e = null) => min(self::MAX_WAIT_MS, $this->retryDelayMs($e) ?? $attempt * 2000),
+                // A daily quota will not recover in seconds: fail at once instead of waiting.
                 fn (\Throwable $e) => $e instanceof ConnectionException
                     || ($e instanceof \Illuminate\Http\Client\RequestException
-                        && ($e->response->status() === 429 || $e->response->serverError())),
+                        && (($e->response->status() === 429 && ! $this->isDailyQuota($e->response)) || $e->response->serverError())),
                 throw: false,
             );
         }
@@ -259,6 +260,18 @@ final class GeminiGenerator implements QuestionGenerator
         }
 
         return null;
+    }
+
+    /** A 429 for a per-day quota (it resets tomorrow, so retrying now only blocks the run). */
+    private function isDailyQuota(Response $response): bool
+    {
+        foreach ($this->quotaIds($response) as $id) {
+            if (str_contains($id, 'PerDay')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return list<string> the quota ids named by a 429 (QuotaFailure violations) */

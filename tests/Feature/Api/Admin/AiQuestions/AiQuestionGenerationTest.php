@@ -171,6 +171,22 @@ class AiQuestionGenerationTest extends AiQuestionTestCase
         Sleep::assertSlept(fn (\Carbon\CarbonInterval $d) => (int) $d->totalMilliseconds === 20_000, 1); // capped
     }
 
+    public function test_an_exhausted_daily_quota_fails_at_once_without_waiting(): void
+    {
+        $t = $this->trainer();
+        $daily = ['error' => ['code' => 429, 'status' => 'RESOURCE_EXHAUSTED', 'details' => [
+            ['@type' => 'type.googleapis.com/google.rpc.QuotaFailure', 'violations' => [['quotaId' => 'GenerateRequestsPerDayPerProjectPerModel-FreeTier']]],
+            ['@type' => 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay' => '40s'],
+        ]]];
+        Http::fake(['gemini.test/v1beta/models/*' => Http::response($daily, 429)]);
+
+        $id = $this->postJson(self::QUIZ, $this->body(['counts' => ['mcq' => 1]]), $t['headers'])->json('result.generation.id');
+
+        $this->getJson(self::QUIZ."/{$id}", $t['headers'])->assertJsonPath('result.error', 'provider_busy');
+        $this->assertCount(1, $this->generateCalls(), 'no retries for a daily quota');
+        Sleep::assertNeverSlept();
+    }
+
     public function test_a_transport_failure_is_a_clean_provider_error(): void
     {
         $t = $this->trainer();

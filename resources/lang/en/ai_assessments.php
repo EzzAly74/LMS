@@ -53,7 +53,7 @@ return [
         'name' => 'Name',
         'date' => 'Date',
         'course' => 'Course',
-        'questions_count' => ':n questions',
+        'questions_count' => 'Questions: :n',
         'select_all' => '(Select all that apply.)',
         'match_instruction' => 'Write the letter of the matching item next to each number.',
         'true' => 'True',

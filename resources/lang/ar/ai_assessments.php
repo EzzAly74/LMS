@@ -53,7 +53,7 @@ return [
         'name' => 'الاسم',
         'date' => 'التاريخ',
         'course' => 'الدورة',
-        'questions_count' => ':n سؤال',
+        'questions_count' => 'عدد الأسئلة: :n',
         'select_all' => '(اختر كل الإجابات الصحيحة.)',
         'match_instruction' => 'اكتب حرف العنصر المطابق بجانب كل رقم.',
         'true' => 'صواب',

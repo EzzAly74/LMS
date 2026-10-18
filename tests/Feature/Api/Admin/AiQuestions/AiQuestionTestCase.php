@@ -39,6 +39,8 @@ abstract class AiQuestionTestCase extends ApiTestCase
             'ai-questions.gemini.api_key'  => 'test-key-not-real',
             'ai-questions.gemini.base_url' => 'https://gemini.test',
             'ai-questions.gemini.model'    => 'gemini-test',
+            // No fallback by default; AiQuestionFallbackTest covers it.
+            'ai-questions.gemini.fallback_models' => '',
         ]);
         Http::preventStrayRequests();
         Sleep::fake(); // the client's retry back-off must not slow the suite

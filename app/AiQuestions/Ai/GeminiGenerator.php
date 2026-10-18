@@ -57,19 +57,34 @@ final class GeminiGenerator implements QuestionGenerator
             }
         }
         $parts[] = ['text' => $this->prompts->request($request)];
+        $payload = [
+            'systemInstruction' => ['parts' => [['text' => $this->prompts->system()]]],
+            'contents' => [['role' => 'user', 'parts' => $parts]],
+            'generationConfig' => [
+                'responseMimeType' => 'application/json',
+                'responseSchema'   => $this->prompts->schema(array_keys($request->counts)),
+                'temperature'      => (float) config('ai-questions.gemini.temperature'),
+            ] + $this->thinking(),
+        ];
 
-        $response = $this->send(fn (PendingRequest $http) => $http->post(
-            $this->base().'/v1beta/models/'.rawurlencode($this->model()).':generateContent',
-            [
-                'systemInstruction' => ['parts' => [['text' => $this->prompts->system()]]],
-                'contents' => [['role' => 'user', 'parts' => $parts]],
-                'generationConfig' => [
-                    'responseMimeType' => 'application/json',
-                    'responseSchema'   => $this->prompts->schema(array_keys($request->counts)),
-                    'temperature'      => (float) config('ai-questions.gemini.temperature'),
-                ] + $this->thinking(),
-            ],
-        ));
+        // The configured model first; when Google cannot serve it right now
+        // (high demand, quota used up, model withdrawn) the same request goes
+        // straight to the next model instead of failing or waiting.
+        $models = $this->models();
+        foreach ($models as $i => $model) {
+            $last = $i === array_key_last($models);
+            try {
+                $response = $this->send(fn (PendingRequest $http) => $http->post(
+                    $this->base().'/v1beta/models/'.rawurlencode($model).':generateContent', $payload,
+                ), quick: ! $last);
+                break;
+            } catch (GenerationFailed $e) {
+                if ($last || ! $e->tryAnotherModel) {
+                    throw $e;
+                }
+                Log::info('ai-questions: falling back to another model', ['from' => $model, 'reason' => $e->reason]);
+            }
+        }
 
         $body = $response->json() ?? [];
 
@@ -101,7 +116,16 @@ final class GeminiGenerator implements QuestionGenerator
             $questions,
             (int) ($body['usageMetadata']['promptTokenCount'] ?? 0),
             (int) ($body['usageMetadata']['candidatesTokenCount'] ?? 0),
+            $model,
         );
+    }
+
+    /** @return list<string> the configured model, then its fallbacks, without repeats */
+    private function models(): array
+    {
+        $fallbacks = array_map('trim', explode(',', (string) config('ai-questions.gemini.fallback_models')));
+
+        return array_values(array_unique(array_filter([$this->model(), ...$fallbacks], fn ($m) => preg_match('/^[a-z0-9.\-]+$/', $m) === 1)));
     }
 
     /** Upload a PDF source to the Files API and return its URI (Google keeps it 48 h). */
@@ -172,11 +196,13 @@ final class GeminiGenerator implements QuestionGenerator
 
     /**
      * One call with retries. Rate limits (429) wait as long as Google's
-     * RetryInfo asks, up to MAX_WAIT_MS per wait.
+     * RetryInfo asks, up to MAX_WAIT_MS per wait. `quick`: another model is
+     * waiting behind this one, so only a dropped connection is retried; a
+     * busy or exhausted model is handed over at once.
      *
      * @param  callable(PendingRequest): Response  $call
      */
-    private function send(callable $call, bool $retry = true): Response
+    private function send(callable $call, bool $retry = true, bool $quick = false): Response
     {
         $http = Http::withHeaders(['x-goog-api-key' => (string) config('ai-questions.gemini.api_key')])
             ->withOptions(['verify' => $this->caBundle()])
@@ -184,7 +210,9 @@ final class GeminiGenerator implements QuestionGenerator
             ->connectTimeout(10)
             ->timeout((int) config('ai-questions.gemini.timeout'));
 
-        if ($retry) {
+        if ($retry && $quick) {
+            $http = $http->retry(2, 1000, fn (\Throwable $e) => $e instanceof ConnectionException, throw: false);
+        } elseif ($retry) {
             $http = $http->retry(
                 4,
                 fn (int $attempt, ?\Throwable $e = null) => min(self::MAX_WAIT_MS, $this->retryDelayMs($e) ?? $attempt * 2000),
@@ -222,11 +250,18 @@ final class GeminiGenerator implements QuestionGenerator
             'quota'           => $this->quotaIds($response),
         ]);
 
-        throw new GenerationFailed(match (true) {
-            in_array($response->status(), [401, 403], true) => GenerationFailed::PROVIDER_AUTH,
-            $response->status() === 429 => GenerationFailed::PROVIDER_BUSY,
-            default => GenerationFailed::PROVIDER_ERROR,
-        }, (string) $response->status());
+        $status = $response->status();
+
+        throw new GenerationFailed(
+            match (true) {
+                in_array($status, [401, 403], true) => GenerationFailed::PROVIDER_AUTH,
+                $status === 429, $status === 503 => GenerationFailed::PROVIDER_BUSY,
+                default => GenerationFailed::PROVIDER_ERROR,
+            },
+            (string) $status,
+            // Quota used up, overloaded, or the model withdrawn: another model may answer.
+            tryAnotherModel: in_array($status, [404, 429, 500, 503], true),
+        );
     }
 
     /**

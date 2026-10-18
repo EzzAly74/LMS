@@ -22,7 +22,13 @@ return [
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com'),
         // A pinned, generally available model: preview models and `-latest`
         // aliases can change behaviour without notice (D-050 risk 2).
-        'model'    => env('GEMINI_MODEL', 'gemini-3.8-flash'),
+        // Measured 2026-10-18 on the real prompt (5 bilingual questions):
+        // gemini-3.7-flash 11.6 s, 5/5 valid, best Arabic and distractors;
+        // gemini-3.5-flash-lite 4.3 s, 5/5 valid, weaker wording.
+        'model'    => env('GEMINI_MODEL', 'gemini-3.7-flash'),
+        // Tried in order, at once, when the model above cannot answer now
+        // (quota used up, high demand, withdrawn). Comma-separated.
+        'fallback_models' => env('GEMINI_FALLBACK_MODELS', 'gemini-3.5-flash-lite'),
         'timeout'  => (int) env('GEMINI_TIMEOUT', 180),
         // Optional CA file for TLS verification (never disabled). Empty: the
         // system bundle, or composer/ca-bundle's when the system has none.

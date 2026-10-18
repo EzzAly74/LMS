@@ -6,8 +6,10 @@ use RuntimeException;
 
 /**
  * A run that produced nothing usable. `reason` is a key under
- * ai_assessments.errors, safe to show and store (never provider text, which
- * could echo source material or request details).
+ * ai_questions.errors, safe to show and store (never provider text, which
+ * could echo source material or request details). `tryAnotherModel`: the
+ * failure belongs to this model (quota, overload, withdrawn), so a fallback
+ * model may still answer.
  */
 final class GenerationFailed extends RuntimeException
 {
@@ -20,8 +22,11 @@ final class GenerationFailed extends RuntimeException
     public const SOURCE_UNAVAILABLE = 'source_unavailable';
     public const TIMEOUT = 'timeout';
 
-    public function __construct(public readonly string $reason, string $detail = '')
-    {
+    public function __construct(
+        public readonly string $reason,
+        string $detail = '',
+        public readonly bool $tryAnotherModel = false,
+    ) {
         parent::__construct($detail !== '' ? $reason.': '.$detail : $reason);
     }
 }

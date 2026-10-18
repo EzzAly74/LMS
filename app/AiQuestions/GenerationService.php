@@ -140,6 +140,9 @@ final class GenerationService
                 throw new GenerationFailed(GenerationFailed::INVALID_OUTPUT);
             }
 
+            if ($result->model !== null && $result->model !== $generation->model) {
+                $generation->model = $result->model; // a fallback answered: record what was used (and paid for)
+            }
             $this->finish($generation, AiGeneration::STATUS_SUCCEEDED, null, $result->inputTokens, $result->outputTokens, $questions);
         } catch (GenerationFailed $e) {
             $this->finish($generation, AiGeneration::STATUS_FAILED, $e->reason);

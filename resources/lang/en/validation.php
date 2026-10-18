@@ -215,6 +215,7 @@ return [
         'passcode_reset_seconds' => 'passcode reset interval',
         'min_passing_attendance' => 'minimum passing attendance',
         'min_passing_score' => 'minimum passing score',
+        'compliance_target' => 'compliance target',
     ],
 
 ];

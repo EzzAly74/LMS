@@ -26,6 +26,8 @@ class UpdateSettingsRequest extends FormRequest
             'settings.min_passing_score'                 => 'sometimes|required|integer|min:0|max:100',
             'settings.course_attendance_enabled'         => 'sometimes|required|in:0,1',
             'settings.certificate_award_basis'           => 'sometimes|required|in:attendance,score,both',
+            // The Compliance by Job Title report's target (D-112).
+            'settings.compliance_target'                 => 'sometimes|required|integer|min:0|max:100',
         ];
     }
 
@@ -38,6 +40,7 @@ class UpdateSettingsRequest extends FormRequest
             'settings.passcode_reset_seconds'            => __('validation.attributes.passcode_reset_seconds'),
             'settings.min_passing_attendance'            => __('validation.attributes.min_passing_attendance'),
             'settings.min_passing_score'                 => __('validation.attributes.min_passing_score'),
+            'settings.compliance_target'                 => __('validation.attributes.compliance_target'),
         ];
     }
 }

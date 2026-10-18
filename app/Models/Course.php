@@ -182,7 +182,7 @@ class Course extends Model
      * cohorts keep working unchanged.
      *
      * Kept on the Course model (rather than CourseSection) so other
-     * services like AdminReportService can derive cohort status without
+     * services like the reports can derive cohort status without
      * dragging in extra dependencies.
      */
     public static function deriveCohortStatus(

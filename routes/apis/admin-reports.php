@@ -1,25 +1,31 @@
 <?php
 
 use App\Http\Controllers\apis\Admin\AdminReportController;
+use App\Reports\ReportOptions;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Admin Reports Routes — /api/v1/admin/reports
+| Admin Reports Routes - /api/v1/admin/reports (D-112)
 |--------------------------------------------------------------------------
 |
-| New endpoints powering the 2026 Reports redesign (summary cards + live
-| compliance preview + CSV / XLSX exports + bundled Export All). The
-| legacy endpoints in routes/apis/reports.php remain untouched.
+| The NAS reports: the catalogue, a page of one report, the filter choices
+| and the export. view-reports for all (section:reports); exports are
+| expensive, so they get their own limit. The legacy routes in
+| routes/apis/reports.php are not part of this module.
 */
 
 Route::middleware(['auth.user', 'role:Admin', 'section:reports'])->prefix('admin')->group(function () {
-
-    Route::get('reports/summary',             [AdminReportController::class, 'summary']);
-    Route::get('reports/compliance-preview',  [AdminReportController::class, 'compliancePreview']);
-    Route::get('reports/export-all',          [AdminReportController::class, 'exportAll']);
-
-    // Per-report export (declared last so /export-all & lookup endpoints
-    // resolve first).
-    Route::get('reports/{type}/export',       [AdminReportController::class, 'export']);
+    Route::get('reports', [AdminReportController::class, 'index'])->name('admin.reports.index');
+    Route::get('reports/options/{source}', [AdminReportController::class, 'options'])
+        ->whereIn('source', ReportOptions::SOURCES)
+        ->middleware('throttle:120,1')
+        ->name('admin.reports.options');
+    Route::get('reports/{report}/export', [AdminReportController::class, 'export'])
+        ->where('report', '[a-z0-9-]+')
+        ->middleware('throttle:10,1')
+        ->name('admin.reports.export');
+    Route::get('reports/{report}', [AdminReportController::class, 'show'])
+        ->where('report', '[a-z0-9-]+')
+        ->name('admin.reports.show');
 });

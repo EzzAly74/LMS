@@ -2,226 +2,138 @@
 
 namespace App\Http\Controllers\apis\Admin;
 
-use App\Exports\GenericReportExport;
 use App\Http\Controllers\apis\ApiController;
-use App\Http\Requests\Api\Admin\AdminReportPreviewRequest;
-use App\Services\Admin\AdminReportService;
+use App\Http\Requests\Api\Admin\ReportOptionsRequest;
+use App\Http\Requests\Api\Admin\ReportRequest;
+use App\Models\Admin;
+use App\Models\ReportExportLog;
+use App\Reports\Column;
+use App\Reports\Filter;
+use App\Reports\Report;
+use App\Reports\ReportContext;
+use App\Reports\ReportExporter;
+use App\Reports\ReportOptions;
+use App\Reports\ReportRegistry;
+use App\Services\Admin\CourseScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Maatwebsite\Excel\Excel as ExcelType;
-use Maatwebsite\Excel\Facades\Excel;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use Symfony\Component\HttpFoundation\StreamedResponse;
-use ZipArchive;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Admin endpoints powering the 2026 Reports redesign.
- *
- * Intentionally NEW and additive — the legacy controller
- * App\Http\Controllers\apis\ReportController and its routes
- * (routes/apis/reports.php) are left untouched.
+ * The NAS reports (D-112): the catalogue, one page of a report, its filter
+ * choices and its export. Every route needs view-reports (section:reports);
+ * a report may ask for more (Report::allows). Every row is limited to the
+ * reader's course scope (D-074).
  */
 class AdminReportController extends ApiController
 {
-    public function __construct(private readonly AdminReportService $service) {}
+    public function __construct(
+        private readonly ReportRegistry $registry,
+        private readonly ReportOptions $options,
+        private readonly ReportExporter $exporter,
+    ) {}
 
-    /**
-     * GET /api/v1/admin/reports/summary
-     *
-     * Returns the 6 report cards with their "last generated" timestamps.
-     */
-    public function summary(): JsonResponse
+    /** GET admin/reports */
+    public function index(Request $request): JsonResponse
     {
-        return $this->success(__('messages.retrieved'), $this->service->summary());
+        $admin = $request->user();
+        $context = new ReportContext([], app()->getLocale(), app(CourseScope::class)->courseIds($admin));
+        $lastExported = ReportExportLog::query()
+            ->selectRaw('report_type, MAX(exported_at) AS last_at')
+            ->groupBy('report_type')
+            ->pluck('last_at', 'report_type');
+
+        $reports = array_values(array_map(fn (Report $report) => [
+            'key' => $report->key(),
+            'name' => $report->name(),
+            'description' => $report->description(),
+            'row_unit' => $report->rowUnit(),
+            'columns' => array_map(fn (Column $c) => $c->toArray(), $report->columns($context)),
+            'filters' => array_map(fn (Filter $f) => $f->toArray(), $report->filters()),
+            'last_exported_at' => $lastExported[$report->key()] ?? null,
+        ], array_filter($this->registry->all(), fn (Report $r) => $this->allows($r, $admin))));
+
+        return $this->success(__('messages.retrieved'), $reports);
     }
 
-    /**
-     * GET /api/v1/admin/reports/compliance-preview
-     *
-     * Live grouped compliance preview shown beneath the cards. With `page`
-     * it is one page of every job-title row plus its paging meta; without
-     * it, the first 25 rows (the original contract).
-     */
-    public function compliancePreview(AdminReportPreviewRequest $request): JsonResponse
+    /** GET admin/reports/options/{source} */
+    public function options(ReportOptionsRequest $request): JsonResponse
     {
-        $page = $request->page();
-        if ($page === null) {
-            return $this->success(__('messages.retrieved'), [
-                'rows' => $this->service->compliancePreview(),
-            ]);
+        return $this->success(__('messages.retrieved'), $this->options->options(
+            $request->source(),
+            $request->context(),
+            $request->search(),
+            $request->courseIds(),
+        ));
+    }
+
+    /** GET admin/reports/{report} */
+    public function show(ReportRequest $request): JsonResponse
+    {
+        $report = $request->report();
+        if ($denied = $this->refuse($report, $request->user())) {
+            return $denied;
         }
 
-        // The rows are grouped in memory over every learner in scope, so the
-        // page is a slice of that one result.
+        $context = $request->context();
         $perPage = $request->perPage();
-        $all = $this->service->compliancePreview(limit: PHP_INT_MAX);
-        $total = count($all);
+        $page = $report->page($context, $request->pageNumber(), $perPage);
 
         return $this->success(__('messages.retrieved'), [
-            'rows'         => array_slice($all, ($page - 1) * $perPage, $perPage),
-            'total'        => $total,
-            'current_page' => $page,
-            'per_page'     => $perPage,
-            'last_page'    => max(1, (int) ceil($total / $perPage)),
+            'columns' => array_map(fn (Column $c) => $c->toArray(), $report->columns($context)),
+            'rows' => $page['rows'],
+            'total' => $page['total'],
+            'current_page' => $request->pageNumber(),
+            'per_page' => $perPage,
+            'last_page' => max(1, (int) ceil($page['total'] / $perPage)),
         ]);
     }
 
-    /**
-     * GET /api/v1/admin/reports/{type}/export?format=csv|xlsx
-     */
-    public function export(Request $request, string $type): StreamedResponse|BinaryFileResponse|JsonResponse
+    /** GET admin/reports/{report}/export?format=xlsx|csv */
+    public function export(ReportRequest $request): Response
     {
-        if (!in_array($type, AdminReportService::TYPES, true)) {
-            return $this->error(__('messages.not_found'), 404);
+        $report = $request->report();
+        if ($denied = $this->refuse($report, $request->user())) {
+            return $denied;
         }
 
-        $format = strtolower($request->get('format', 'csv'));
-        if (!in_array($format, ['csv', 'xlsx'], true)) {
-            return $this->error('Invalid format. Allowed: csv, xlsx', 422);
+        $context = $request->context();
+        $rows = $report->count($context);
+        if ($rows > ReportExporter::MAX_ROWS) {
+            return $this->error(__('messages.reports.too_many_rows', [
+                'count' => number_format($rows), 'max' => number_format(ReportExporter::MAX_ROWS),
+            ]), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        [$headings, $rows] = $this->service->dataset($type);
-
-        $this->service->logExport($type, $format, optional($request->user())->id);
-
-        $filename = $this->buildFilename($type, $format);
-
-        if ($format === 'csv') {
-            return $this->streamCsv($filename, $headings, $rows);
-        }
-
-        $catalog = AdminReportService::catalog();
-        $label   = $catalog[$type]['label'] ?? 'Report';
-
-        return Excel::download(
-            new GenericReportExport($headings, $rows, $label),
-            $filename,
-            ExcelType::XLSX,
-        );
-    }
-
-    /**
-     * GET /api/v1/admin/reports/export-all?format=csv|xlsx
-     *
-     * Returns a single ZIP archive containing all 6 reports in the
-     * requested format.
-     */
-    public function exportAll(Request $request): BinaryFileResponse|JsonResponse
-    {
-        $format = strtolower($request->get('format', 'csv'));
-        if (!in_array($format, ['csv', 'xlsx'], true)) {
-            return $this->error('Invalid format. Allowed: csv, xlsx', 422);
-        }
-
-        $tmpDir = storage_path('app/reports-tmp-' . uniqid());
-        if (!is_dir($tmpDir) && !mkdir($tmpDir, 0775, true) && !is_dir($tmpDir)) {
-            return $this->error('Could not prepare export directory.', 500);
-        }
-
-        try {
-            $zipPath = $tmpDir . DIRECTORY_SEPARATOR . 'reports.zip';
-            $zip = new ZipArchive();
-            if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-                return $this->error('Could not create archive.', 500);
-            }
-
-            $catalog = AdminReportService::catalog();
-            $adminId = optional($request->user())->id;
-
-            foreach (AdminReportService::TYPES as $type) {
-                [$headings, $rows] = $this->service->dataset($type);
-                $entryName = $this->buildFilename($type, $format);
-                $filePath  = $tmpDir . DIRECTORY_SEPARATOR . $entryName;
-
-                if ($format === 'csv') {
-                    $this->writeCsvFile($filePath, $headings, $rows);
-                } else {
-                    $label = $catalog[$type]['label'] ?? 'Report';
-                    Excel::store(
-                        new GenericReportExport($headings, $rows, $label),
-                        basename($filePath),
-                        'local',
-                        ExcelType::XLSX,
-                    );
-                    // Maatwebsite stores to storage/app — move into tmpDir.
-                    $stored = storage_path('app/' . basename($filePath));
-                    if (is_file($stored)) {
-                        @rename($stored, $filePath);
-                    }
-                }
-
-                $zip->addFile($filePath, $entryName);
-                $this->service->logExport($type, $format, $adminId);
-            }
-
-            $zip->close();
-
-            return response()->download(
-                $zipPath,
-                'reports-' . now()->format('Ymd-His') . '.zip',
-                ['Content-Type' => 'application/zip'],
-            )->deleteFileAfterSend(true);
-        } finally {
-            // Best-effort cleanup; the downloaded zip is deleted by the
-            // response above, and any leftover per-report files will be
-            // removed here.
-            register_shutdown_function(function () use ($tmpDir) {
-                if (is_dir($tmpDir)) {
-                    foreach (glob($tmpDir . DIRECTORY_SEPARATOR . '*') ?: [] as $f) {
-                        @unlink($f);
-                    }
-                    @rmdir($tmpDir);
-                }
-            });
-        }
-    }
-
-    /* ------------------------------------------------------------------ *
-     |  HELPERS                                                           |
-     * ------------------------------------------------------------------ */
-
-    private function buildFilename(string $type, string $format): string
-    {
-        $slug = str_replace(['_', ' '], '-', $type);
-        $date = now()->format('Ymd');
-        return "{$slug}-{$date}.{$format}";
-    }
-
-    /**
-     * @param  list<string>                       $headings
-     * @param  list<list<string|int|float|null>>  $rows
-     */
-    private function streamCsv(string $filename, array $headings, array $rows): StreamedResponse
-    {
-        return response()->streamDownload(function () use ($headings, $rows) {
-            $out = fopen('php://output', 'w');
-            // BOM so Excel opens UTF-8 cleanly.
-            fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, $headings);
-            foreach ($rows as $row) {
-                fputcsv($out, $row);
-            }
-            fclose($out);
-        }, $filename, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
+        $format = $request->fileFormat();
+        ReportExportLog::query()->create([
+            'report_type' => $report->key(),
+            'format' => $format,
+            'filters' => $context->filters + ($context->search !== null ? ['search' => $context->search] : []),
+            'row_count' => $rows,
+            'locale' => $context->locale,
+            'exported_by_admin_id' => $request->user()?->getKey(),
+            'exported_at' => now(),
         ]);
+
+        $admin = $request->user() instanceof Admin ? $request->user() : null;
+
+        return $format === 'csv'
+            ? $this->exporter->csv($report, $context, $admin)
+            : $this->exporter->xlsx($report, $context, $admin);
     }
 
-    /**
-     * @param  list<string>                       $headings
-     * @param  list<list<string|int|float|null>>  $rows
-     */
-    private function writeCsvFile(string $path, array $headings, array $rows): void
+    private function refuse(?Report $report, mixed $admin): ?JsonResponse
     {
-        $fh = fopen($path, 'w');
-        if ($fh === false) {
-            return;
+        if ($report === null) {
+            return $this->notFound();
         }
-        fwrite($fh, "\xEF\xBB\xBF");
-        fputcsv($fh, $headings);
-        foreach ($rows as $row) {
-            fputcsv($fh, $row);
-        }
-        fclose($fh);
+
+        return $this->allows($report, $admin) ? null : $this->error(__('messages.forbidden'), Response::HTTP_FORBIDDEN);
+    }
+
+    private function allows(Report $report, mixed $admin): bool
+    {
+        return $admin instanceof Admin && $report->allows($admin);
     }
 }

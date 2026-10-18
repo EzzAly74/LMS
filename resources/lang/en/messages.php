@@ -130,6 +130,7 @@ return [
     'course_own_instructor_only' => 'You can create courses that you teach only.',
     'course_instructors_fixed' => 'Only an administrator can add an instructor to this course.',
     'reports' => [
+        'too_many_rows' => 'This export would hold :count rows; the limit is :max. Narrow the filters and try again.',
         'no_job_title' => 'No job title',
     ],
     'assignment_closed' => 'The due date of this assignment has passed, so it can no longer be answered.',

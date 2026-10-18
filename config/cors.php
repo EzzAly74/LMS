@@ -25,7 +25,9 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    // Downloads name their file in Content-Disposition; the Dashboard (another
+    // origin) can read it only when it is exposed (D-112).
+    'exposed_headers' => ['Content-Disposition'],
 
     'max_age' => 0,
 

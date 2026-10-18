@@ -168,5 +168,6 @@ return [
         'passcode_reset_seconds' => 'مدة إعادة تعيين رمز الحضور',
         'min_passing_attendance' => 'الحد الأدنى لنسبة الحضور',
         'min_passing_score'      => 'الحد الأدنى لدرجة النجاح',
+        'compliance_target'      => 'نسبة الامتثال المستهدفة',
     ],
 ];

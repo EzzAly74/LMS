@@ -29,6 +29,8 @@ class PlatformConfigValidationTest extends ApiTestCase
             'attendance flag'        => ['course_attendance_enabled', 'yes'],
             'basis'                  => ['certificate_award_basis', 'luck'],
             'cohort size empty'      => ['default_cohort_size', ''],
+            'compliance target 101'  => ['compliance_target', '101'],
+            'compliance target text' => ['compliance_target', 'high'],
         ];
     }
 
@@ -51,5 +53,15 @@ class PlatformConfigValidationTest extends ApiTestCase
         $this->saveSettings(['default_cohort_size' => '1', 'academy_default_close_offset_days' => '0', 'min_passing_score' => '100'], $h)->assertOk();
 
         $this->assertSame('1', Setting::query()->where('key', 'default_cohort_size')->value('value'));
+    }
+
+    public function test_the_compliance_target_is_seeded_at_90_and_saved(): void
+    {
+        ['headers' => $h] = $this->adminToken();
+        $this->assertSame('90', Setting::query()->where('key', 'compliance_target')->orderBy('id')->value('value'));
+
+        $this->saveSettings(['compliance_target' => '85'], $h)->assertOk();
+
+        $this->assertSame('85', Setting::query()->where('key', 'compliance_target')->orderBy('id')->value('value'));
     }
 }

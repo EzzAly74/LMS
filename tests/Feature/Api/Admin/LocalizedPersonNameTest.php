@@ -117,24 +117,28 @@ class LocalizedPersonNameTest extends ApiTestCase
         $this->assertSame([], $this->fetch('/admin/evaluations/scores?search=%25', 'en', $h));
     }
 
-    public function test_report_exports_name_the_learner_in_the_request_language(): void
+    public function test_report_exports_carry_both_names_in_either_language(): void
     {
         $user   = $this->learner();
         $course = Course::factory()->create(['certificate' => true]);
         UserCertificate::factory()->create(['user_id' => $user->id, 'course_id' => $course->id]);
         ['headers' => $h] = $this->adminToken();
 
-        $learners = function (string $locale) use ($h): array {
-            $csv  = $this->get(self::BASE.'/admin/reports/certificate-status/export?format=csv', $h + ['Accept-Language' => $locale])
+        // The NAS spec (D-112) has Full Name (EN) and Full Name (AR) columns:
+        // both names, whatever the export language.
+        $names = function (string $locale) use ($h): array {
+            $csv   = $this->get(self::BASE.'/admin/reports/certificate-status/export?format=csv', $h + ['Accept-Language' => $locale])
                 ->assertOk()->streamedContent();
-            $rows = array_map('str_getcsv', array_values(array_filter(preg_split('/\r?\n/', preg_replace('/^\xEF\xBB\xBF/', '', $csv)), fn ($l) => $l !== '')));
-            array_shift($rows);
+            $lines = preg_split('/?
+/', preg_replace('/^ï»¿/', '', $csv));
+            $data  = array_slice($lines, array_search('', $lines, true) + 2);
+            $row   = str_getcsv($data[0]);
 
-            return array_column($rows, 0);
+            return [$row[1], $row[2]];
         };
 
-        $this->assertSame([self::EN_NAME], $learners('en'));
-        $this->assertSame([self::AR_NAME], $learners('ar'));
+        $this->assertSame([self::EN_NAME, self::AR_NAME], $names('en'));
+        $this->assertSame([self::EN_NAME, self::AR_NAME], $names('ar'));
     }
 
     public function test_the_certificates_list_loads_the_language_names(): void

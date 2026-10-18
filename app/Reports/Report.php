@@ -8,7 +8,6 @@ use App\Models\Admin;
  * One NAS report (D-112): its columns in the spec's order, its filters, and
  * its rows. Rows are arrays keyed by column key holding plain values: numbers,
  * Y-m-d / Y-m-d H:i strings, booleans for Yes/No, localized text, or null.
- * Columns the system does not capture are always null.
  */
 abstract class Report
 {
@@ -19,6 +18,34 @@ abstract class Report
 
     /** @return list<Filter> */
     abstract public function filters(): array;
+
+    /**
+     * The on-screen preview's columns (Figma 2201:82041); the export keeps
+     * every column.
+     *
+     * @return list<PreviewColumn>
+     */
+    abstract public function preview(ReportContext $context): array;
+
+    /**
+     * Rows as the preview shows them.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    public function previewRows(array $rows, ReportContext $context): array
+    {
+        $columns = $this->preview($context);
+
+        return array_map(function (array $row) use ($columns, $context) {
+            $out = [];
+            foreach ($columns as $column) {
+                $out[$column->key] = $column->value($row, $context);
+            }
+
+            return $out;
+        }, $rows);
+    }
 
     /**
      * One page of rows and the total.
@@ -48,15 +75,17 @@ abstract class Report
         return __("reports.descriptions.{$this->key()}");
     }
 
+    /** The report page's subtitle (Figma 2201:82041); the card's description when it has none. */
+    public function pageDescription(): string
+    {
+        $key = "reports.page_descriptions.{$this->key()}";
+
+        return \Illuminate\Support\Facades\Lang::has($key) ? __($key) : $this->description();
+    }
+
     public function rowUnit(): string
     {
         return __("reports.row_units.{$this->key()}");
-    }
-
-    /** Columns that stay empty because the data is not captured. @return list<Column> */
-    public function missingColumns(ReportContext $context): array
-    {
-        return array_values(array_filter($this->columns($context), fn (Column $c) => ! $c->available));
     }
 
     /** @return list<string> */
@@ -66,7 +95,7 @@ abstract class Report
     }
 
     /**
-     * Fill every column key (unavailable ones with null) in column order.
+     * Fill every column key in column order (null when a row has no value).
      *
      * @param  array<string, mixed>  $values
      * @param  list<string>  $keys

@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Reports\Column;
 use App\Reports\Filter;
 use App\Reports\QueryReport;
@@ -20,7 +21,7 @@ use Illuminate\Support\Facades\DB;
  * A request carries one hours value, approved as claimed: Hours Approved is
  * that value once the request is approved, blank otherwise. The proof file
  * is required on every request, so Attachment reads Yes whenever one is
- * stored. Requests have no training type, so Training Type is not captured.
+ * stored. Requests have no training type, so Training Type is left out.
  */
 final class ExternalTrainingReport extends QueryReport
 {
@@ -43,7 +44,6 @@ final class ExternalTrainingReport extends QueryReport
             new Column('claim_id', 'claim'),
             new Column('training_title', 'training'),
             new Column('provider', 'training'),
-            Column::missing('training_type', 'training'),
             new Column('training_start_date', 'training', Column::DATE),
             new Column('training_end_date', 'training', Column::DATE),
             new Column('hours_claimed', 'hours', Column::NUMBER),
@@ -60,14 +60,36 @@ final class ExternalTrainingReport extends QueryReport
         ];
     }
 
+    /** Figma 2201:82041: Learner, Provider, Title, Hours, Qualification, Status, Submitted, Approved. */
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::learner(),
+            PreviewColumn::of('provider', 'reports.preview.provider'),
+            PreviewColumn::of('training_title', 'reports.preview.title'),
+            PreviewColumn::of('hours_claimed', 'reports.preview.hours', Column::NUMBER, true),
+            PreviewColumn::of('linked_qualification', 'reports.preview.qualification'),
+            PreviewColumn::status('claim_status', 'reports.preview.status', [
+                self::STATUSES['approved'] => 'success',
+                self::STATUSES['pending'] => 'warning',
+                self::STATUSES['rejected'] => 'danger',
+                self::STATUSES['withdrawn'] => 'neutral',
+            ]),
+            PreviewColumn::of('submission_date', 'reports.preview.submitted', Column::DATE),
+            PreviewColumn::computed('approved_on', 'reports.preview.approved', Column::DATE,
+                fn (array $r) => $r['hours_approved'] !== null ? $r['decision_date'] : null),
+        ];
+    }
+
     public function filters(): array
     {
         return [
-            Filter::multi('departments', 'departments'),
-            Filter::multi('employee_ids', 'employees'),
-            Filter::multi('providers', 'providers'),
-            Filter::status('statuses', self::STATUSES),
             Filter::dateRange('training'),
+            Filter::multi('qualification_ids', 'qualifications'),
+            Filter::multi('providers', 'providers'),
+            Filter::multi('employee_ids', 'employees'),
+            Filter::multi('org_units', 'org_units'),
+            Filter::status('statuses', self::STATUSES),
         ];
     }
 
@@ -90,6 +112,7 @@ final class ExternalTrainingReport extends QueryReport
             ->tap(fn ($q) => Employee::filter($q, $context))
             ->tap(fn ($q) => Scope::learners($q, $context, 'e.user_id'))
             ->when($context->strings('providers'), fn ($q, $v) => $q->whereIn('e.provider', $v))
+            ->when($context->ids('qualification_ids'), fn ($q, $v) => $q->whereIn('e.qualification_skill_id', $v))
             ->when($context->strings('statuses'), fn ($q, $v) => $q->whereIn('e.status', $v))
             // A training that ran at any time in the period.
             ->when($to, fn ($q) => $q->whereDate('e.start_date', '<=', $to->toDateString()))

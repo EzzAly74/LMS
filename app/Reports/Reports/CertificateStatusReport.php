@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Reports\Column;
 use App\Reports\Filter;
 use App\Reports\QueryReport;
@@ -23,7 +24,7 @@ use Illuminate\Support\Facades\DB;
  * Linked Course is the course that awarded it (certificates are per course).
  * Issued By is the admin who issued it, or "Issued automatically" when the
  * certificate rule issued it. No public verification page exists, so the
- * Verification Link is not captured.
+ * Verification Link is left out.
  */
 final class CertificateStatusReport extends QueryReport
 {
@@ -47,7 +48,21 @@ final class CertificateStatusReport extends QueryReport
             new Column('issue_date', 'dates', Column::DATE),
             new Column('certificate_status', 'status'),
             new Column('issued_by', 'status'),
-            Column::missing('verification_link', 'status'),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::learner(),
+            PreviewColumn::of('certificate_no', 'reports.columns.certificate_no', Column::TEXT, true),
+            PreviewColumn::of('certificate_name', 'reports.preview.certificate'),
+            PreviewColumn::of('issue_date', 'reports.columns.issue_date', Column::DATE),
+            PreviewColumn::status('certificate_status', 'reports.preview.status', [
+                self::STATUSES['valid'] => 'success',
+                self::STATUSES['revoked'] => 'danger',
+            ]),
+            PreviewColumn::of('issued_by', 'reports.columns.issued_by'),
         ];
     }
 

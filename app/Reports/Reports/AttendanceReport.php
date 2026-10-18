@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Reports\Column;
 use App\Reports\Filter;
 use App\Reports\QueryReport;
@@ -63,10 +64,8 @@ final class AttendanceReport extends QueryReport
             new Column('attendance_hours', 'hours', Column::NUMBER),
             new Column('full_name_en', 'employee'),
             new Column('job_title', 'employee'),
-            Column::missing('line_manager', 'employee'),
             new Column('location', 'employee'),
             new Column('employment_status', 'employee'),
-            Column::missing('course_code', 'course'),
             new Column('delivery_mode', 'course'),
             new Column('instructor', 'course'),
             new Column('group_start_date', 'course', Column::DATE),
@@ -76,6 +75,25 @@ final class AttendanceReport extends QueryReport
             new Column('attendance_pct_hours', 'calculated', Column::PERCENT),
             new Column('attendance_status', 'calculated'),
             new Column('absence_hours', 'calculated', Column::NUMBER),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::learner(),
+            PreviewColumn::of('course_name', 'reports.preview.course'),
+            PreviewColumn::of('group_cohort', 'reports.columns.group_cohort'),
+            PreviewColumn::computed('sessions', 'reports.preview.sessions', Column::TEXT,
+                fn (array $r) => $r['required_sessions'] === null ? null : $r['sessions_attended'].' / '.$r['required_sessions'], true),
+            PreviewColumn::of('attendance_pct_sessions', 'reports.preview.attendance_pct', Column::PERCENT),
+            PreviewColumn::of('attendance_hours', 'reports.columns.attendance_hours', Column::NUMBER),
+            PreviewColumn::status('attendance_status', 'reports.preview.status', [
+                'reports.values.attendance.completed' => 'success',
+                'reports.values.attendance.partial' => 'warning',
+                'reports.values.attendance.at_risk' => 'danger',
+                'reports.values.attendance.no_show' => 'danger',
+            ]),
         ];
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Models\Setting;
 use App\Reports\Column;
 use App\Reports\ComputedReport;
@@ -21,7 +22,7 @@ use Illuminate\Support\Facades\DB;
  * = Fully Compliant / Total Employees; Status compares it with the
  * organisation-wide target (Platform Config `compliance_target`, 90% by
  * default; human 2026-10-18). Job titles have no code and no due dates, so
- * Job Title Code and Overdue are not captured. Department is the most common
+ * Job Title Code and Overdue are left out. Department is the most common
  * department of the title's employees (HR keeps no department per title).
  */
 final class ComplianceByJobTitleReport extends ComputedReport
@@ -37,17 +38,31 @@ final class ComplianceByJobTitleReport extends ComputedReport
     {
         return [
             new Column('job_title', 'job_title'),
-            Column::missing('job_title_code', 'job_title'),
             new Column('department', 'job_title'),
             new Column('total_employees', 'headcount', Column::NUMBER),
             new Column('required_qualifications', 'requirements', Column::NUMBER),
             new Column('fully_compliant', 'progress', Column::NUMBER),
             new Column('in_progress', 'progress', Column::NUMBER),
             new Column('not_started', 'progress', Column::NUMBER),
-            Column::missing('overdue', 'progress', Column::NUMBER),
             new Column('compliance_pct', 'progress', Column::PERCENT),
             new Column('target_pct', 'target', Column::PERCENT),
             new Column('compliance_status', 'target'),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::of('job_title', 'reports.columns.job_title', Column::TEXT, true),
+            PreviewColumn::of('department', 'reports.columns.department'),
+            PreviewColumn::of('total_employees', 'reports.columns.total_employees', Column::NUMBER, true),
+            PreviewColumn::of('fully_compliant', 'reports.columns.fully_compliant', Column::NUMBER),
+            PreviewColumn::of('compliance_pct', 'reports.columns.compliance_pct', Column::PERCENT, true),
+            PreviewColumn::of('target_pct', 'reports.columns.target_pct', Column::PERCENT),
+            PreviewColumn::status('compliance_status', 'reports.columns.compliance_status', [
+                'reports.values.compliance.on_track' => 'success',
+                'reports.values.compliance.at_risk' => 'danger',
+            ]),
         ];
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Models\CourseAssignment;
 use App\Models\UserCourseAssignment;
 use App\Reports\Column;
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\DB;
  * D-090) as a %. Pending Grading while a person still scores an answer.
  * Late: sent after the due day. Graded By / Graded Date are the reviewer and
  * review moment. A learner sends an assignment once (one row per learner and
- * assignment), so Resubmissions are not captured.
+ * assignment), so Resubmissions is left out.
  */
 final class AssignmentScoresReport extends QueryReport
 {
@@ -58,8 +59,24 @@ final class AssignmentScoresReport extends QueryReport
             new Column('result', 'grade'),
             new Column('graded_by', 'grading'),
             new Column('graded_date', 'grading', Column::DATE),
-            Column::missing('resubmissions', 'grading', Column::NUMBER),
             new Column('feedback', 'grading'),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::learner(),
+            PreviewColumn::of('course_name', 'reports.preview.course'),
+            PreviewColumn::of('assignment_name', 'reports.preview.assignment'),
+            PreviewColumn::of('grade_pct', 'reports.columns.grade_pct', Column::PERCENT, true),
+            PreviewColumn::status('result', 'reports.columns.result', [
+                self::RESULTS['pass'] => 'success',
+                self::RESULTS['fail'] => 'danger',
+                self::RESULTS['pending'] => 'warning',
+            ]),
+            PreviewColumn::of('submission_date', 'reports.preview.submitted', Column::DATETIME),
+            PreviewColumn::of('graded_by', 'reports.columns.graded_by'),
         ];
     }
 

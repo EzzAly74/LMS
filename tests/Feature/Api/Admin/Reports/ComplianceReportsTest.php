@@ -60,8 +60,9 @@ class ComplianceReportsTest extends ReportTestCase
         $this->assertEquals(33.3, $row['compliance_pct']);
         $this->assertEquals(90, $row['target_pct']);
         $this->assertSame('At Risk', $row['compliance_status']);
-        $this->assertNull($row['job_title_code']);
-        $this->assertNull($row['overdue']);
+        // Not stored, so not in the report (human 2026-10-18).
+        $this->assertArrayNotHasKey('job_title_code', $row);
+        $this->assertArrayNotHasKey('overdue', $row);
     }
 
     public function test_the_target_comes_from_platform_config(): void
@@ -121,7 +122,7 @@ class ComplianceReportsTest extends ReportTestCase
             [$sara['qualification_name'], $sara['required_courses'], $sara['completed_courses'], $sara['qualification_status'], $sara['completion_date']]);
         $this->assertEquals(100, $sara['completion_pct']);
         $this->assertNotNull($sara['assigned_date']);
-        $this->assertNull($sara['line_manager']);
+        $this->assertArrayNotHasKey('line_manager', $sara);
         $this->assertSame('In Progress', $rows->firstWhere('full_name_en', 'Omar Adel')['qualification_status']);
         $mona = $rows->where('full_name_en', 'Mona Fady')->keyBy('qualification_name');
         $this->assertSame('Not Started', $mona['Interviewing']['qualification_status']);

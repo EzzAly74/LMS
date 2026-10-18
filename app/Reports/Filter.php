@@ -77,14 +77,13 @@ final class Filter
     /** @return array<string, list<string>> */
     public function rules(): array
     {
-        $required = $this->required ? 'required' : 'nullable';
-
         return match ($this->type) {
             self::MULTI => [
                 $this->key => ['nullable', 'array', 'max:'.self::MAX_VALUES],
                 "{$this->key}.*" => $this->usesStrings() ? ['string', 'max:255'] : ['integer', 'min:1'],
             ],
-            self::SELECT => [$this->key => [$required, 'integer', 'min:1']],
+            // A required choice has a default (ReportRequest::context()).
+            self::SELECT => [$this->key => ['nullable', 'integer', 'min:1']],
             self::STATUS => [
                 $this->key => ['nullable', 'array', 'max:'.count($this->options)],
                 "{$this->key}.*" => ['string', 'in:'.implode(',', array_keys($this->options))],
@@ -105,6 +104,14 @@ final class Filter
         return __("reports.filters.{$this->key}");
     }
 
+    /** "Start Date" where the report names it, else "<label> from". */
+    private function sideLabel(string $side): string
+    {
+        $key = "reports.filters.{$this->key}_{$side}";
+
+        return \Illuminate\Support\Facades\Lang::has($key) ? __($key) : __("reports.filters.range_{$side}", ['label' => $this->label()]);
+    }
+
     /** @return array<string, mixed> */
     public function toArray(): array
     {
@@ -115,6 +122,11 @@ final class Filter
             'source' => $this->source,
             'required' => $this->required,
             'depends_on' => $this->dependsOn,
+            // A date range is two fields, each with its own label.
+            'range_labels' => $this->type === self::DATE_RANGE ? [
+                'from' => $this->sideLabel('from'),
+                'to' => $this->sideLabel('to'),
+            ] : null,
             'options' => array_map(
                 fn (string $value) => ['id' => $value, 'label' => __($this->options[$value])],
                 array_keys($this->options),

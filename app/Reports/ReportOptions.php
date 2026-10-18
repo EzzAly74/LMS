@@ -18,11 +18,11 @@ final class ReportOptions
 {
     public const SOURCES = [
         'departments', 'job_titles', 'employees', 'qualifications', 'categories', 'courses', 'cohorts',
-        'quizzes', 'assignments', 'graders', 'instructors', 'templates', 'providers',
+        'quizzes', 'assignments', 'graders', 'instructors', 'templates', 'providers', 'org_units',
     ];
 
     /** Sources whose values are the stored text itself, not record ids. */
-    public const STRING_SOURCES = ['departments', 'providers'];
+    public const STRING_SOURCES = ['departments', 'providers', 'org_units'];
 
     public const LIMIT = 50;
 
@@ -32,6 +32,10 @@ final class ReportOptions
      */
     public function options(string $source, ReportContext $context, ?string $search = null, array $courseIds = []): array
     {
+        if ($source === 'org_units') {
+            return $this->orgUnits($context, $search);
+        }
+
         return $this->query($source, $context, $courseIds)
             ->when($search !== null && $search !== '', fn (Builder $q) => $this->search($q, $source, (string) $search))
             ->limit(self::LIMIT)
@@ -53,6 +57,14 @@ final class ReportOptions
         if ($values === []) {
             return [];
         }
+        if ($source === 'org_units') {
+            $departments = $this->labels('departments', array_values(array_map(fn ($v) => substr((string) $v, 5),
+                array_filter($values, fn ($v) => str_starts_with((string) $v, 'dept:')))), $context);
+            $jobTitles = $this->labels('job_titles', array_values(array_map(fn ($v) => (int) substr((string) $v, 4),
+                array_filter($values, fn ($v) => str_starts_with((string) $v, 'job:')))), $context);
+
+            return array_merge($departments, $jobTitles);
+        }
         $key = $this->idColumn($source);
         $found = $this->query($source, $context, [])
             ->whereIn($key, $values)
@@ -60,6 +72,22 @@ final class ReportOptions
             ->mapWithKeys(fn (object $row) => [(string) $row->id => $this->option($source, $row, $context)['label']]);
 
         return array_values(array_filter(array_map(fn ($v) => $found[(string) $v] ?? null, $values)));
+    }
+
+    /**
+     * Departments then job titles, for the one Department / Job Title field
+     * (Figma 2201:82041), as "dept:<name>" / "job:<id>".
+     *
+     * @return list<array{id: string, label: string}>
+     */
+    private function orgUnits(ReportContext $context, ?string $search): array
+    {
+        $prefix = fn (string $p, array $options) => array_map(fn (array $o) => ['id' => $p.$o['id'], 'label' => $o['label']], $options);
+
+        return array_slice(array_merge(
+            $prefix('dept:', $this->options('departments', $context, $search)),
+            $prefix('job:', $this->options('job_titles', $context, $search)),
+        ), 0, self::LIMIT);
     }
 
     private function query(string $source, ReportContext $context, array $courseIds): Builder

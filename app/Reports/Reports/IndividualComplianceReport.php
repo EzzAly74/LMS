@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Reports\Column;
 use App\Reports\Filter;
 use App\Reports\QueryReport;
@@ -25,8 +26,8 @@ use Illuminate\Support\Facades\DB;
  * course, Not Started neither. Assigned Date is when the qualification was
  * added to the job title or granted, whichever came first; Completion Date
  * the grant, or the last linked course completed. Qualifications have no
- * code, due date or expiry (human 2026-10-18: no expiry), so Code, Due Date
- * and Overdue are not captured, and Expiry Date is dropped.
+ * code, due date or expiry (human 2026-10-18: no expiry), so Code, Due Date,
+ * Overdue and Expiry Date are left out.
  */
 final class IndividualComplianceReport extends QueryReport
 {
@@ -46,15 +47,30 @@ final class IndividualComplianceReport extends QueryReport
         return [
             ...Employee::columns(),
             new Column('qualification_name', 'qualification'),
-            Column::missing('qualification_code', 'qualification'),
             new Column('required_courses', 'progress', Column::NUMBER),
             new Column('completed_courses', 'progress', Column::NUMBER),
             new Column('completion_pct', 'progress', Column::PERCENT),
             new Column('qualification_status', 'progress'),
             new Column('assigned_date', 'dates', Column::DATE),
-            Column::missing('due_date', 'dates', Column::DATE),
             new Column('completion_date', 'dates', Column::DATE),
-            Column::missing('overdue', 'dates', Column::YES_NO),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::learner(),
+            PreviewColumn::of('job_title', 'reports.columns.job_title'),
+            PreviewColumn::of('qualification_name', 'reports.preview.qualification'),
+            PreviewColumn::computed('courses', 'reports.preview.courses', Column::TEXT,
+                fn (array $r) => $r['required_courses'] === null ? null : ($r['completed_courses'] ?? 0).' / '.$r['required_courses'], true),
+            PreviewColumn::of('completion_pct', 'reports.columns.completion_pct', Column::PERCENT),
+            PreviewColumn::status('qualification_status', 'reports.columns.qualification_status', [
+                self::STATUSES['complete'] => 'success',
+                self::STATUSES['in_progress'] => 'warning',
+                self::STATUSES['not_started'] => 'neutral',
+            ]),
+            PreviewColumn::of('completion_date', 'reports.columns.completion_date', Column::DATE),
         ];
     }
 

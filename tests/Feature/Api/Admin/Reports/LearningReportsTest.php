@@ -136,8 +136,8 @@ class LearningReportsTest extends ReportTestCase
         $this->assertSame(['Failed', false, null], [$rows['Failed']['completion_status'], $rows['Failed']['certificate_issued'], $rows['Failed']['completion_date']]);
         $this->assertSame('In Progress', $rows['Going']['completion_status']);
         $this->assertSame(['Not Started', null], [$rows['Idle']['completion_status'], $rows['Idle']['start_date']]);
-        $this->assertNull($d['due_date']);
-        $this->assertNull($d['time_spent']);
+        $this->assertArrayNotHasKey('due_date', $d);
+        $this->assertArrayNotHasKey('time_spent', $d);
 
         foreach (['completed' => 'Done', 'failed' => 'Failed', 'in_progress' => 'Going', 'not_started' => 'Idle'] as $status => $name) {
             $this->assertSame([$name], array_column($this->rows('completion', ['statuses' => [$status]]), 'full_name_en'), $status);
@@ -199,7 +199,7 @@ class LearningReportsTest extends ReportTestCase
         $this->assertEquals([42, 50, 84, 60], [$o['grade'], $o['max_grade'], $o['grade_pct'], $o['pass_mark']]);
         $this->assertSame([true, 'Fail'], [$rows['Late']['late'], $rows['Late']['result']]);
         $this->assertSame(['Pending Grading', false, null], [$rows['Waiting']['result'], $rows['Waiting']['late'], $rows['Waiting']['graded_by']]);
-        $this->assertNull($o['resubmissions']);
+        $this->assertArrayNotHasKey('resubmissions', $o);
         $this->assertSame(['Late'], array_column($this->rows('assignment-scores', ['results' => ['fail']]), 'full_name_en'));
         $this->assertCount(2, $this->rows('assignment-scores', ['grader_ids' => [$grader->id]]));
         $this->assertSame('مسودة', $this->rows('assignment-scores', [], 'ar')[0]['assignment_name']);

@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Reports\Column;
 use App\Reports\Filter;
 use App\Reports\QueryReport;
@@ -33,7 +34,7 @@ use Illuminate\Support\Facades\DB;
  *   Final Score       the final quiz's score %; Result is its pass / fail
  *                     (QuizVerdict, D-087)
  *
- * Due Date and Time Spent are not captured.
+ * Course Code, Due Date and Time Spent are not stored, so they are left out.
  */
 final class CompletionReport extends QueryReport
 {
@@ -54,19 +55,34 @@ final class CompletionReport extends QueryReport
         return [
             ...Employee::columns(),
             new Column('course_name', 'course'),
-            Column::missing('course_code', 'course'),
             new Column('category', 'course'),
             new Column('cohort', 'course'),
             new Column('enrollment_date', 'dates', Column::DATE),
             new Column('start_date', 'dates', Column::DATE),
-            Column::missing('due_date', 'dates', Column::DATE),
             new Column('completion_date', 'dates', Column::DATE),
             new Column('completion_status', 'progress'),
             new Column('progress_pct', 'progress', Column::PERCENT),
-            Column::missing('time_spent', 'progress', Column::NUMBER),
             new Column('final_score', 'result', Column::PERCENT),
             new Column('result', 'result'),
             new Column('certificate_issued', 'result', Column::YES_NO),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::learner(),
+            PreviewColumn::of('course_name', 'reports.preview.course'),
+            PreviewColumn::of('cohort', 'reports.columns.cohort'),
+            PreviewColumn::of('enrollment_date', 'reports.preview.enrolled', Column::DATE),
+            PreviewColumn::of('progress_pct', 'reports.columns.progress_pct', Column::PERCENT, true),
+            PreviewColumn::status('completion_status', 'reports.preview.status', [
+                self::STATUSES['completed'] => 'success',
+                self::STATUSES['in_progress'] => 'warning',
+                self::STATUSES['not_started'] => 'neutral',
+                self::STATUSES['failed'] => 'danger',
+            ]),
+            PreviewColumn::of('completion_date', 'reports.preview.completed', Column::DATE),
         ];
     }
 

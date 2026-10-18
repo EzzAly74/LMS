@@ -6,6 +6,7 @@ use App\Reports\Filter;
 use App\Reports\Report;
 use App\Reports\ReportContext;
 use App\Reports\ReportExporter;
+use App\Reports\ReportOptions;
 use App\Reports\ReportRegistry;
 use App\Services\Admin\CourseScope;
 use Illuminate\Foundation\Http\FormRequest;
@@ -41,6 +42,8 @@ class ReportRequest extends FormRequest
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
             'format' => ['sometimes', 'string', 'in:'.implode(',', ReportExporter::FORMATS)],
+            // The on-screen preview (Figma 2201:82041) instead of every column.
+            'preview' => ['sometimes', 'boolean'],
         ];
         foreach ($this->report()?->filters() ?? [] as $filter) {
             $rules = array_merge($rules, $filter->rules());
@@ -96,17 +99,41 @@ class ReportRequest extends FormRequest
             $keys = $filter->type === Filter::DATE_RANGE ? ["{$filter->key}_from", "{$filter->key}_to"] : [$filter->key];
             foreach ($keys as $key) {
                 if (array_key_exists($key, $validated) && $validated[$key] !== null && $validated[$key] !== []) {
-                    $filters[$key] = $validated[$key];
+                    // A single id is a number, as the default one is.
+                    $filters[$key] = $filter->type === Filter::SELECT ? (int) $validated[$key] : $validated[$key];
                 }
             }
         }
         $search = trim((string) ($validated['search'] ?? ''));
+        $courseIds = app(CourseScope::class)->courseIds($this->user());
 
         return new ReportContext(
-            $filters,
+            self::withDefaults($this->report(), $filters, $courseIds),
             app()->getLocale(),
-            app(CourseScope::class)->courseIds($this->user()),
+            $courseIds,
             $search !== '' ? $search : null,
         );
+    }
+
+    /**
+     * A required choice left out (the evaluation template) takes its first
+     * option: the most answered template the reader may see.
+     *
+     * @param  array<string, mixed>  $filters
+     * @param  list<int>|null  $courseIds
+     * @return array<string, mixed>
+     */
+    public static function withDefaults(?Report $report, array $filters, ?array $courseIds): array
+    {
+        foreach ($report?->filters() ?? [] as $filter) {
+            if ($filter->required && $filter->source !== null && ! isset($filters[$filter->key])) {
+                $first = app(ReportOptions::class)->options($filter->source, new ReportContext([], app()->getLocale(), $courseIds))[0] ?? null;
+                if ($first !== null) {
+                    $filters[$filter->key] = $first['id'];
+                }
+            }
+        }
+
+        return $filters;
     }
 }

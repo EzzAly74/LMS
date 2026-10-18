@@ -21,6 +21,9 @@ Route::middleware(['auth.user', 'role:Admin', 'section:reports'])->prefix('admin
         ->whereIn('source', ReportOptions::SOURCES)
         ->middleware('throttle:120,1')
         ->name('admin.reports.options');
+    Route::get('reports/export-all', [AdminReportController::class, 'exportAll'])
+        ->middleware('throttle:10,1')
+        ->name('admin.reports.export-all');
     Route::get('reports/{report}/export', [AdminReportController::class, 'export'])
         ->where('report', '[a-z0-9-]+')
         ->middleware('throttle:10,1')

@@ -12,7 +12,7 @@ use Illuminate\Support\Carbon;
  * The employee fields the NAS reports repeat (the spec's grey rows), read
  * from `users` and its job title. Employee ID is the HR employee code
  * (`machine_code`), the number HR, attendance and certificates all show.
- * Line Manager is not in the HR feed, so it stays "not captured" (D-112).
+ * Line Manager is not in the HR feed, so it is left out (D-112).
  */
 final class Employee
 {
@@ -26,7 +26,6 @@ final class Employee
             new Column('email', 'employee'),
             new Column('job_title', 'employee'),
             new Column('department', 'employee'),
-            Column::missing('line_manager', 'employee'),
             new Column('location', 'employee'),
             new Column('employment_status', 'employee'),
             new Column('hire_date', 'employee', Column::DATE),
@@ -88,7 +87,32 @@ final class Employee
             ->when($context->strings('departments'), fn (Builder $q, array $v) => $q->whereIn("{$u}.department_name", $v))
             ->when($context->ids('job_title_ids'), fn (Builder $q, array $v) => $q->whereIn("{$u}.job_title_id", $v))
             ->when($context->ids('employee_ids'), fn (Builder $q, array $v) => $q->whereIn("{$u}.id", $v))
+            ->when($context->strings('org_units'), fn (Builder $q, array $v) => self::whereOrgUnits($q, $v, $u))
             ->when($context->search, fn (Builder $q, string $term) => PersonName::whereUserMatches($q, $u, $term, ['machine_code', 'email']));
+    }
+
+    /**
+     * The combined Department / Job Title filter: any chosen department OR
+     * any chosen job title.
+     *
+     * @param  list<string>  $values  "dept:<HR department name>" or "job:<job title id>"
+     */
+    private static function whereOrgUnits(Builder $query, array $values, string $u): Builder
+    {
+        $departments = [];
+        $jobTitles = [];
+        foreach ($values as $value) {
+            if (str_starts_with($value, 'dept:')) {
+                $departments[] = substr($value, 5);
+            } elseif (str_starts_with($value, 'job:') && ctype_digit(substr($value, 4))) {
+                $jobTitles[] = (int) substr($value, 4);
+            }
+        }
+
+        return $query->where(function (Builder $w) use ($departments, $jobTitles, $u) {
+            $w->whereIn("{$u}.department_name", $departments ?: ['\0'])
+                ->orWhereIn("{$u}.job_title_id", $jobTitles ?: [0]);
+        });
     }
 
     /**

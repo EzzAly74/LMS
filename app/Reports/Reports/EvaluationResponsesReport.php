@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Models\Admin;
 use App\Reports\Column;
 use App\Reports\Filter;
@@ -54,6 +55,18 @@ final class EvaluationResponsesReport extends QueryReport
             new Column('instructor', 'course'),
             new Column('group_cohort', 'course'),
             ...EvaluationTemplate::answerColumns($template, $context, averages: false),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::computed('respondent', 'reports.preview.learner', Column::TEXT, fn (array $r) => $r['full_name_ar'] ?? null, true),
+            PreviewColumn::of('employee_id', 'reports.columns.employee_id'),
+            PreviewColumn::of('course_name', 'reports.preview.course'),
+            PreviewColumn::of('instructor', 'reports.columns.instructor'),
+            PreviewColumn::of('group_cohort', 'reports.columns.group_cohort'),
+            PreviewColumn::of('submission_date', 'reports.preview.submitted', Column::DATETIME),
         ];
     }
 

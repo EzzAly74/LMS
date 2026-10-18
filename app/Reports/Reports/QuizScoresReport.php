@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Reports\Column;
 use App\Reports\Filter;
 use App\Reports\QueryReport;
@@ -59,6 +60,24 @@ final class QuizScoresReport extends QueryReport
             new Column('result', 'score'),
             new Column('time_taken', 'attempt', Column::NUMBER),
             new Column('best_attempt', 'attempt', Column::YES_NO),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::learner(),
+            PreviewColumn::of('course_name', 'reports.preview.course'),
+            PreviewColumn::of('quiz_name', 'reports.preview.quiz'),
+            PreviewColumn::computed('score_of', 'reports.preview.score', Column::TEXT,
+                fn (array $r) => $r['score'] === null ? null : rtrim(rtrim(number_format((float) $r['score'], 2, '.', ''), '0'), '.').' / '.rtrim(rtrim(number_format((float) $r['max_score'], 2, '.', ''), '0'), '.'), true),
+            PreviewColumn::of('score_pct', 'reports.columns.score_pct', Column::PERCENT),
+            PreviewColumn::status('result', 'reports.columns.result', [
+                self::RESULTS['pass'] => 'success',
+                self::RESULTS['fail'] => 'danger',
+                self::RESULTS['pending'] => 'warning',
+            ]),
+            PreviewColumn::of('attempt_date', 'reports.preview.attempted', Column::DATETIME),
         ];
     }
 

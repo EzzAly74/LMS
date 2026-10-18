@@ -89,8 +89,8 @@ class EvaluationAndExternalReportsTest extends ReportTestCase
             [$row['course_name'], $row['instructor'], $row['group_cohort'], $row['evaluation_period'], $row['enrolled'], $row['respondents'], $row['departments_covered']]);
         $this->assertEquals([50, 3.5, 4.0, 3.8, 8.0, 0], [$row['response_rate'], $row[$q('clarity')], $row[$q('examples')], $row['avg_overall_score'], $row['avg_recommendation'], $row['nps']]);
         $this->assertSame(['1 / 0 / 1', 1, 'Clarity of explanation'], [$row['nps_bands'], $row['comments_received'], $row['lowest_rated_question']]);
-        $this->assertNull($row['avg_trainer_score']);
-        $this->assertNull($row['course_code']);
+        $this->assertArrayNotHasKey('avg_trainer_score', $row);
+        $this->assertArrayNotHasKey('course_code', $row);
         $this->assertCount(1, $result['rows']);
         $this->assertCount(0, $this->page('evaluation-summary', ['template_id' => $this->template->id, 'submitted_to' => '2026-05-01'])->json('result.rows'));
         $this->assertCount(1, $this->page('evaluation-summary', ['template_id' => $this->template->id, 'search' => 'selling'])->json('result.rows'));
@@ -139,15 +139,36 @@ class EvaluationAndExternalReportsTest extends ReportTestCase
 
         $rows = collect($this->rows('external-training'))->keyBy('claim_status');
 
-        $a = $rows['Approved'];
+        // Figma 2201:82041 calls an approved request "Accepted".
+        $a = $rows['Accepted'];
         $this->assertSame([(string) $approved, 'SHRM-CP Prep', 'SHRM', '2026-04-05', '2026-04-30', 'EGP', 'Talent Acquisition', true, '2026-05-02', 'Ahmed Salem', '2026-05-06', null],
             [$a['claim_id'], $a['training_title'], $a['provider'], $a['training_start_date'], $a['training_end_date'], $a['currency'], $a['linked_qualification'], $a['attachment'], $a['submission_date'], $a['approver'], $a['decision_date'], $a['rejection_reason']]);
         $this->assertEquals([32, 32, 12500], [$a['hours_claimed'], $a['hours_approved'], $a['cost']]);
         $this->assertSame([null, 'No proof of attendance'], [$rows['Rejected']['hours_approved'], $rows['Rejected']['rejection_reason']]);
         $this->assertSame([null, null], [$rows['Pending']['approver'], $rows['Pending']['decision_date']]);
-        $this->assertNull($a['training_type']);
+        $this->assertArrayNotHasKey('training_type', $a);
 
         $this->assertSame(['Rejected'], array_column($this->rows('external-training', ['providers' => ['Coursera']]), 'claim_status'));
+        $this->assertSame(['Accepted'], array_column($this->rows('external-training', ['qualification_ids' => [$qualification->id]]), 'claim_status'));
+        // Department / Job Title in one field (Figma 2201:82041).
+        $user->forceFill(['department_name' => 'المبيعات'])->save();
+        $this->assertCount(3, $this->rows('external-training', ['org_units' => ['dept:المبيعات']]));
+        $this->assertCount(0, $this->rows('external-training', ['org_units' => ['dept:غير موجود', 'job:999999']]));
+        $orgUnits = array_column($this->getJson(self::BASE.'/admin/reports/options/org_units', $this->admin())->assertOk()->json('result'), 'id');
+        $this->assertContains('dept:المبيعات', $orgUnits);
+
+        // The preview is the Figma columns: Learner, Provider, Title, Hours, Qualification, Status, Submitted, Approved.
+        $preview = $this->page('external-training', ['preview' => 1, 'statuses' => ['approved']])->assertOk()->json('result');
+        $this->assertSame(['learner', 'provider', 'training_title', 'hours_claimed', 'linked_qualification', 'claim_status', 'submission_date', 'approved_on'],
+            array_column($preview['columns'], 'key'));
+        $this->assertSame(['Learner', 'Provider', 'Title', 'Hours', 'Qualification', 'Status', 'Submitted', 'Approved'], array_column($preview['columns'], 'label'));
+        $this->assertSame(['Sara Ali', 'SHRM', 'Accepted', '2026-05-06'],
+            [$preview['rows'][0]['learner'], $preview['rows'][0]['provider'], $preview['rows'][0]['claim_status'], $preview['rows'][0]['approved_on']]);
+        $tones = collect(collect($preview['columns'])->firstWhere('key', 'claim_status')['tones'])->pluck('tone', 'label')->all();
+        $this->assertSame(['Accepted' => 'success', 'Pending' => 'warning', 'Rejected' => 'danger', 'Withdrawn' => 'neutral'], $tones);
+        $range = collect($this->getJson(self::BASE.'/admin/reports', $this->admin())->json('result'))->firstWhere('key', 'external-training');
+        $this->assertSame(['training', 'qualification_ids', 'providers', 'employee_ids', 'org_units', 'statuses'], array_column($range['filters'], 'key'));
+        $this->assertSame(['from' => 'Start Date', 'to' => 'End Date'], $range['filters'][0]['range_labels']);
         $this->assertSame(['Pending'], array_column($this->rows('external-training', ['statuses' => ['pending']]), 'claim_status'));
         $this->assertCount(0, $this->rows('external-training', ['training_from' => '2026-06-01']));
         $providers = array_column($this->getJson(self::BASE.'/admin/reports/options/providers', $this->admin())->assertOk()->json('result'), 'id');

@@ -2,6 +2,7 @@
 
 namespace App\Reports\Reports;
 
+use App\Reports\PreviewColumn;
 use App\Reports\Column;
 use App\Reports\ComputedReport;
 use App\Reports\Filter;
@@ -22,7 +23,7 @@ use Illuminate\Support\Facades\DB;
  * Evaluation Period is the first to the last submission (the open window is
  * not stored). One "Avg" column per rating question of the template, in its
  * order; Avg Overall Score is the mean of every rating answer. The template
- * has no Trainer / Program sections, so those two averages are not captured.
+ * has no Trainer / Program sections, so those two averages are left out.
  * The recommendation is the template's 1-10 question; NPS uses the standard
  * bands (9-10 promoter, 7-8 passive, 0-6 detractor). Course Code is not
  * captured.
@@ -44,7 +45,6 @@ final class EvaluationSummaryReport extends ComputedReport
         return $this->columns[$template.':'.$context->locale] ??= [
             new Column('course_name', 'course'),
             new Column('instructor', 'course'),
-            Column::missing('course_code', 'course'),
             new Column('group_cohort', 'course'),
             new Column('evaluation_period', 'course'),
             new Column('enrolled', 'response', Column::NUMBER),
@@ -52,14 +52,25 @@ final class EvaluationSummaryReport extends ComputedReport
             new Column('response_rate', 'response', Column::PERCENT),
             new Column('departments_covered', 'response'),
             ...EvaluationTemplate::answerColumns($template, $context, averages: true),
-            Column::missing('avg_trainer_score', 'ratings', Column::NUMBER),
-            Column::missing('avg_program_score', 'ratings', Column::NUMBER),
             new Column('avg_overall_score', 'overall', Column::NUMBER),
             new Column('avg_recommendation', 'recommendation', Column::NUMBER),
             new Column('nps_bands', 'recommendation'),
             new Column('nps', 'recommendation', Column::NUMBER),
             new Column('comments_received', 'comments', Column::NUMBER),
             new Column('lowest_rated_question', 'comments'),
+        ];
+    }
+
+    public function preview(ReportContext $context): array
+    {
+        return [
+            PreviewColumn::of('course_name', 'reports.preview.course', Column::TEXT, true),
+            PreviewColumn::of('instructor', 'reports.columns.instructor'),
+            PreviewColumn::of('group_cohort', 'reports.columns.group_cohort'),
+            PreviewColumn::of('respondents', 'reports.columns.respondents', Column::NUMBER, true),
+            PreviewColumn::of('response_rate', 'reports.columns.response_rate', Column::PERCENT),
+            PreviewColumn::of('avg_overall_score', 'reports.columns.avg_overall_score', Column::NUMBER),
+            PreviewColumn::of('nps', 'reports.columns.nps', Column::NUMBER),
         ];
     }
 

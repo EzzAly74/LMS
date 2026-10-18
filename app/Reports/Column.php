@@ -3,12 +3,9 @@
 namespace App\Reports;
 
 /**
- * One column of a report, in the order the NAS spec lists it (D-112).
- *
- * `available` is false for a field the system does not capture yet: the
- * column keeps its place in the file so the layout never changes when the
- * data arrives, its cells stay empty, and the export header and the UI name
- * it as "not captured yet" (human, 2026-10-18).
+ * One column of a report, in the order the NAS spec lists it (D-112). A spec
+ * field the system does not capture is left out of the report (human,
+ * 2026-10-18: "remove non-existing columns").
  */
 final class Column
 {
@@ -23,20 +20,13 @@ final class Column
         public readonly string $key,
         public readonly string $group,
         public readonly string $type = self::TEXT,
-        public readonly bool $available = true,
         private readonly ?string $label = null,
     ) {}
-
-    /** A column the system does not capture yet. */
-    public static function missing(string $key, string $group, string $type = self::TEXT): self
-    {
-        return new self($key, $group, $type, false);
-    }
 
     /** A column named at runtime (an evaluation question). */
     public static function named(string $key, string $group, string $type, string $label): self
     {
-        return new self($key, $group, $type, true, $label);
+        return new self($key, $group, $type, $label);
     }
 
     public function label(): string
@@ -49,7 +39,7 @@ final class Column
         return __("reports.groups.{$this->group}");
     }
 
-    /** @return array{key:string, label:string, group:string, group_label:string, type:string, available:bool} */
+    /** @return array{key:string, label:string, group:string, group_label:string, type:string} */
     public function toArray(): array
     {
         return [
@@ -58,7 +48,6 @@ final class Column
             'group' => $this->group,
             'group_label' => $this->groupLabel(),
             'type' => $this->type,
-            'available' => $this->available,
         ];
     }
 }

@@ -37,6 +37,10 @@ class HrSyncTest extends ApiTestCase
                     'nationalId' => null, 'jobName' => 'محلل', 'name' => $culture === 'en' ? 'Sara Ali' : 'سارة علي',
                     'departmentName' => $culture === 'en' ? 'Human Resources' : 'الموارد البشرية',
                     'imageUrl' => 'Employee/abc123.jpg',
+                    // Report fields (D-112); .NET sends 0001-01-01 for "no date".
+                    'hiringDate' => '2021-03-12T00:00:00', 'hirDate' => '0001-01-01T00:00:00', 'joininDate' => '0001-01-01T00:00:00',
+                    'resignationDate' => '0001-01-01T00:00:00', 'employeeStatus' => 0,
+                    'locationNames' => [$culture === 'en' ? 'El Serag Mall (39)' : 'السراج مول (39)'],
                 ]]);
             }
 
@@ -68,6 +72,13 @@ class HrSyncTest extends ApiTestCase
         // HR's photo (NEW2B-6219): kept as a path, served from HR's media folder.
         $this->assertSame('Employee/abc123.jpg', $user->hr_image_path);
         $this->assertSame('https://shantafactory.com/HR/AppMedia/Employee/abc123.jpg', $user->photoUrl());
+
+        // Hire date, location and status for the NAS reports (D-112).
+        $this->assertSame('2021-03-12', $user->hire_date?->toDateString());
+        $this->assertSame('السراج مول (39)', $user->location_name);
+        $this->assertSame('El Serag Mall (39)', $user->location_name_en);
+        $this->assertSame(0, $user->hr_employee_status);
+        $this->assertNull($user->resignation_date);
 
         // A second run updates the same row.
         $this->assertSame(1, app(HrEmployeeSyncService::class)->sync()['updated']);

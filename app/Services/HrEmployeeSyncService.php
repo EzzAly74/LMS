@@ -89,6 +89,14 @@ final class HrEmployeeSyncService
                 'job_title_id'       => $resolveTitleId($employee->jobName ?? null),
                 // HR's photo (NEW2B-6219); cleared when HR drops it.
                 'hr_image_path'      => HrPhoto::path($employee->imageUrl ?? null),
+                // Report fields (D-112): hire date, work location, status.
+                'hire_date'          => self::hrDate($employee->hiringDate ?? null)
+                    ?? self::hrDate($employee->hirDate ?? null)
+                    ?? self::hrDate($employee->joininDate ?? null),
+                'location_name'      => self::locations($employee->locationNames ?? null),
+                'location_name_en'   => $en !== null ? self::locations($en->locationNames ?? null) : null,
+                'hr_employee_status' => is_numeric($employee->employeeStatus ?? null) ? (int) $employee->employeeStatus : null,
+                'resignation_date'   => self::hrDate($employee->resignationDate ?? null),
             ];
             // HR uses the national id as the learner's password; mirrored
             // locally (see UserAuthService). Never overwrite it with a blank.
@@ -190,6 +198,37 @@ final class HrEmployeeSyncService
             // The pull itself succeeded or failed already; never lose it to the log row.
             report($e);
         }
+    }
+
+    /**
+     * An HR date as Y-m-d. HR sends "0001-01-01T00:00:00" for "no date"
+     * (.NET's DateTime.MinValue), which is not a date.
+     */
+    private static function hrDate(mixed $value): ?string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            $date = Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $date->year <= 1900 ? null : $date->toDateString();
+    }
+
+    /** HR's work locations (a list) as one comma-separated value. */
+    private static function locations(mixed $value): ?string
+    {
+        $names = collect(is_array($value) ? $value : [$value])
+            ->filter(fn ($name) => is_string($name) && trim($name) !== '')
+            ->map(fn (string $name) => trim($name))
+            ->unique()
+            ->implode(', ');
+
+        return $names === '' ? null : mb_substr($names, 0, 255);
     }
 
     /** When HR last updated the learners successfully (any source). */

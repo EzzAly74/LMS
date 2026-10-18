@@ -42,6 +42,8 @@ class User extends Authenticatable
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'hire_date' => 'date',
+        'resignation_date' => 'date',
     ];
 
 

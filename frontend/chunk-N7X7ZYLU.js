@@ -1,0 +1,1 @@
+import"./chunk-4X36HX5K.js";var t=[{path:"",loadComponent:()=>import("./chunk-A72XP65X.js").then(n=>n.ExternalTrainingListComponent),title:"External Training \u2014 2B Academy"},{path:":id",loadComponent:()=>import("./chunk-GOQFLAR6.js").then(n=>n.ExternalTrainingReviewComponent),title:"Review External Training \u2014 2B Academy"}];export{t as EXTERNAL_TRAINING_ROUTES};

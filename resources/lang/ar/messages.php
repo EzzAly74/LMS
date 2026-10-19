@@ -178,6 +178,7 @@ return [
         'scope_special'               => 'دورات تخصصية',
         'scope_general'               => 'دورات عامة',
         'academy_courses'             => 'تم استرجاع دورات الأكاديمية.',
+        'active_courses'              => 'تم استرجاع الدورات النشطة.',
         'academy_course_detail'       => 'تم استرجاع تفاصيل الدورة.',
         'academy_notify_me'           => 'سنقوم بإشعارك عند فتح باب التسجيل للدفعة القادمة.',
         'academy_course_unavailable'  => 'هذه الدورة لم تعد متاحة. ربما اكتملت الدفعة أو أُغلق التسجيل.',

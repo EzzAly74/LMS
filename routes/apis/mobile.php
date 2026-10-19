@@ -115,6 +115,17 @@ Route::middleware(['mobile.token', 'mobile.employee'])
     });
 
 // ───────────────────────────────────────────────────────────────────────
+// Mobile S2S routes with no employee context — shared token only
+// ───────────────────────────────────────────────────────────────────────
+// Every active course, paginated. Not tied to a learner, so no
+// `mobile.employee`; the response carries nothing learner-specific.
+Route::middleware('mobile.token')
+    ->prefix('mobile')
+    ->group(function () {
+        Route::get('courses', [AcademyController::class, 'activeCourses']);
+    });
+
+// ───────────────────────────────────────────────────────────────────────
 // Mobile-flow admin support — instructors / admins issue & revoke
 // the session passcode that powers the mobile S-06 Mark Present screen.
 // ───────────────────────────────────────────────────────────────────────

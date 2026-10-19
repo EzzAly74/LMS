@@ -219,8 +219,12 @@ class AppServiceProvider extends ServiceProvider
                     ?? $request->input('employee_code')
                     ?? ''));
 
+                // Routes with no employee (`GET mobile/courses`) are one bucket
+                // for the whole company, so it is wider than a single employee's.
                 return [
-                    Limit::perMinute(120)->by('mobile-employee:'.$employee),
+                    $employee === ''
+                        ? Limit::perMinute(600)->by('mobile-no-employee')
+                        : Limit::perMinute(120)->by('mobile-employee:'.$employee),
                     Limit::perMinute(6000)->by('mobile-integration'),
                 ];
             }

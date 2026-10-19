@@ -72,6 +72,16 @@ interface AcademyRepositoryInterface
     ): LengthAwarePaginator;
 
     /**
+     * Every active course (`courses.active`, the flag `Course::active()`
+     * and `cohorts:sync-statuses` maintain), newest first, with no
+     * per-learner rule (no availability, enrolment or job-title filter).
+     * Feeds the employee-agnostic `GET mobile/courses` list.
+     *
+     * @return LengthAwarePaginator<Course>
+     */
+    public function paginateActive(Carbon $now, int $perPage): LengthAwarePaginator;
+
+    /**
      * Per-option facet counts for the Type / Level / Duration Catalogue
      * filter sections, computed against the exact same "available for
      * this user" predicate as `paginateAvailable()` PLUS every OTHER

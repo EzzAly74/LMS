@@ -201,6 +201,190 @@
                 }
             }
         },
+        "/mobile/courses": {
+            "get": {
+                "tags": [
+                    "Mobile"
+                ],
+                "summary": "📱 [MOBILE] All active courses (no employee)",
+                "description": "📱 **MOBILE** · Audience: Employee/Learner mobile app · Paginated list of every **active** course in the system (`courses.active`: a cohort is currently running; kept current by the daily `cohorts:sync-statuses` job), newest first. Needs the shared API token but **no `Employee-Code`**, so nothing learner-specific is returned (no CTA, enrolment state or next joinable cohort; use `/mobile/academy/courses/{course}` for those). Titles, descriptions, category and qualification names follow `Accept-Language`.",
+                "operationId": "7bfd49b0ade55a538d2815906179d101",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/MobileAuthorization"
+                    },
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "default": 1,
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "description": "Page size, 1 to 50. Defaults to the `academy_per_page` mobile setting.",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 50,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "example": "success"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Active courses retrieved."
+                                        },
+                                        "result": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "integer"
+                                                    },
+                                                    "title": {
+                                                        "type": "string"
+                                                    },
+                                                    "description": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "course_type": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "online",
+                                                            "offline",
+                                                            "hybrid",
+                                                            "external_link"
+                                                        ]
+                                                    },
+                                                    "level": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "duration_weeks": {
+                                                        "type": "integer",
+                                                        "nullable": true
+                                                    },
+                                                    "image": {
+                                                        "type": "string",
+                                                        "format": "uri",
+                                                        "nullable": true
+                                                    },
+                                                    "hours": {
+                                                        "type": "integer"
+                                                    },
+                                                    "has_certificate": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "category": {
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "integer"
+                                                            },
+                                                            "name": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object",
+                                                        "nullable": true
+                                                    },
+                                                    "instructors": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "properties": {
+                                                                "id": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "name": {
+                                                                    "type": "string"
+                                                                },
+                                                                "image": {
+                                                                    "type": "string",
+                                                                    "format": "uri",
+                                                                    "nullable": true
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    },
+                                                    "qualifications": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "properties": {
+                                                                "id": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "name": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    },
+                                                    "rating": {
+                                                        "properties": {
+                                                            "avg": {
+                                                                "type": "number"
+                                                            },
+                                                            "count": {
+                                                                "type": "integer"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "meta": {
+                                            "properties": {
+                                                "current_page": {
+                                                    "type": "integer"
+                                                },
+                                                "last_page": {
+                                                    "type": "integer"
+                                                },
+                                                "per_page": {
+                                                    "type": "integer"
+                                                },
+                                                "total": {
+                                                    "type": "integer"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid API token"
+                    },
+                    "422": {
+                        "description": "Invalid page / per_page"
+                    }
+                }
+            }
+        },
         "/mobile/academy/courses/{course}": {
             "get": {
                 "tags": [
@@ -5360,6 +5544,42 @@
                 ]
             }
         },
+        "/courses/{course}/content": {
+            "get": {
+                "tags": [
+                    "Course Lectures"
+                ],
+                "summary": "The course Content tab: modules, quizzes and assignments in one list, with their schedule-sheet codes (admin).",
+                "operationId": "a8ece687e44138f2f03e96fddf341bb5",
+                "parameters": [
+                    {
+                        "name": "course",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not found or outside the account's courses"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
         "/courses/{course}/lectures/{lecture}": {
             "put": {
                 "tags": [
@@ -7016,6 +7236,53 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/dashboard/passcode/plan": {
+            "get": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Which planned session Generate Passcode would open for a cohort.",
+                "description": "case: live | on_time | early | late | moved | unscheduled | none, with the session (id, number, title, date, time_from, time_to). The instructor confirms early, late and moved starts (D-105).",
+                "operationId": "d8d76f413ec5ab8f43f4d9bcbb981af9",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/AcceptLanguage"
+                    },
+                    {
+                        "name": "course_id",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "cohort_id",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The plan"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "422": {
+                        "description": "Cohort is not a valid target (wrong course or already ended)."
                     }
                 },
                 "security": [
@@ -13999,6 +14266,30 @@
                         "type": "array",
                         "items": {
                             "type": "integer"
+                        }
+                    },
+                    "contents": {
+                        "description": "Everything this session covers in sheet order, quizzes and assignments included; `key` matches `content[].key`.",
+                        "type": "array",
+                        "items": {
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                        "lecture",
+                                        "quiz",
+                                        "assignment"
+                                    ]
+                                },
+                                "id": {
+                                    "type": "integer"
+                                },
+                                "key": {
+                                    "type": "string",
+                                    "example": "quiz-5"
+                                }
+                            },
+                            "type": "object"
                         }
                     },
                     "duration_minutes": {

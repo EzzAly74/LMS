@@ -151,6 +151,35 @@ final class AcademyRepository implements AcademyRepositoryInterface
         return $query->paginate($perPage);
     }
 
+    public function paginateActive(Carbon $now, int $perPage): LengthAwarePaginator
+    {
+        return $this->course->newQuery()
+            ->active()
+            ->select([
+                'courses.id',
+                'courses.title',
+                'courses.description',
+                'courses.course_type',
+                'courses.category_id',
+                'courses.image',
+                'courses.hours',
+                'courses.level',
+                'courses.created_at',
+            ])
+            ->selectRaw($this->durationWeeksSql() . ' as duration_weeks', [$now->toDateString()])
+            ->with([
+                'category:id,name',
+                'qualificationSkills:id,name',
+                'instructors:id,name,image',
+            ])
+            ->withCount(['ratings as rating_count'])
+            ->withAvg('ratings as rating_avg', 'rating')
+            // id breaks created_at ties so pages never repeat or skip a course.
+            ->orderByDesc('courses.created_at')
+            ->orderByDesc('courses.id')
+            ->paginate($perPage);
+    }
+
     /**
      * @inheritDoc
      */

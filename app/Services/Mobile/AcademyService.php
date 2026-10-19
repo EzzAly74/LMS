@@ -91,6 +91,15 @@ final class AcademyService
     }
 
     /**
+     * Every active course, paginated, with no employee context
+     * (`GET mobile/courses`). `$perPage` is already bounded by the request.
+     */
+    public function listActive(?int $perPage): LengthAwarePaginator
+    {
+        return $this->repository->paginateActive(now(), $perPage ?? $this->settings->academyPerPage());
+    }
+
+    /**
      * S-02 paginated list.
      *
      * @param  array<int, string>|null  $levels           Whitelisted against `EnumRegistry::values('course_level')`.

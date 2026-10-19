@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Requests\Api\Mobile\AcademyCoursesListRequest;
+use App\Http\Requests\Api\Mobile\ActiveCoursesListRequest;
 use App\Http\Requests\Api\Mobile\EnrolmentRequest;
 use App\Http\Resources\Mobile\AcademyCourseCardResource;
 use App\Http\Resources\Mobile\AcademyCourseDetailResource;
 use App\Http\Resources\Mobile\AcademyEntrySummaryResource;
 use App\Http\Resources\Mobile\AcademyScopeChipResource;
+use App\Http\Resources\Mobile\ActiveCourseItemResource;
 use App\Http\Resources\Mobile\EnrolmentConfirmationResource;
 use App\Models\Course;
 use App\Services\Mobile\AcademyService;
@@ -161,6 +163,63 @@ class AcademyController extends MobileBaseController
             __('messages.mobile.academy_courses'),
             AcademyCourseCardResource::collection($paginator),
             ['filters' => $filters],
+        );
+    }
+
+    /**
+     * @OA\Get(
+     *     path="/mobile/courses",
+     *     tags={"Mobile"},
+     *     summary="📱 [MOBILE] All active courses (no employee)",
+     *     description="📱 **MOBILE** · Audience: Employee/Learner mobile app · Paginated list of every **active** course in the system (`courses.active`: a cohort is currently running; kept current by the daily `cohorts:sync-statuses` job), newest first. Needs the shared API token but **no `Employee-Code`**, so nothing learner-specific is returned (no CTA, enrolment state or next joinable cohort; use `/mobile/academy/courses/{course}` for those). Titles, descriptions, category and qualification names follow `Accept-Language`.",
+     *     @OA\Parameter(ref="#/components/parameters/MobileAuthorization"),
+     *     @OA\Parameter(ref="#/components/parameters/AcceptLanguage"),
+     *     @OA\Parameter(name="page",     in="query", @OA\Schema(type="integer", minimum=1, default=1)),
+     *     @OA\Parameter(name="per_page", in="query", description="Page size, 1 to 50. Defaults to the `academy_per_page` mobile setting.", @OA\Schema(type="integer", minimum=1, maximum=50)),
+     *     @OA\Response(response=200, description="OK", @OA\JsonContent(
+     *         @OA\Property(property="status", type="string", example="success"),
+     *         @OA\Property(property="message", type="string", example="Active courses retrieved."),
+     *         @OA\Property(property="result", type="array", @OA\Items(
+     *             @OA\Property(property="id", type="integer"),
+     *             @OA\Property(property="title", type="string"),
+     *             @OA\Property(property="description", type="string", nullable=true),
+     *             @OA\Property(property="course_type", type="string", enum={"online","offline","hybrid","external_link"}),
+     *             @OA\Property(property="level", type="string", nullable=true),
+     *             @OA\Property(property="duration_weeks", type="integer", nullable=true),
+     *             @OA\Property(property="image", type="string", format="uri", nullable=true),
+     *             @OA\Property(property="hours", type="integer"),
+     *             @OA\Property(property="has_certificate", type="boolean"),
+     *             @OA\Property(property="category", type="object", nullable=true,
+     *                 @OA\Property(property="id", type="integer"),
+     *                 @OA\Property(property="name", type="string")),
+     *             @OA\Property(property="instructors", type="array", @OA\Items(
+     *                 @OA\Property(property="id", type="integer"),
+     *                 @OA\Property(property="name", type="string"),
+     *                 @OA\Property(property="image", type="string", format="uri", nullable=true))),
+     *             @OA\Property(property="qualifications", type="array", @OA\Items(
+     *                 @OA\Property(property="id", type="integer"),
+     *                 @OA\Property(property="name", type="string"))),
+     *             @OA\Property(property="rating", type="object",
+     *                 @OA\Property(property="avg", type="number"),
+     *                 @OA\Property(property="count", type="integer")))),
+     *         @OA\Property(property="meta", type="object",
+     *             @OA\Property(property="current_page", type="integer"),
+     *             @OA\Property(property="last_page", type="integer"),
+     *             @OA\Property(property="per_page", type="integer"),
+     *             @OA\Property(property="total", type="integer")))),
+     *     @OA\Response(response=401, description="Missing or invalid API token"),
+     *     @OA\Response(response=422, description="Invalid page / per_page")
+     * )
+     */
+    public function activeCourses(ActiveCoursesListRequest $request): JsonResponse
+    {
+        $paginator = $this->academy->listActive($request->validated('per_page') !== null
+            ? (int) $request->validated('per_page')
+            : null);
+
+        return $this->paginated(
+            __('messages.mobile.active_courses'),
+            ActiveCourseItemResource::collection($paginator),
         );
     }
 
